@@ -240,6 +240,12 @@ With virtual environment active:
 python -m pytest -q
 ```
 
+Backend coverage report:
+
+```bash
+python -m pytest tests/test_app.py --cov=app --cov-report=term-missing -q
+```
+
 Run Selenium GUI tests (requires Chrome or Firefox installed):
 
 ```bash
@@ -270,7 +276,7 @@ The current test suite verifies:
 - Fives calculation
 - Win condition at exact 55
 - Bust behavior when a turn would exceed 55
-- Game history persistence
+- Game history persistence and admin history deletion
 
 ## Data persistence
 

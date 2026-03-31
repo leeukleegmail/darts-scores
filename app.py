@@ -110,6 +110,15 @@ def current_user_or_testing_admin() -> AppUser | None:
     return None
 
 
+def require_admin_user() -> tuple[AppUser | None, tuple[object, int] | None]:
+    user = current_user_or_testing_admin()
+    if not user:
+        return None, (jsonify({"error": "Authentication required."}), 401)
+    if not user.is_admin:
+        return None, (jsonify({"error": "Admin access required."}), 403)
+    return user, None
+
+
 def ensure_admin_user() -> None:
     username = os.getenv("APP_ADMIN_USERNAME", "admin").strip() or "admin"
     password = os.getenv("APP_ADMIN_PASSWORD", "admin")
@@ -267,11 +276,9 @@ def auth_me():
 
 @app.post("/api/auth/users")
 def create_app_user():
-    user = current_user_or_testing_admin()
-    if not user:
-        return jsonify({"error": "Authentication required."}), 401
-    if not user.is_admin:
-        return jsonify({"error": "Admin access required."}), 403
+    user, error = require_admin_user()
+    if error:
+        return error
 
     payload = request.get_json(silent=True) or {}
     username = (payload.get("username") or "").strip()
@@ -566,11 +573,9 @@ def games_history():
 
 @app.delete("/api/games/history")
 def delete_games_history():
-    user = current_user_or_testing_admin()
-    if not user:
-        return jsonify({"error": "Authentication required."}), 401
-    if not user.is_admin:
-        return jsonify({"error": "Admin privileges required."}), 403
+    user, error = require_admin_user()
+    if error:
+        return error
 
     game_ids = [row.id for row in Game.query.filter_by(status="finished").all()]
     if not game_ids:
