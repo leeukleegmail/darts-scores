@@ -118,6 +118,8 @@ def add_player(browser, name: str):
 
 
 def start_single_player_game(browser, player_name: str):
+    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-55by5"))).click()
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "setup-panel")))
     add_player(browser, player_name)
     player_checkbox = _wait(browser).until(
         ec.presence_of_element_located(

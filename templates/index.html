@@ -45,10 +45,44 @@
         <ul id="players-list" class="list"></ul>
       </section>
 
+      <section class="panel" id="game-selection-panel">
+        <h2>Select Game</h2>
+        <p class="hint">Choose the game mode before selecting players.</p>
+        <div class="mode-buttons">
+          <button type="button" id="choose-55by5" class="mode-btn">55 by 5</button>
+          <button type="button" id="choose-english-cricket" class="mode-btn">English Cricket</button>
+        </div>
+      </section>
+
       <section class="panel" id="setup-panel">
         <h2>Select Players</h2>
+        <p id="selected-game-label" class="hint"></p>
+        <div class="inline-form">
+          <label class="chip">
+            <input type="radio" name="team-mode" id="team-mode-solo" value="solo" checked />
+            <span>Individual</span>
+          </label>
+          <label class="chip">
+            <input type="radio" name="team-mode" id="team-mode-teams" value="teams" />
+            <span>2 Teams</span>
+          </label>
+          <button id="change-game" type="button" class="btn-ghost">Change Game</button>
+        </div>
         <p class="hint">Select players and drag to set turn order.</p>
         <div id="selectable-players" class="chips"></div>
+        <div id="team-assignment" class="hidden">
+          <h3>Team Assignment (Drag Players)</h3>
+          <div class="team-grid">
+            <div class="team-column">
+              <h4>Team A</h4>
+              <ul id="team-a-list" class="list team-list"></ul>
+            </div>
+            <div class="team-column">
+              <h4>Team B</h4>
+              <ul id="team-b-list" class="list team-list"></ul>
+            </div>
+          </div>
+        </div>
         <div>
           <h3>Selected Players</h3>
           <ul id="order-list" class="list order-list"></ul>
@@ -61,9 +95,9 @@
         <div id="active-game-meta"></div>
 
         <div id="turn-input" class="turn-input hidden">
-          <h3>Total scored</h3>
+          <h3 id="turn-input-label">Total scored</h3>
           <div class="darts-row">
-            <input id="turn-total" type="number" min="0" max="180" value="0" />
+            <input id="turn-total" type="number" min="0" max="180" value="0" aria-label="Turn total" />
           </div>
           <div class="quick-board" id="quick-board"></div>
           <div class="turn-actions">

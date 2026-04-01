@@ -553,3 +553,89 @@ def test_ensure_admin_user_syncs_password_and_admin_flag(client_with_module, mon
         refreshed = app_module.AppUser.query.filter_by(username="admin").first()
         assert refreshed.is_admin is True
         assert app_module.check_password_hash(refreshed.password_hash, "second-pass")
+
+
+def test_create_english_cricket_solo_mode(client):
+    p1 = add_player(client, "Cricket A")
+    p2 = add_player(client, "Cricket B")
+
+    res = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2],
+            "game_type": "english_cricket",
+            "team_mode": "solo",
+        },
+    )
+    assert res.status_code == 201
+    game = res.get_json()["game"]
+    assert game["game_type"] == "english_cricket"
+    assert game["team_mode"] == "solo"
+    assert game["cricket_state"]["inning"] == 1
+
+
+def test_english_cricket_runs_and_wickets_finish_game(client):
+    p1 = add_player(client, "Bat A")
+    p2 = add_player(client, "Bowl B")
+
+    game = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2],
+            "game_type": "english_cricket",
+            "team_mode": "solo",
+        },
+    ).get_json()["game"]
+
+    # Inning 1: Team A bats once (+10 runs), Team B closes innings with 10 marks.
+    bat = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 50})
+    assert bat.status_code == 200
+    bowl = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p2, "total_points": 10})
+    assert bowl.status_code == 200
+
+    # Progress inning 2 by always submitting for the active player.
+    for _ in range(4):
+        state = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+        if state["status"] == "finished":
+            break
+        active_id = state["active_player_id"]
+        active = next(p for p in state["players"] if p["id"] == active_id)
+        batting_team = state["cricket_state"]["batting_team"]
+        total = 150 if active["team"] == batting_team else 0
+        turn = client.post(
+            f"/api/games/{game['id']}/turn",
+            json={"player_id": active_id, "total_points": total},
+        )
+        assert turn.status_code == 200
+
+    state = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+    assert state["status"] == "finished"
+    assert state["winner_team"] in {"team_a", "team_b", None}
+
+
+def test_55by5_team_mode_winner(client):
+    p1 = add_player(client, "TeamA-1")
+    p2 = add_player(client, "TeamB-1")
+
+    game = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2],
+            "game_type": "55by5",
+            "team_mode": "teams",
+            "team_assignments": {str(p1): "team_a", str(p2): "team_b"},
+        },
+    ).get_json()["game"]
+
+    # Team A reaches exactly 55 fives first: 11 x 25 points
+    for _ in range(11):
+        t1 = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 25})
+        assert t1.status_code == 200
+        if t1.get_json()["game"]["status"] == "finished":
+            break
+        t2 = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p2, "total_points": 0})
+        assert t2.status_code == 200
+
+    finished = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+    assert finished["status"] == "finished"
+    assert finished["winner_team"] == "team_a"

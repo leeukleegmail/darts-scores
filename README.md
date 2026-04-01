@@ -27,9 +27,14 @@ This project is designed for local play on one machine (session-based login, no 
 
 ## Overview
 
-The app supports any number of players in the roster. For each new game, you select who is playing and drag players into the desired turn order.
+The app supports any number of players in the roster. After login, you first choose a game mode:
 
-Each turn is entered as one total score value. A turn only counts if the total score is divisible by 5. Counted turn score is tracked as "fives" where:
+- **55 by 5**
+- **English Cricket**
+
+For each new game, you select who is playing and drag players into the desired turn order. You can play in individual mode or in two teams with drag-and-drop team assignment.
+
+For **55 by 5**, each turn is entered as one total score value. A turn only counts if the total score is divisible by 5. Counted turn score is tracked as "fives" where:
 
 $$
 	ext{fives awarded} = \frac{\text{turn total}}{5}
@@ -168,16 +173,17 @@ Admins can also clear finished game history from the **Recent Games** panel.
 ## How to play in the UI
 
 1. Add players in the Players panel.
-2. In New Game Setup:
-3. Check the players who will play.
-4. Drag players in Turn Order to set the sequence.
-5. Click Start Game.
-6. In Live Game:
-7. Enter the turn total for the active player.
-8. You can use quick buttons for common totals.
-9. Click Submit Turn.
-10. Continue until someone reaches exactly 55 on a counted turn.
-11. Review completed games in Recent Games.
+2. Choose a game mode in the Game Selection panel.
+3. In New Game Setup:
+4. Check the players who will play.
+5. Drag players in Selected Players to set the sequence.
+6. Choose `Individual` or `2 Teams` mode.
+7. If using `2 Teams`, drag players between Team A and Team B.
+8. Click Start Game.
+9. In Live Game:
+10. Enter the turn value for the active player.
+11. Click Submit Score.
+12. Review completed games in Recent Games.
 
 Notes:
 
@@ -186,16 +192,26 @@ Notes:
 
 ## Scoring rules
 
+### 55 by 5
+
 - Any number of players can be created and stored persistently.
 - Players are selected per game and ordered via drag-and-drop.
 - Each turn is entered as one total points value.
 - Turn total must be divisible by 5 to count.
 - Fives gained from a turn = total points / 5.
-- All dartboard scores are allowed (singles/doubles/triples, bulls, and misses).
-- Winner is first player to reach exactly 55 on a counted turn.
-- If a counted turn would push a player above 55, it is a bust and does not count.
-- Completed games are saved in history.
+- Winner is first player (or team in 2-team mode) to reach exactly 55 on a counted turn.
+- If a counted turn would push above 55, it is a bust and does not count.
 
+### English Cricket
+
+- Supports individual mode (2 players) or 2-team mode.
+- Game has two innings with role swap.
+- Batting turn: only points above 40 count as runs (`runs = total_points - 40` when over 40).
+- Bowling turn: enter bull marks for the turn; 10 marks closes the opponent's innings.
+- In inning 2, batting side wins immediately if it passes the other side's runs.
+- If innings completes without an immediate chase win, higher run total wins.
+
+Completed games are saved in history.
 Examples:
 
 - Turn total: `20` -> counted -> `4` fives.
@@ -240,7 +256,7 @@ Main routes exposed by the Flask app:
 - `PUT /api/players/<player_id>` -> rename player
 - `DELETE /api/players/<player_id>` -> delete player (if not in active game)
 - `GET /api/games/active` -> active game state
-- `POST /api/games` -> create game from ordered player ids
+- `POST /api/games` -> create game from ordered player ids (supports `game_type`, `team_mode`, `team_assignments`)
 - `POST /api/games/<game_id>/turn` -> submit one turn total value
 - `DELETE /api/games/<game_id>/turn` -> undo the most recent turn
 - `GET /api/games/<game_id>/state` -> full game state
