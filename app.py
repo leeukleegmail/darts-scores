@@ -124,6 +124,15 @@ def ensure_admin_user() -> None:
     password = os.getenv("APP_ADMIN_PASSWORD", "admin")
     existing = AppUser.query.filter(func.lower(AppUser.username) == username.lower()).first()
     if existing:
+        updated = False
+        if not check_password_hash(existing.password_hash, password):
+            existing.password_hash = generate_password_hash(password, method="pbkdf2:sha256")
+            updated = True
+        if not existing.is_admin:
+            existing.is_admin = True
+            updated = True
+        if updated:
+            db.session.commit()
         return
     admin = AppUser(
         username=username,

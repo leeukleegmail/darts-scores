@@ -531,3 +531,25 @@ def test_ensure_admin_user_existing_branch(client_with_module):
         app_module.ensure_admin_user()
         after = app_module.AppUser.query.count()
     assert before == after
+
+
+def test_ensure_admin_user_syncs_password_and_admin_flag(client_with_module, monkeypatch):
+    _, app_module = client_with_module
+    monkeypatch.setenv("APP_ADMIN_USERNAME", "admin")
+    monkeypatch.setenv("APP_ADMIN_PASSWORD", "first-pass")
+
+    with app_module.app.app_context():
+        app_module.ensure_admin_user()
+        user = app_module.AppUser.query.filter_by(username="admin").first()
+        assert user is not None
+        assert app_module.check_password_hash(user.password_hash, "first-pass")
+
+        user.is_admin = False
+        app_module.db.session.commit()
+
+        monkeypatch.setenv("APP_ADMIN_PASSWORD", "second-pass")
+        app_module.ensure_admin_user()
+
+        refreshed = app_module.AppUser.query.filter_by(username="admin").first()
+        assert refreshed.is_admin is True
+        assert app_module.check_password_hash(refreshed.password_hash, "second-pass")

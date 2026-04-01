@@ -17,7 +17,7 @@
   - python -m pytest -q
 - Container run:
   - docker compose up --build
-  - app is exposed on host port 5002
+  - app is exposed on host port 5010
 
 ## Conventions
 - Scoring rule: only totals divisible by 5 are counted; fives awarded are total/5 when counted.
@@ -32,7 +32,7 @@
 - SQLite path matters in Docker. Use a writable mounted directory and a file URI (see docker-compose.yml SQLALCHEMY_DATABASE_URI).
 - Keep local and container port assumptions aligned:
   - local python app.py uses 5000 by default
-  - Docker maps host 5002 to container 5000
+  - Docker maps host 5010 to container 5000
 - macOS urllib3/OpenSSL warning is handled via urllib3<2 in requirements.txt; do not upgrade this casually without validating local compatibility.
 
 ## Documentation Links

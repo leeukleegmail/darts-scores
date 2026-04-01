@@ -72,13 +72,13 @@ docker compose up --build
 
 Then open:
 
-http://127.0.0.1:5002
+http://127.0.0.1:5010
 
 Log in with the default admin credentials (`admin` / `admin`) and change the password via the User Administration panel.
 
 ### Configuration via environment variables
 
-The easiest way to override defaults is to create a `.env` file in the project root **before** running Compose (it is git-ignored and never committed):
+The easiest way to override defaults is to create or edit `.env` in the project root **before** running Compose (it is git-ignored and never committed):
 
 ```dotenv
 APP_SECRET_KEY=replace-with-a-long-random-string
@@ -99,6 +99,20 @@ You can also pass them inline:
 ```bash
 APP_SECRET_KEY=abc123 APP_ADMIN_PASSWORD=hunter2 docker compose up --build
 ```
+
+If you update `APP_ADMIN_PASSWORD` and it appears unchanged:
+
+1. Recreate the container so new env vars are applied:
+```bash
+docker compose down
+docker compose up -d --build --force-recreate
+```
+2. Log out of the app and log back in (existing browser sessions remain valid until logout).
+3. Verify the container sees the new value:
+```bash
+docker compose exec web env | grep APP_ADMIN
+```
+4. Confirm you are using the username from `APP_ADMIN_USERNAME`.
 
 Notes:
 
@@ -131,6 +145,8 @@ On first start (or whenever no admin account exists in the database) a bootstrap
 | Password | `admin` | `APP_ADMIN_PASSWORD` |
 
 Change the default password immediately after first login by creating a new admin account and deleting the default one, or by restarting the app with `APP_ADMIN_PASSWORD` set to a strong value (bootstrap only runs when **no admin exists**).
+
+If the configured admin username already exists, startup will synchronize that user's password and admin flag from `APP_ADMIN_PASSWORD` / `APP_ADMIN_USERNAME`.
 
 ### Secret key
 
