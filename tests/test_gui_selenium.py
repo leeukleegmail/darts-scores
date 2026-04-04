@@ -136,6 +136,28 @@ def start_single_player_game(browser, player_name: str):
     _wait(browser).until(ec.visibility_of_element_located((By.CSS_SELECTOR, "#active-game-meta .current-player")))
 
 
+def start_cricket_game(browser, first_player: str, second_player: str):
+    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-english-cricket"))).click()
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "setup-panel")))
+
+    for player_name in (first_player, second_player):
+        add_player(browser, player_name)
+        player_checkbox = _wait(browser).until(
+            ec.presence_of_element_located(
+                (
+                    By.XPATH,
+                    f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
+                )
+            )
+        )
+        if not player_checkbox.is_selected():
+            player_checkbox.click()
+
+    browser.find_element(By.ID, "start-game").click()
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "cricket-dashboard")))
+
+
 def test_start_game_shows_live_view(live_server, browser):
     browser.get(live_server)
     start_single_player_game(browser, "Alice")
@@ -162,6 +184,28 @@ def test_submit_turn_updates_score_and_clears_input(live_server, browser):
     assert "Bob" in scoreboard_text
     assert "3" in scoreboard_text
     assert "260" in scoreboard_text
+
+
+def test_english_cricket_live_view_uses_two_panels(live_server, browser):
+    browser.get(live_server)
+    start_cricket_game(browser, "Ivy", "Jules")
+
+    bowling_panel = _wait(browser).until(ec.visibility_of_element_located((By.ID, "cricket-bowling-panel")))
+    batting_panel = browser.find_element(By.ID, "cricket-batting-panel")
+    batting_input = browser.find_element(By.ID, "cricket-batting-total")
+
+    assert "bowling side" in bowling_panel.text.lower()
+    assert "batting side" in batting_panel.text.lower()
+    assert len(browser.find_elements(By.CSS_SELECTOR, "#cricket-bowling-panel .bullseye-chip")) == 10
+    assert batting_input.is_enabled()
+
+    batting_input.clear()
+    batting_input.send_keys("60")
+    browser.find_element(By.ID, "cricket-submit-batting").click()
+
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "Jules to Throw"))
+    updated_bowling_panel = browser.find_element(By.ID, "cricket-bowling-panel")
+    assert "is-active" in updated_bowling_panel.get_attribute("class")
 
 
 def test_quit_requires_confirmation(live_server, browser):

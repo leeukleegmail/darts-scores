@@ -72,6 +72,7 @@
         <div id="selectable-players" class="chips"></div>
         <div id="team-assignment" class="hidden">
           <h3>Team Assignment (Drag Players)</h3>
+          <p class="hint">Drag players between Team A and Team B, and reorder within each team to set alternating turn order.</p>
           <div class="team-grid">
             <div class="team-column">
               <h4>Team A</h4>
@@ -83,7 +84,7 @@
             </div>
           </div>
         </div>
-        <div>
+        <div id="order-section">
           <h3>Selected Players</h3>
           <ul id="order-list" class="list order-list"></ul>
         </div>
@@ -95,32 +96,46 @@
         <div id="active-game-meta"></div>
 
         <div id="turn-input" class="turn-input hidden">
-          <h3 id="turn-input-label">Total scored</h3>
-          <div class="darts-row">
-            <input id="turn-total" type="number" min="0" max="180" value="0" aria-label="Turn total" />
-          </div>
-          <div class="quick-board" id="quick-board"></div>
-          <div class="turn-actions">
-            <div class="turn-actions-left">
-              <button id="submit-turn">Submit Score</button>
-              <button id="no-score" type="button">No Score</button>
+          <div id="standard-turn-controls">
+            <h3 id="turn-input-label">Total scored</h3>
+            <div class="darts-row">
+              <input id="turn-total" type="number" min="0" max="180" value="0" aria-label="Turn total" />
             </div>
+            <div class="quick-board" id="quick-board"></div>
+            <div class="turn-actions standard-turn-actions">
+              <div class="turn-actions-left">
+                <button id="submit-turn">Submit Score</button>
+                <button id="no-score" type="button">No Score</button>
+                <button id="bull-hit" type="button" class="hidden">Bull</button>
+              </div>
+            </div>
+          </div>
+
+          <div id="cricket-dashboard" class="cricket-dashboard hidden">
+            <section id="cricket-bowling-panel" class="cricket-side-panel"></section>
+            <section id="cricket-batting-panel" class="cricket-side-panel"></section>
+          </div>
+
+          <div class="turn-actions shared-actions">
+            <div class="turn-actions-spacer"></div>
             <button id="undo-turn" type="button">Undo</button>
             <button id="quit-game" type="button">Quit Game</button>
           </div>
         </div>
 
-        <h3>Scoreboard</h3>
-        <table>
-          <thead>
-            <tr>
-              <th>Player</th>
-              <th>Score</th>
-              <th>Points Required</th>
-            </tr>
-          </thead>
-          <tbody id="scoreboard"></tbody>
-        </table>
+        <div id="standard-scoreboard-section">
+          <h3>Scoreboard</h3>
+          <table id="scoreboard-table">
+            <thead>
+              <tr>
+                <th>Player</th>
+                <th>Score</th>
+                <th>Points Required</th>
+              </tr>
+            </thead>
+            <tbody id="scoreboard"></tbody>
+          </table>
+        </div>
 
         <h3>Turns</h3>
         <ul id="turns-list" class="list compact"></ul>

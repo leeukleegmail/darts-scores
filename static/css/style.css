@@ -140,6 +140,10 @@ body {
   cursor: grab;
 }
 
+#order-section.hidden {
+  display: none;
+}
+
 input,
 button {
   font: inherit;
@@ -262,6 +266,18 @@ button:hover {
   margin-top: 0.25rem;
 }
 
+.standard-turn-actions {
+  grid-template-columns: 1fr;
+}
+
+.shared-actions {
+  margin-top: 0.85rem;
+}
+
+.turn-actions-spacer {
+  min-height: 1px;
+}
+
 .turn-actions-left {
   display: flex;
   gap: 0.45rem;
@@ -272,7 +288,9 @@ button:hover {
   justify-self: start;
 }
 
-#no-score {
+#no-score,
+#cricket-no-score,
+#cricket-no-wicket {
   background: #aa1d1d;
 }
 
@@ -301,6 +319,166 @@ td {
 
 .active-row {
   background: var(--accent-soft);
+}
+
+.team-header-row {
+  background: rgba(212, 58, 58, 0.2);
+}
+
+.team-header-row td {
+  border-bottom-color: rgba(255, 255, 255, 0.3);
+}
+
+.scoreboard-member {
+  padding-left: 1.25rem;
+}
+
+.cricket-dashboard {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(280px, 1fr));
+  gap: 1rem;
+  margin-top: 0.35rem;
+}
+
+.cricket-side-panel {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 0.95rem;
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+.cricket-side-panel.is-active {
+  border-color: rgba(255, 217, 61, 0.75);
+  background: rgba(255, 217, 61, 0.08);
+}
+
+.cricket-side-panel.is-inactive {
+  opacity: 0.82;
+}
+
+.cricket-panel-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  align-items: flex-start;
+}
+
+.cricket-panel-header h4 {
+  margin: 0.1rem 0 0.15rem;
+  font-size: 1.15rem;
+}
+
+.cricket-role-tag {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.75rem;
+  color: #ffd93d;
+}
+
+.cricket-score-pill {
+  min-width: 88px;
+  padding: 0.5rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: center;
+}
+
+.cricket-score-pill span {
+  display: block;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #d7d6d0;
+}
+
+.cricket-score-pill strong {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 1.4rem;
+  color: #ffd93d;
+}
+
+.runs-pill strong {
+  color: #83f8ae;
+}
+
+.cricket-panel-note {
+  margin: 0.8rem 0 0.65rem;
+  color: #f4ead8;
+}
+
+.cricket-bull-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+
+.bullseye-chip {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  background:
+    radial-gradient(circle, #d53939 0 18%, #f3e9bf 18% 32%, #1f7f4d 32% 50%, #f3e9bf 50% 100%);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.28);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+.bullseye-chip:not(:disabled):hover {
+  transform: translateY(-1px) scale(1.03);
+  box-shadow: 0 0 0 2px rgba(255, 217, 61, 0.3), 0 6px 12px rgba(0, 0, 0, 0.32);
+}
+
+.bullseye-chip.is-hit {
+  box-shadow: 0 0 0 2px rgba(255, 217, 61, 0.45), 0 0 18px rgba(255, 217, 61, 0.2);
+}
+
+.bullseye-chip.is-selected {
+  transform: scale(1.03);
+  box-shadow: 0 0 0 3px rgba(131, 248, 174, 0.5), 0 0 18px rgba(131, 248, 174, 0.22);
+}
+
+.bullseye-chip.is-blocked {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.cricket-selection-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  font-size: 0.95rem;
+  margin-bottom: 0.8rem;
+}
+
+.cricket-entry-field {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0.75rem 0;
+}
+
+.cricket-entry-field span {
+  font-weight: 600;
+}
+
+.cricket-entry-field input {
+  width: 100%;
+}
+
+.cricket-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+#bull-hit {
+  background: #1f7f4d;
 }
 
 .message {
@@ -379,7 +557,8 @@ td {
   }
 
   .mode-buttons,
-  .team-grid {
+  .team-grid,
+  .cricket-dashboard {
     grid-template-columns: 1fr;
   }
 
@@ -397,6 +576,12 @@ td {
   #undo-turn,
   #quit-game {
     justify-self: stretch;
+  }
+
+  .cricket-panel-header,
+  .cricket-selection-row {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 

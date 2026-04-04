@@ -6,6 +6,7 @@ const state = {
   gameType: null,
   teamMode: "solo",
   teamAssignments: {},
+  cricketPendingMarks: 0,
 };
 
 const appShellEl = document.querySelector(".app-shell");
@@ -17,17 +18,25 @@ const messageEl = document.getElementById("message");
 const playersListEl = document.getElementById("players-list");
 const selectablePlayersEl = document.getElementById("selectable-players");
 const orderListEl = document.getElementById("order-list");
+const orderSectionEl = document.getElementById("order-section");
 const activeGameMetaEl = document.getElementById("active-game-meta");
 const scoreboardEl = document.getElementById("scoreboard");
 const turnsListEl = document.getElementById("turns-list");
 const historyListEl = document.getElementById("history-list");
 const turnInputEl = document.getElementById("turn-input");
+const standardTurnControlsEl = document.getElementById("standard-turn-controls");
+const sharedTurnActionsEl = document.querySelector(".shared-actions");
 const quickBoardEl = document.getElementById("quick-board");
+const bullHitEl = document.getElementById("bull-hit");
 const selectedGameLabelEl = document.getElementById("selected-game-label");
 const teamAssignmentEl = document.getElementById("team-assignment");
 const teamAListEl = document.getElementById("team-a-list");
 const teamBListEl = document.getElementById("team-b-list");
 const turnInputLabelEl = document.getElementById("turn-input-label");
+const cricketDashboardEl = document.getElementById("cricket-dashboard");
+const cricketBowlingPanelEl = document.getElementById("cricket-bowling-panel");
+const cricketBattingPanelEl = document.getElementById("cricket-batting-panel");
+const scoreboardSectionEl = document.getElementById("standard-scoreboard-section");
 const historyPanelEl = document.getElementById("history-panel");
 const winnerOverlayEl = document.getElementById("winner-overlay");
 const bustBannerEl = document.getElementById("bust-banner");
@@ -151,6 +160,72 @@ function showMessage(text, isError = false) {
   messageEl.className = isError ? "message error" : "message";
 }
 
+async function submitScore(totalPoints) {
+  if (!state.game || state.game.status !== "active") return;
+
+  const numericTotal = Number.isFinite(Number(totalPoints)) ? Number(totalPoints) : 0;
+
+  if (state.game.game_type !== "english_cricket" && numericTotal % 5 !== 0) {
+    showScoreWarningBanner("Total scored must be divisible by 5.");
+  }
+
+  try {
+    const response = await api(`/api/games/${state.game.id}/turn`, {
+      method: "POST",
+      body: JSON.stringify({
+        player_id: state.game.active_player_id,
+        total_points: numericTotal,
+      }),
+    });
+    state.game = response.game;
+    state.cricketPendingMarks = 0;
+
+    const turnTotalInput = document.getElementById("turn-total");
+    if (turnTotalInput) {
+      turnTotalInput.value = "";
+    }
+    const cricketBattingInput = document.getElementById("cricket-batting-total");
+    if (cricketBattingInput) {
+      cricketBattingInput.value = "0";
+    }
+
+    renderGame();
+    await loadHistory();
+
+    if (response.game.status === "finished") {
+      const winnerName = response.game.winner_team_name || response.game.players.find((p) => p.id === response.game.winner_player_id)?.name || "Tie";
+      showWinnerOverlay(winnerName);
+      return;
+    }
+
+    const t = response.turn;
+    const isBust = response.game.game_type !== "english_cricket" && !t.counted && t.total_points % 5 === 0;
+    if (isBust) {
+      const bustedPlayer = response.game.players.find((p) => p.id === t.player_id)?.name || "Player";
+      showBustBanner(`${bustedPlayer} bust!`);
+    }
+
+    if (response.game.game_type === "english_cricket") {
+      showMessage(
+        t.counted
+          ? `Cricket turn saved: ${t.total_points} registered ${t.fives_awarded}.`
+          : `Cricket turn saved: ${t.total_points} with no score.`
+      );
+      return;
+    }
+
+    showMessage(
+      t.counted
+        ? `Turn counted: ${t.total_points} points = +${t.fives_awarded} fives.`
+        : isBust
+          ? `Bust: ${t.total_points} would exceed 55 and does not count.`
+          : `Turn not counted: ${t.total_points} is not divisible by 5.`
+    );
+  } catch (err) {
+    showMessage(err.message, true);
+  }
+}
+
 async function api(url, options = {}) {
   const res = await fetch(url, {
     headers: { "Content-Type": "application/json" },
@@ -229,10 +304,47 @@ function syncTeamAssignments() {
   }
 }
 
+function interleaveTeamOrder(teamAIds, teamBIds) {
+  const ordered = [];
+  const maxLen = Math.max(teamAIds.length, teamBIds.length);
+  for (let index = 0; index < maxLen; index += 1) {
+    if (index < teamAIds.length) {
+      ordered.push(teamAIds[index]);
+    }
+    if (index < teamBIds.length) {
+      ordered.push(teamBIds[index]);
+    }
+  }
+  return ordered;
+}
+
+function updateOrderFromTeamLists() {
+  if (!teamAListEl || !teamBListEl) return;
+  const teamAIds = Array.from(teamAListEl.querySelectorAll("li"))
+    .map((li) => Number(li.dataset.playerId))
+    .filter(Boolean);
+  const teamBIds = Array.from(teamBListEl.querySelectorAll("li"))
+    .map((li) => Number(li.dataset.playerId))
+    .filter(Boolean);
+
+  for (const id of teamAIds) {
+    state.teamAssignments[id] = "team_a";
+  }
+  for (const id of teamBIds) {
+    state.teamAssignments[id] = "team_b";
+  }
+
+  state.orderedPlayerIds = interleaveTeamOrder(teamAIds, teamBIds);
+  renderOrderList();
+}
+
 function renderTeamAssignment() {
   if (!teamAssignmentEl || !teamAListEl || !teamBListEl) return;
   const show = state.gameType && state.teamMode === "teams";
   teamAssignmentEl.classList.toggle("hidden", !show);
+  if (orderSectionEl) {
+    orderSectionEl.classList.toggle("hidden", show);
+  }
   if (!show) {
     return;
   }
@@ -255,6 +367,8 @@ function renderTeamAssignment() {
       teamAListEl.appendChild(li);
     }
   }
+
+  updateOrderFromTeamLists();
 }
 
 function setupTeamDragAndDrop() {
@@ -264,21 +378,32 @@ function setupTeamDragAndDrop() {
   function attach(list, teamName) {
     list.addEventListener("dragstart", (event) => {
       if (!(event.target instanceof HTMLElement)) return;
-      dragging = event.target;
-      event.target.classList.add("dragging");
-      event.target.dataset.teamTarget = teamName;
+      dragging = event.target.closest("li");
+      if (!dragging) return;
+      dragging.classList.add("dragging");
     });
 
     list.addEventListener("dragend", (event) => {
-      if (!(event.target instanceof HTMLElement)) return;
-      event.target.classList.remove("dragging");
+      const target = event.target instanceof HTMLElement ? event.target.closest("li") : null;
+      if (!target) return;
+      target.classList.remove("dragging");
       dragging = null;
     });
 
     list.addEventListener("dragover", (event) => {
       event.preventDefault();
       if (!dragging) return;
-      list.appendChild(dragging);
+      const target = event.target instanceof HTMLElement ? event.target.closest("li") : null;
+      if (!target || target === dragging) {
+        if (event.currentTarget instanceof HTMLElement && event.target === event.currentTarget) {
+          event.currentTarget.appendChild(dragging);
+        }
+        return;
+      }
+
+      const rect = target.getBoundingClientRect();
+      const shouldInsertBefore = event.clientY < rect.top + rect.height / 2;
+      list.insertBefore(dragging, shouldInsertBefore ? target : target.nextSibling);
     });
 
     list.addEventListener("drop", () => {
@@ -288,6 +413,7 @@ function setupTeamDragAndDrop() {
       for (const id of ids) {
         state.teamAssignments[id] = teamName;
       }
+      updateOrderFromTeamLists();
     });
   }
 
@@ -360,12 +486,258 @@ function renderQuickBoard() {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = String(value);
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       const input = document.getElementById("turn-total");
       input.value = String(value);
+      await submitScore(value);
     });
     quickBoardEl.appendChild(button);
   });
+}
+
+function groupPlayersByTeam(players) {
+  return {
+    team_a: players.filter((player) => player.team === "team_a"),
+    team_b: players.filter((player) => player.team === "team_b"),
+    unassigned: players.filter((player) => !player.team),
+  };
+}
+
+function getCricketTeamInfo(game, teamKey, grouped, fallbackStart = 0) {
+  const fallbackMembers = grouped.unassigned.slice(fallbackStart, fallbackStart + 1);
+  const members = grouped[teamKey].length ? grouped[teamKey] : fallbackMembers;
+  const teamName = teamKey === "team_b" ? "Team B" : "Team A";
+  const memberNames = members.map((player) => player.name).join(", ") || "No players selected";
+  return {
+    key: teamKey,
+    teamName,
+    members,
+    memberNames,
+    title: game.team_mode === "teams" ? teamName : memberNames,
+    subtitle: game.team_mode === "teams" ? memberNames : teamName,
+  };
+}
+
+function getCricketContext(game) {
+  const cs = game.cricket_state || {};
+  const grouped = groupPlayersByTeam(game.players);
+  const battingTeam = cs.batting_team === "team_b" ? "team_b" : "team_a";
+  const bowlingTeam = cs.bowling_team === "team_a" ? "team_a" : "team_b";
+  const battingInfo = getCricketTeamInfo(game, battingTeam, grouped, 0);
+  const bowlingInfo = getCricketTeamInfo(game, bowlingTeam, grouped, 1);
+  const activePlayer = game.players.find((player) => player.id === game.active_player_id);
+  const activeTeam = activePlayer?.team || battingTeam;
+  return {
+    cs,
+    battingTeam,
+    bowlingTeam,
+    battingInfo,
+    bowlingInfo,
+    activePlayer,
+    isBattingTurn: activeTeam === battingTeam && game.status === "active",
+    isBowlingTurn: activeTeam === bowlingTeam && game.status === "active",
+  };
+}
+
+function renderStandardScoreboard(game) {
+  scoreboardEl.innerHTML = "";
+  const players = [...game.players];
+  if (game.team_mode === "teams") {
+    const grouped = groupPlayersByTeam(players);
+    for (const [teamKey, label] of [["team_a", "Team A"], ["team_b", "Team B"]]) {
+      const members = grouped[teamKey];
+      if (!members.length) continue;
+      const teamRow = document.createElement("tr");
+      teamRow.className = "team-header-row";
+      const teamTotal = members.reduce((sum, player) => sum + player.fives, 0);
+      const teamRequired = Math.max((55 - teamTotal) * 5, 0);
+      teamRow.innerHTML = `
+        <td><strong>${label}</strong></td>
+        <td><strong>${teamTotal}</strong></td>
+        <td><strong>${teamRequired}</strong></td>
+      `;
+      scoreboardEl.appendChild(teamRow);
+
+      for (const player of members) {
+        const tr = document.createElement("tr");
+        if (player.id === game.active_player_id && game.status === "active") {
+          tr.classList.add("active-row");
+        }
+        const pointsRequired = Math.max((55 - player.fives) * 5, 0);
+        tr.innerHTML = `
+          <td class="scoreboard-member">${player.name}</td>
+          <td>${player.fives}</td>
+          <td>${pointsRequired}</td>
+        `;
+        scoreboardEl.appendChild(tr);
+      }
+    }
+    return;
+  }
+
+  for (const player of players) {
+    const tr = document.createElement("tr");
+    if (player.id === game.active_player_id && game.status === "active") {
+      tr.classList.add("active-row");
+    }
+    const pointsRequired = Math.max((55 - player.fives) * 5, 0);
+    tr.innerHTML = `
+      <td>${player.name}</td>
+      <td>${player.fives}</td>
+      <td>${pointsRequired}</td>
+    `;
+    scoreboardEl.appendChild(tr);
+  }
+}
+
+function renderCricketDashboard(game) {
+  if (!cricketDashboardEl || !cricketBowlingPanelEl || !cricketBattingPanelEl) return;
+
+  const { cs, battingTeam, bowlingTeam, battingInfo, bowlingInfo, activePlayer, isBattingTurn, isBowlingTurn } = getCricketContext(game);
+  const wickets = cs.wickets || {};
+  const runs = cs.runs || {};
+  const completedMarks = wickets[bowlingTeam] || 0;
+  const remainingMarks = Math.max(10 - completedMarks, 0);
+  const maxSelectable = isBowlingTurn ? Math.min(3, remainingMarks) : 0;
+  state.cricketPendingMarks = Math.max(0, Math.min(state.cricketPendingMarks || 0, maxSelectable));
+
+  const bullMarkup = Array.from({ length: 10 }, (_, index) => {
+    const slot = index + 1;
+    if (slot <= completedMarks) {
+      return `<button type="button" class="bullseye-chip is-hit" disabled aria-label="Bullseye ${slot} already hit"></button>`;
+    }
+
+    const relativeCount = slot - completedMarks;
+    const isSelected = relativeCount > 0 && relativeCount <= state.cricketPendingMarks;
+    const interactive = isBowlingTurn && relativeCount <= maxSelectable;
+    return `
+      <button
+        type="button"
+        class="bullseye-chip${isSelected ? " is-selected" : ""}${interactive ? "" : " is-blocked"}"
+        data-bowling-marks="${relativeCount}"
+        ${interactive ? "" : "disabled"}
+        aria-label="Select ${relativeCount} bull hit${relativeCount === 1 ? "" : "s"} for this turn"
+      ></button>
+    `;
+  }).join("");
+
+  cricketDashboardEl.classList.remove("hidden");
+  cricketBowlingPanelEl.className = `cricket-side-panel${isBowlingTurn ? " is-active" : " is-inactive"}`;
+  cricketBattingPanelEl.className = `cricket-side-panel${isBattingTurn ? " is-active" : " is-inactive"}`;
+
+  cricketBowlingPanelEl.innerHTML = `
+    <div class="cricket-panel-header">
+      <div>
+        <p class="cricket-role-tag">Bowling Side</p>
+        <h4>${bowlingInfo.title}</h4>
+        <p class="hint">${bowlingInfo.subtitle}</p>
+      </div>
+      <div class="cricket-score-pill">
+        <span>Wickets</span>
+        <strong>${completedMarks} / 10</strong>
+      </div>
+    </div>
+    <p class="cricket-panel-note">
+      ${isBowlingTurn
+        ? `${activePlayer?.name || bowlingInfo.title} is bowling. Click the next bullseye that matches this turn's hits.`
+        : `${battingInfo.title} is currently at the oche.`}
+    </p>
+    <div class="cricket-bull-grid" aria-label="Bowling wicket tracker">
+      ${bullMarkup}
+    </div>
+    <div class="cricket-selection-row">
+      <strong>This turn: ${state.cricketPendingMarks}</strong>
+      <span>${remainingMarks} wicket${remainingMarks === 1 ? "" : "s"} remaining</span>
+    </div>
+    <div class="cricket-panel-actions">
+      <button id="cricket-submit-bowling" type="button" ${isBowlingTurn ? "" : "disabled"}>Submit Bull Hits</button>
+      <button id="cricket-no-wicket" type="button" ${isBowlingTurn ? "" : "disabled"}>No Wicket</button>
+    </div>
+  `;
+
+  cricketBattingPanelEl.innerHTML = `
+    <div class="cricket-panel-header">
+      <div>
+        <p class="cricket-role-tag">Batting Side</p>
+        <h4>${battingInfo.title}</h4>
+        <p class="hint">${battingInfo.subtitle}</p>
+      </div>
+      <div class="cricket-score-pill runs-pill">
+        <span>Runs</span>
+        <strong>${runs[battingTeam] || 0}</strong>
+      </div>
+    </div>
+    <label class="cricket-entry-field" for="cricket-batting-total">
+      <span>Number hit with 3 darts</span>
+      <input id="cricket-batting-total" type="number" min="0" max="180" value="0" ${isBattingTurn ? "" : "disabled"} />
+    </label>
+    <p class="cricket-panel-note">Only totals above 40 add runs in English Cricket.</p>
+    <div class="cricket-panel-actions">
+      <button id="cricket-submit-batting" type="button" ${isBattingTurn ? "" : "disabled"}>Submit Score</button>
+      <button id="cricket-no-score" type="button" ${isBattingTurn ? "" : "disabled"}>No Score</button>
+    </div>
+  `;
+
+  cricketBowlingPanelEl.querySelectorAll("[data-bowling-marks]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const selected = Number(button.getAttribute("data-bowling-marks"));
+      state.cricketPendingMarks = Number.isFinite(selected) ? selected : 0;
+      const hiddenInput = document.getElementById("turn-total");
+      if (hiddenInput) {
+        hiddenInput.value = String(state.cricketPendingMarks);
+      }
+      renderCricketDashboard(game);
+    });
+  });
+
+  const submitBowlingBtn = document.getElementById("cricket-submit-bowling");
+  if (submitBowlingBtn) {
+    submitBowlingBtn.addEventListener("click", async () => {
+      await submitScore(state.cricketPendingMarks || 0);
+    });
+  }
+
+  const noWicketBtn = document.getElementById("cricket-no-wicket");
+  if (noWicketBtn) {
+    noWicketBtn.addEventListener("click", async () => {
+      state.cricketPendingMarks = 0;
+      await submitScore(0);
+    });
+  }
+
+  const battingInput = document.getElementById("cricket-batting-total");
+  const submitBattingBtn = document.getElementById("cricket-submit-batting");
+  const battingSubmit = async () => {
+    const total = Number(battingInput?.value || 0);
+    const hiddenInput = document.getElementById("turn-total");
+    if (hiddenInput) {
+      hiddenInput.value = String(total);
+    }
+    await submitScore(total);
+  };
+
+  if (battingInput) {
+    battingInput.addEventListener("keydown", async (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        await battingSubmit();
+      }
+    });
+  }
+
+  if (submitBattingBtn) {
+    submitBattingBtn.addEventListener("click", battingSubmit);
+  }
+
+  const noScoreBtn = document.getElementById("cricket-no-score");
+  if (noScoreBtn) {
+    noScoreBtn.addEventListener("click", async () => {
+      if (battingInput) {
+        battingInput.value = "0";
+      }
+      await submitScore(0);
+    });
+  }
 }
 
 function applyLayoutMode(game) {
@@ -407,61 +779,70 @@ function renderGame() {
     scoreboardEl.innerHTML = "";
     turnsListEl.innerHTML = "";
     turnInputEl.classList.add("hidden");
+    if (standardTurnControlsEl) {
+      standardTurnControlsEl.classList.remove("hidden");
+    }
+    if (cricketDashboardEl) {
+      cricketDashboardEl.classList.add("hidden");
+    }
+    if (scoreboardSectionEl) {
+      scoreboardSectionEl.classList.remove("hidden");
+    }
     return;
   }
 
-  const headers = Array.from(document.querySelectorAll("thead th"));
+  const isCricket = game.game_type === "english_cricket";
+  const headers = Array.from(document.querySelectorAll("#scoreboard-table thead th"));
   if (headers.length >= 3) {
-    if (game.game_type === "english_cricket") {
-      headers[0].textContent = "Player";
-      headers[1].textContent = "Contribution";
-      headers[2].textContent = "Team";
-    } else {
-      headers[0].textContent = "Player";
-      headers[1].textContent = "Score";
-      headers[2].textContent = "Points Required";
-    }
+    headers[0].textContent = "Player";
+    headers[1].textContent = "Score";
+    headers[2].textContent = "Points Required";
+  }
+
+  if (standardTurnControlsEl) {
+    standardTurnControlsEl.classList.toggle("hidden", isCricket || game.status !== "active");
+  }
+  if (sharedTurnActionsEl) {
+    sharedTurnActionsEl.classList.toggle("hidden", game.status !== "active");
+  }
+  if (cricketDashboardEl) {
+    cricketDashboardEl.classList.toggle("hidden", !isCricket);
+  }
+  if (scoreboardSectionEl) {
+    scoreboardSectionEl.classList.toggle("hidden", isCricket);
   }
 
   const activePlayer = game.players.find((p) => p.id === game.active_player_id);
   if (game.status === "finished") {
     const winnerName = game.winner_team_name || game.players.find((p) => p.id === game.winner_player_id)?.name || "Tie";
     activeGameMetaEl.innerHTML = `<strong>Winner: ${winnerName}</strong>`;
+  } else if (isCricket) {
+    const { cs, battingTeam, bowlingTeam, battingInfo, bowlingInfo } = getCricketContext(game);
+    const inning = cs.inning || 1;
+    const runs = cs.runs || {};
+    const wickets = cs.wickets || {};
+    activeGameMetaEl.innerHTML = `
+      <strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong><br/>
+      Inning ${inning}: ${battingInfo.teamName} batting on ${runs[battingTeam] || 0}, ${bowlingInfo.teamName} bowling with ${wickets[bowlingTeam] || 0} / 10 wicket marks.
+    `;
   } else {
-    if (game.game_type === "english_cricket") {
-      const cs = game.cricket_state || {};
-      const inning = cs.inning || 1;
-      const battingTeam = cs.batting_team === "team_b" ? "Team B" : "Team A";
-      const bowlingTeam = cs.bowling_team === "team_b" ? "Team B" : "Team A";
-      const wickets = cs.wickets || {};
-      const runs = cs.runs || {};
-      activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong><br/>Inning ${inning}: ${battingTeam} batting (${runs.team_a || 0}-${runs.team_b || 0} runs), ${bowlingTeam} bowling (${wickets.team_a || 0}/${wickets.team_b || 0} wicket marks)`;
-    } else {
-      activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong>`;
-    }
+    activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong>`;
   }
 
-  scoreboardEl.innerHTML = "";
-  for (const player of game.players) {
-    const tr = document.createElement("tr");
-    if (player.id === game.active_player_id && game.status === "active") {
-      tr.classList.add("active-row");
-    }
-    const pointsRequired = Math.max((55 - player.fives) * 5, 0);
-    const teamName = player.team === "team_b" ? "Team B" : "Team A";
-    tr.innerHTML = `
-      <td>${player.name}</td>
-      <td>${player.fives}</td>
-      <td>${game.game_type === "english_cricket" ? teamName : pointsRequired}</td>
-    `;
-    scoreboardEl.appendChild(tr);
+  if (isCricket) {
+    renderCricketDashboard(game);
+    scoreboardEl.innerHTML = "";
+  } else {
+    renderStandardScoreboard(game);
   }
 
   turnsListEl.innerHTML = "";
   for (const turn of game.turns.slice().reverse()) {
     const li = document.createElement("li");
-    const turnNote = game.game_type === "english_cricket"
-      ? (turn.counted ? `+${turn.fives_awarded}` : "no score")
+    const turnNote = isCricket
+      ? (turn.counted
+        ? `+${turn.fives_awarded} ${turn.total_points > 3 ? "runs" : "bull hits"}`
+        : "no score")
       : turn.counted
         ? `+${turn.fives_awarded} fives`
         : turn.total_points % 5 === 0
@@ -471,23 +852,15 @@ function renderGame() {
     turnsListEl.appendChild(li);
   }
 
-  if (game.status === "active") {
-    turnInputEl.classList.remove("hidden");
-    if (turnInputLabelEl) {
-      if (game.game_type === "english_cricket") {
-        const cs = game.cricket_state || {};
-        const battingTeam = cs.batting_team || "team_a";
-        const activeTeam = activePlayer?.team || "team_a";
-        turnInputLabelEl.textContent = activeTeam === battingTeam
-          ? "Batting Turn Total (runs from score above 40)"
-          : "Bowling Bull Marks (0-10)";
-      } else {
-        turnInputLabelEl.textContent = "Total scored";
-      }
-    }
-  } else {
-    turnInputEl.classList.add("hidden");
+  if (turnInputLabelEl && !isCricket) {
+    turnInputLabelEl.textContent = "Total scored";
   }
+  if (bullHitEl) {
+    bullHitEl.classList.add("hidden");
+  }
+
+  const shouldShowTurnArea = isCricket || game.status === "active";
+  turnInputEl.classList.toggle("hidden", !shouldShowTurnArea);
 }
 
 async function loadPlayers() {
@@ -661,6 +1034,7 @@ async function init() {
       let teamAssignments = undefined;
       if (state.teamMode === "teams") {
         syncTeamAssignments();
+        updateOrderFromTeamLists();
         teamAssignments = {};
         for (const id of state.orderedPlayerIds) {
           teamAssignments[String(id)] = state.teamAssignments[id] || "team_a";
@@ -721,48 +1095,6 @@ async function init() {
     });
   }
 
-  async function submitScore(totalPoints) {
-    if (!state.game || state.game.status !== "active") return;
-
-    if (state.game.game_type !== "english_cricket" && totalPoints % 5 !== 0) {
-      showScoreWarningBanner("Total scored must be divisible by 5.");
-    }
-
-    try {
-      const response = await api(`/api/games/${state.game.id}/turn`, {
-        method: "POST",
-        body: JSON.stringify({
-          player_id: state.game.active_player_id,
-          total_points: totalPoints,
-        }),
-      });
-      state.game = response.game;
-      document.getElementById("turn-total").value = "";
-      if (response.game.status === "finished") {
-        const winnerName = response.game.winner_team_name || response.game.players.find((p) => p.id === response.game.winner_player_id)?.name || "Tie";
-        showWinnerOverlay(winnerName);
-      } else {
-        renderGame();
-        await loadHistory();
-        const t = response.turn;
-        const isBust = response.game.game_type !== "english_cricket" && !t.counted && t.total_points % 5 === 0;
-        if (isBust) {
-          const bustedPlayer = response.game.players.find((p) => p.id === t.player_id)?.name || "Player";
-          showBustBanner(`${bustedPlayer} bust!`);
-        }
-        showMessage(
-          t.counted
-            ? `Turn counted: ${t.total_points} points = +${t.fives_awarded} fives.`
-            : isBust
-              ? `Bust: ${t.total_points} would exceed 55 and does not count.`
-              : `Turn not counted: ${t.total_points} is not divisible by 5.`
-        );
-      }
-    } catch (err) {
-      showMessage(err.message, true);
-    }
-  }
-
   document.getElementById("submit-turn").addEventListener("click", async () => {
     const totalPoints = Number(document.getElementById("turn-total").value);
     await submitScore(totalPoints);
@@ -772,6 +1104,13 @@ async function init() {
     document.getElementById("turn-total").value = "0";
     await submitScore(0);
   });
+
+  if (bullHitEl) {
+    bullHitEl.addEventListener("click", async () => {
+      document.getElementById("turn-total").value = "1";
+      await submitScore(1);
+    });
+  }
 
   document.getElementById("undo-turn").addEventListener("click", async () => {
     if (!state.game || state.game.status !== "active") return;
