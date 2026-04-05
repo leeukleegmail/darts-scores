@@ -118,7 +118,6 @@ def add_player(browser, name: str):
 
 
 def start_single_player_game(browser, player_name: str):
-    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-55by5"))).click()
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "setup-panel")))
     add_player(browser, player_name)
     player_checkbox = _wait(browser).until(
@@ -131,13 +130,12 @@ def start_single_player_game(browser, player_name: str):
     )
     if not player_checkbox.is_selected():
         player_checkbox.click()
-    browser.find_element(By.ID, "start-game").click()
+    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-55by5"))).click()
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
     _wait(browser).until(ec.visibility_of_element_located((By.CSS_SELECTOR, "#active-game-meta .current-player")))
 
 
 def start_cricket_game(browser, first_player: str, second_player: str, starting_batting_team=None):
-    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-english-cricket"))).click()
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "setup-panel")))
 
     for player_name in (first_player, second_player):
@@ -153,13 +151,16 @@ def start_cricket_game(browser, first_player: str, second_player: str, starting_
         if not player_checkbox.is_selected():
             player_checkbox.click()
 
-    _wait(browser).until(ec.presence_of_all_elements_located((By.NAME, "cricket-starting-batting")))
-    if starting_batting_team:
-        role_radio = browser.find_element(By.CSS_SELECTOR, f"input[name='cricket-starting-batting'][value='{starting_batting_team}']")
+    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-english-cricket"))).click()
+    popup = _wait(browser).until(ec.visibility_of_element_located((By.ID, "cricket-start-overlay")))
+
+    if starting_batting_team == "team_b":
+        role_radio = popup.find_element(By.CSS_SELECTOR, "input[name='cricket-start-choice'][value='bowl']")
         if not role_radio.is_selected():
             role_radio.click()
 
-    browser.find_element(By.ID, "start-game").click()
+    browser.find_element(By.ID, "cricket-start-game").click()
+    _wait(browser).until(ec.invisibility_of_element_located((By.ID, "cricket-start-overlay")))
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "cricket-dashboard")))
 
@@ -172,6 +173,124 @@ def test_start_game_shows_live_view(live_server, browser):
     assert current_player == "Alice to Throw"
     assert browser.find_element(By.ID, "live-panel").is_displayed()
     assert "275" in browser.find_element(By.ID, "scoreboard").text
+
+
+def test_team_assignment_can_be_configured_before_choosing_game(live_server, browser):
+    browser.get(live_server)
+
+    for player_name in ("Alpha", "Bravo"):
+        add_player(browser, player_name)
+        player_checkbox = _wait(browser).until(
+            ec.presence_of_element_located(
+                (
+                    By.XPATH,
+                    f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
+                )
+            )
+        )
+        if not player_checkbox.is_selected():
+            player_checkbox.click()
+
+    team_mode = _wait(browser).until(ec.element_to_be_clickable((By.ID, "team-mode-teams")))
+    if not team_mode.is_selected():
+        team_mode.click()
+
+    team_assignment = _wait(browser).until(ec.visibility_of_element_located((By.ID, "team-assignment")))
+    assert "Team A" in team_assignment.text
+    assert "Team B" in team_assignment.text
+
+
+def test_55_by_5_individual_game_can_complete_end_to_end(live_server, browser):
+    browser.get(live_server)
+    start_single_player_game(browser, "Finn")
+
+    turn_values = (75, 75, 75, 50)
+    for turn_number, value in enumerate(turn_values, start=1):
+        turn_total = browser.find_element(By.ID, "turn-total")
+        turn_total.clear()
+        turn_total.send_keys(str(value))
+        browser.find_element(By.ID, "submit-turn").click()
+        if turn_number < len(turn_values):
+            _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), f"#{turn_number} Finn: total {value}"))
+
+    winner_overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
+    assert winner_overlay.is_displayed()
+    assert browser.find_element(By.ID, "winner-name").text.strip() == "Finn"
+    assert "Winner Finn" in browser.find_element(By.ID, "history-list").text
+
+
+
+def test_55_by_5_team_game_can_complete_end_to_end(live_server, browser):
+    browser.get(live_server)
+
+    for player_name in ("Aria", "Bryn"):
+        add_player(browser, player_name)
+        player_checkbox = _wait(browser).until(
+            ec.presence_of_element_located(
+                (
+                    By.XPATH,
+                    f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
+                )
+            )
+        )
+        if not player_checkbox.is_selected():
+            player_checkbox.click()
+
+    team_mode = _wait(browser).until(ec.element_to_be_clickable((By.ID, "team-mode-teams")))
+    if not team_mode.is_selected():
+        team_mode.click()
+
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "team-assignment")))
+    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-55by5"))).click()
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
+
+    scripted_turns = [
+        ("Aria", 75),
+        ("Bryn", 0),
+        ("Aria", 75),
+        ("Bryn", 0),
+        ("Aria", 75),
+        ("Bryn", 0),
+        ("Aria", 50),
+    ]
+
+    for turn_number, (player_name, value) in enumerate(scripted_turns, start=1):
+        _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), f"{player_name} to Throw"))
+        turn_total = browser.find_element(By.ID, "turn-total")
+        turn_total.clear()
+        turn_total.send_keys(str(value))
+        browser.find_element(By.ID, "submit-turn").click()
+        if turn_number < len(scripted_turns):
+            _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), f"#{turn_number} {player_name}: total {value}"))
+
+    winner_overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
+    assert winner_overlay.is_displayed()
+    assert browser.find_element(By.ID, "winner-name").text.strip() == "Team A"
+    assert "Winner Team A" in browser.find_element(By.ID, "history-list").text
+
+
+def test_english_cricket_shows_starting_roles_popup_before_game_start(live_server, browser):
+    browser.get(live_server)
+
+    for player_name in ("Ivy", "Jules"):
+        add_player(browser, player_name)
+        player_checkbox = _wait(browser).until(
+            ec.presence_of_element_located(
+                (
+                    By.XPATH,
+                    f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
+                )
+            )
+        )
+        if not player_checkbox.is_selected():
+            player_checkbox.click()
+
+    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-english-cricket"))).click()
+    popup = _wait(browser).until(ec.visibility_of_element_located((By.ID, "cricket-start-overlay")))
+
+    assert "will" in popup.text.lower()
+    assert len(browser.find_elements(By.NAME, "cricket-start-choice")) == 2
+    assert browser.find_element(By.ID, "cricket-start-game").is_displayed()
 
 
 def test_submit_turn_updates_score_and_clears_input(live_server, browser):
@@ -266,23 +385,14 @@ def test_bust_shows_red_banner_for_three_seconds(live_server, browser):
     browser.get(live_server)
     start_single_player_game(browser, "Dana")
 
-    turn_total = browser.find_element(By.ID, "turn-total")
+    turn_values = [75, 75, 75, 15, 15, 15, 15]
 
-    # Build to 54 fives with divisible-by-3 scores: 3x75 (45) + 3x15 (9)
-    for _ in range(3):
+    for turn_number, value in enumerate(turn_values, start=1):
+        turn_total = browser.find_element(By.ID, "turn-total")
         turn_total.clear()
-        turn_total.send_keys("75")
+        turn_total.send_keys(str(value))
         browser.find_element(By.ID, "submit-turn").click()
-
-    for _ in range(3):
-        turn_total.clear()
-        turn_total.send_keys("15")
-        browser.find_element(By.ID, "submit-turn").click()
-
-    # 15 would push 54 -> 57, so this is a bust.
-    turn_total.clear()
-    turn_total.send_keys("15")
-    browser.find_element(By.ID, "submit-turn").click()
+        _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), f"#{turn_number} Dana: total {value}"))
 
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "bust-banner"), "Dana bust!"))
     _wait(browser).until(lambda d: "visible" in d.find_element(By.ID, "bust-banner").get_attribute("class"))

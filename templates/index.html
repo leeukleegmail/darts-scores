@@ -10,7 +10,7 @@
     <main class="app-shell">
       <header class="hero">
         <h1 id="hero-title">Set Up Your Darts Game</h1>
-        <p id="hero-subtitle">Choose a game mode, pick your players, and arrange the match before you start scoring.</p>
+        <p id="hero-subtitle">Pick your players, sort out teams and order, then choose a game to start scoring.</p>
         <div class="user-bar">
           <span id="current-user"></span>
           <div class="user-bar-actions">
@@ -55,15 +55,6 @@
         <ul id="players-list" class="list"></ul>
       </section>
 
-      <section class="panel" id="game-selection-panel">
-        <h2>Select Game</h2>
-        <p class="hint">Choose the game mode before selecting players.</p>
-        <div class="mode-buttons">
-          <button type="button" id="choose-55by5" class="mode-btn">55 by 5</button>
-          <button type="button" id="choose-english-cricket" class="mode-btn">English Cricket</button>
-        </div>
-      </section>
-
       <section class="panel" id="setup-panel">
         <h2>Select Players</h2>
         <p id="selected-game-label" class="hint"></p>
@@ -77,7 +68,7 @@
             <span>Teams</span>
           </label>
         </div>
-        <p class="hint">Select players and drag to set turn order.</p>
+        <p class="hint">Select Players/Teams and arrange order.</p>
         <div id="selectable-players" class="chips"></div>
         <div id="team-assignment" class="hidden">
           <h3>Team Assignment (Drag Players)</h3>
@@ -93,16 +84,19 @@
             </div>
           </div>
         </div>
-        <div id="cricket-role-selection" class="hidden">
-          <h3>Starting Roles</h3>
-          <p class="hint">Choose who bats first. The other side will bowl first and always throws first.</p>
-          <div id="cricket-role-options" class="cricket-role-options"></div>
-        </div>
         <div id="order-section">
           <h3>Selected Players</h3>
           <ul id="order-list" class="list order-list"></ul>
         </div>
-        <button id="start-game">Start Game</button>
+      </section>
+
+      <section class="panel" id="game-selection-panel">
+        <h2>Select Game</h2>
+        <p class="hint">Once your players and teams are ready, choose the game here to begin.</p>
+        <div class="mode-buttons">
+          <button type="button" id="choose-55by5" class="mode-btn">55 by 5</button>
+          <button type="button" id="choose-english-cricket" class="mode-btn">English Cricket</button>
+        </div>
       </section>
 
       <section class="panel hidden" id="live-panel">
@@ -168,6 +162,18 @@
 
     <div id="bust-banner" class="bust-banner" role="status" aria-live="polite"></div>
     <div id="score-warning-banner" class="score-warning-banner" role="status" aria-live="polite"></div>
+
+    <div id="cricket-start-overlay" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="cricket-start-title">
+      <div class="modal-card cricket-start-card">
+        <h3 id="cricket-start-title">Starting Roles</h3>
+        <p id="cricket-start-prompt" class="cricket-start-prompt">Team A Will</p>
+        <div id="cricket-start-options" class="cricket-role-options"></div>
+        <div class="modal-actions">
+          <button id="cricket-start-cancel" type="button" class="btn-ghost">Cancel</button>
+          <button id="cricket-start-game" type="button">Start Game</button>
+        </div>
+      </div>
+    </div>
 
     <div id="winner-overlay" class="winner-overlay">
       <canvas id="fireworks-canvas"></canvas>

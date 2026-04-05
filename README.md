@@ -27,7 +27,7 @@ This project is designed for local play on one machine (session-based login, no 
 
 ## Overview
 
-The app supports any number of players in the roster. After login, you first choose a game mode:
+The app supports any number of players in the roster. After login, you set up players and teams on the setup page, then choose a game mode from the separate **Select Game** panel:
 
 - **55 by 5**
 - **English Cricket**
@@ -173,17 +173,16 @@ Admins can also clear finished game history from the **Recent Games** panel.
 ## How to play in the UI
 
 1. Add players in the Players panel.
-2. Choose a game mode in the Game Selection panel.
-3. In New Game Setup:
-4. Check the players who will play.
-5. Drag players in Selected Players to set the sequence.
-6. Choose `Individual` or `2 Teams` mode.
-7. If using `2 Teams`, drag players between Team A and Team B.
-8. Click Start Game.
-9. In Live Game:
-10. Enter the turn value for the active player.
-11. Click Submit Score.
-12. Review completed games in Recent Games.
+2. Check the players who will play in **Select Players**.
+3. Drag players in Selected Players to set the sequence.
+4. Choose `Individual` or `Teams` mode.
+5. If using `Teams`, drag players between Team A and Team B.
+6. In the separate **Select Game** panel, choose `55 by 5` or `English Cricket`.
+7. For English Cricket, a popup lets Team A choose whether to `Bat` or `Bowl`, then click `Start Game`.
+8. For `55 by 5`, click `55 by 5` once to begin the match.
+9. In Live Game, enter the turn value for the active player.
+10. Click Submit Score.
+11. Review completed games in Recent Games.
 
 Notes:
 
