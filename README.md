@@ -1,11 +1,12 @@
 # 55 by 5 Darts (Flask)
 
-Local single-user Flask app for a 55-by-5 darts game with:
+Local single-user Flask app for darts scoring and game management with:
 
 - Persistent player roster
 - Drag-and-drop turn order before game start
 - Live turn entry and scoreboard
 - Persisted completed-game history
+- Support for **55 by 5** and **English Cricket**
 
 This project is designed for local play on one machine (session-based login, no multiplayer networking).
 
@@ -37,7 +38,7 @@ For each new game, you select who is playing and drag players into the desired t
 For **55 by 5**, each turn is entered as one total score value. A turn only counts if the total score is divisible by 5. Counted turn score is tracked as "fives" where:
 
 $$
-	ext{fives awarded} = \frac{\text{turn total}}{5}
+\text{fives awarded} = \frac{\text{turn total}}{5}
 $$
 
 The winner is the first player to reach exactly 55 on a counted turn.
@@ -108,15 +109,20 @@ APP_SECRET_KEY=abc123 APP_ADMIN_PASSWORD=hunter2 docker compose up --build
 If you update `APP_ADMIN_PASSWORD` and it appears unchanged:
 
 1. Recreate the container so new env vars are applied:
-```bash
-docker compose down
-docker compose up -d --build --force-recreate
-```
+
+   ```bash
+   docker compose down
+   docker compose up -d --build --force-recreate
+   ```
+
 2. Log out of the app and log back in (existing browser sessions remain valid until logout).
+
 3. Verify the container sees the new value:
-```bash
-docker compose exec web env | grep APP_ADMIN
-```
+
+   ```bash
+   docker compose exec web env | grep APP_ADMIN
+   ```
+
 4. Confirm you are using the username from `APP_ADMIN_USERNAME`.
 
 Notes:
@@ -144,7 +150,7 @@ The app requires login before accessing the game UI.
 
 On first start (or whenever no admin account exists in the database) a bootstrap admin user is created automatically:
 
-| | Default | Override env var |
+| Setting | Default | Override env var |
 |---|---|---|
 | Username | `admin` | `APP_ADMIN_USERNAME` |
 | Password | `admin` | `APP_ADMIN_PASSWORD` |
