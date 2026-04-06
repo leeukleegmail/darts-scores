@@ -175,6 +175,14 @@ def test_start_game_shows_live_view(live_server, browser):
     assert "275" in browser.find_element(By.ID, "scoreboard").text
 
 
+def test_active_game_hides_select_game_panel_and_change_game_button(live_server, browser):
+    browser.get(live_server)
+    start_single_player_game(browser, "Owen")
+
+    assert browser.find_elements(By.ID, "change-game") == []
+    assert not browser.find_element(By.ID, "game-selection-panel").is_displayed()
+
+
 def test_team_assignment_can_be_configured_before_choosing_game(live_server, browser):
     browser.get(live_server)
 
@@ -345,7 +353,7 @@ def test_english_cricket_rejects_more_than_two_individual_players(live_server, b
 
     _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-english-cricket"))).click()
 
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "bust-banner"), "Select exactly two players before starting English Cricket."))
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "bust-banner"), "Select exactly two players or teams to play English Cricket."))
     _wait(browser).until(lambda d: "visible" in d.find_element(By.ID, "bust-banner").get_attribute("class"))
     assert not browser.find_element(By.ID, "cricket-start-overlay").is_displayed()
 

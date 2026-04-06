@@ -33,7 +33,6 @@ const sharedTurnActionsEl = document.querySelector(".shared-actions");
 const quickBoardEl = document.getElementById("quick-board");
 const bullHitEl = document.getElementById("bull-hit");
 const selectedGameLabelEl = document.getElementById("selected-game-label");
-const changeGameBtnEl = document.getElementById("change-game");
 const teamAssignmentEl = document.getElementById("team-assignment");
 const cricketStartOverlayEl = document.getElementById("cricket-start-overlay");
 const cricketStartPromptEl = document.getElementById("cricket-start-prompt");
@@ -386,7 +385,7 @@ function getCricketStartContext() {
   if (selectedPlayers.length !== 2) {
     return {
       canStart: false,
-      error: "Select exactly two players before starting English Cricket.",
+      error: "Select exactly two players or teams to play English Cricket.",
     };
   }
 
@@ -968,15 +967,14 @@ function renderCricketDashboard(game) {
 
 function applyLayoutMode(game) {
   const activeMode = game && game.status === "active";
-  const hasSelectedGame = Boolean(game?.game_type || state.gameType);
 
   updateHeroCopy(game);
-  if (changeGameBtnEl) {
-    changeGameBtnEl.classList.toggle("hidden", !hasSelectedGame);
-  }
 
   if (activeMode) {
     closeCricketStartOverlay();
+    if (gameSelectionPanelEl) {
+      gameSelectionPanelEl.classList.add("hidden");
+    }
     playersPanelEl.classList.add("hidden");
     setupPanelEl.classList.add("hidden");
     historyPanelEl.classList.add("hidden");
@@ -1246,17 +1244,6 @@ async function init() {
       applyLayoutMode(state.game);
       renderTeamAssignment();
       openCricketStartOverlay();
-    });
-  }
-
-  if (changeGameBtnEl) {
-    changeGameBtnEl.addEventListener("click", () => {
-      closeCricketStartOverlay();
-      state.gameType = null;
-      state.teamAssignments = {};
-      state.cricketStartingBattingTeam = "team_a";
-      applyLayoutMode(state.game);
-      renderCricketRoleSelection();
     });
   }
 
