@@ -200,6 +200,17 @@ def test_team_assignment_can_be_configured_before_choosing_game(live_server, bro
     assert "Team B" in team_assignment.text
 
 
+def test_start_without_players_shows_bust_style_error(live_server, browser):
+    browser.get(live_server)
+
+    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-55by5"))).click()
+
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "bust-banner"), "Select at least one player."))
+    _wait(browser).until(lambda d: "visible" in d.find_element(By.ID, "bust-banner").get_attribute("class"))
+    assert not browser.find_element(By.ID, "live-panel").is_displayed()
+
+
+
 def test_non_admin_user_does_not_see_clear_history_button(live_server, browser):
     browser.get(live_server)
 

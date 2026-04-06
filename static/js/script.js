@@ -1169,11 +1169,11 @@ async function loadAuthUser() {
 
 async function startConfiguredGame() {
   if (!state.gameType) {
-    showMessage("Choose a game mode first.", true);
+    showBustBanner("Choose a game mode first.");
     return;
   }
   if (state.orderedPlayerIds.length === 0) {
-    showMessage("Select at least one player.", true);
+    showBustBanner("Select at least one player.");
     return;
   }
 
