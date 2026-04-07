@@ -243,7 +243,7 @@ async function undoLastTurn() {
   if (!state.game || state.game.status !== "active") return;
   try {
     const response = await api(`/api/games/${state.game.id}/turn`, { method: "DELETE" });
-    state.game = response.game;
+    syncStateFromGame(response.game);
     renderGame();
     await loadHistory();
     showMessage("Last turn undone.");
@@ -458,7 +458,7 @@ async function submitScore(totalPoints) {
           total_points: numericTotal,
         }),
       });
-      state.game = response.game;
+      syncStateFromGame(response.game);
       state.cricketPendingMarks = 0;
       state.cricketSelectedMarks = [];
 
@@ -603,14 +603,30 @@ function normalizeTeamNames(rawNames = {}) {
   };
 }
 
-function resetTeamNames() {
-  state.teamNames = normalizeTeamNames();
-  if (teamANameInputEl) {
+function setTeamNames(rawNames = state.teamNames, { syncInputs = true } = {}) {
+  state.teamNames = normalizeTeamNames(rawNames);
+  if (syncInputs && teamANameInputEl) {
     teamANameInputEl.value = state.teamNames.team_a;
   }
-  if (teamBNameInputEl) {
+  if (syncInputs && teamBNameInputEl) {
     teamBNameInputEl.value = state.teamNames.team_b;
   }
+  return state.teamNames;
+}
+
+function resetTeamNames() {
+  setTeamNames({});
+}
+
+function syncStateFromGame(game) {
+  state.game = game;
+  if (!game) return;
+
+  state.gameType = game.game_type || "55by5";
+  state.teamMode = game.team_mode || "solo";
+  state.teamAssignments = game.team_assignments || {};
+  setTeamNames(game.team_names || {}, { syncInputs: true });
+  state.cricketStartingBattingTeam = game.cricket_state?.starting_batting_team || game.cricket_state?.batting_team || "team_a";
 }
 
 function teamDisplayName(teamKey, rawNames = state.teamNames) {
@@ -814,13 +830,7 @@ function updateOrderFromTeamLists() {
 function renderTeamAssignment() {
   if (!teamAssignmentEl || !teamAListEl || !teamBListEl) return;
   const show = state.teamMode === "teams";
-  state.teamNames = normalizeTeamNames(state.teamNames);
-  if (teamANameInputEl) {
-    teamANameInputEl.value = state.teamNames.team_a;
-  }
-  if (teamBNameInputEl) {
-    teamBNameInputEl.value = state.teamNames.team_b;
-  }
+  setTeamNames(state.teamNames);
   teamAssignmentEl.classList.toggle("hidden", !show);
   if (orderSectionEl) {
     orderSectionEl.classList.toggle("hidden", show);
@@ -853,11 +863,12 @@ function renderTeamAssignment() {
   renderCricketRoleSelection();
 }
 
-function setupTeamDragAndDrop() {
-  if (!teamAListEl || !teamBListEl) return;
+function setupSortableLists(lists, onDrop) {
   let dragging = null;
 
-  function attach(list, teamName) {
+  lists.forEach((list) => {
+    if (!(list instanceof HTMLElement)) return;
+
     list.addEventListener("dragstart", (event) => {
       if (!(event.target instanceof HTMLElement)) return;
       dragging = event.target.closest("li");
@@ -867,14 +878,16 @@ function setupTeamDragAndDrop() {
 
     list.addEventListener("dragend", (event) => {
       const target = event.target instanceof HTMLElement ? event.target.closest("li") : null;
-      if (!target) return;
-      target.classList.remove("dragging");
+      if (target) {
+        target.classList.remove("dragging");
+      }
       dragging = null;
     });
 
     list.addEventListener("dragover", (event) => {
       event.preventDefault();
       if (!dragging) return;
+
       const target = event.target instanceof HTMLElement ? event.target.closest("li") : null;
       if (!target || target === dragging) {
         if (event.currentTarget instanceof HTMLElement && event.target === event.currentTarget) {
@@ -889,18 +902,27 @@ function setupTeamDragAndDrop() {
     });
 
     list.addEventListener("drop", () => {
-      const ids = Array.from(list.querySelectorAll("li"))
-        .map((li) => Number(li.dataset.playerId))
-        .filter(Boolean);
-      for (const id of ids) {
-        state.teamAssignments[id] = teamName;
+      if (typeof onDrop === "function") {
+        onDrop(list);
       }
-      updateOrderFromTeamLists();
     });
-  }
+  });
+}
 
-  attach(teamAListEl, "team_a");
-  attach(teamBListEl, "team_b");
+function setupTeamDragAndDrop() {
+  if (!teamAListEl || !teamBListEl) return;
+
+  setupSortableLists([teamAListEl, teamBListEl], (list) => {
+    const teamName = list === teamBListEl ? "team_b" : "team_a";
+    const ids = Array.from(list.querySelectorAll("li"))
+      .map((li) => Number(li.dataset.playerId))
+      .filter(Boolean);
+
+    for (const id of ids) {
+      state.teamAssignments[id] = teamName;
+    }
+    updateOrderFromTeamLists();
+  });
 }
 
 function rebuildOrder() {
@@ -932,32 +954,8 @@ function renderOrderList() {
 }
 
 function setupDragAndDrop() {
-  let dragging = null;
-
-  orderListEl.addEventListener("dragstart", (event) => {
-    if (!(event.target instanceof HTMLElement)) return;
-    dragging = event.target;
-    event.target.classList.add("dragging");
-  });
-
-  orderListEl.addEventListener("dragend", (event) => {
-    if (!(event.target instanceof HTMLElement)) return;
-    event.target.classList.remove("dragging");
-  });
-
-  orderListEl.addEventListener("dragover", (event) => {
-    event.preventDefault();
-    const target = event.target.closest("li");
-    if (!target || !dragging || target === dragging) return;
-
-    const rect = target.getBoundingClientRect();
-    const shouldInsertBefore = event.clientY < rect.top + rect.height / 2;
-    orderListEl.insertBefore(dragging, shouldInsertBefore ? target : target.nextSibling);
-  });
-
-  orderListEl.addEventListener("drop", () => {
-    const ids = Array.from(orderListEl.querySelectorAll("li")).map((li) => Number(li.dataset.id));
-    state.orderedPlayerIds = ids;
+  setupSortableLists([orderListEl], (list) => {
+    state.orderedPlayerIds = Array.from(list.querySelectorAll("li")).map((li) => Number(li.dataset.id));
     renderCricketRoleSelection();
   });
 }
@@ -1359,11 +1357,7 @@ async function loadActiveGame() {
   const response = await api("/api/games/active");
   state.game = response.game;
   if (state.game) {
-    state.gameType = state.game.game_type || "55by5";
-    state.teamMode = state.game.team_mode || "solo";
-    state.teamAssignments = state.game.team_assignments || {};
-    state.teamNames = normalizeTeamNames(state.game.team_names);
-    state.cricketStartingBattingTeam = state.game.cricket_state?.starting_batting_team || state.game.cricket_state?.batting_team || "team_a";
+    syncStateFromGame(state.game);
   }
   renderGame();
 }
@@ -1447,12 +1441,7 @@ async function startConfiguredGame() {
       starting_batting_team: state.gameType === "english_cricket" ? state.cricketStartingBattingTeam : undefined,
     }),
   });
-  state.game = response.game;
-  state.gameType = response.game.game_type;
-  state.teamMode = response.game.team_mode || "solo";
-  state.teamAssignments = response.game.team_assignments || {};
-  state.teamNames = normalizeTeamNames(response.game.team_names);
-  state.cricketStartingBattingTeam = response.game.cricket_state?.starting_batting_team || state.cricketStartingBattingTeam;
+  syncStateFromGame(response.game);
   renderGame();
   await loadHistory();
   showMessage("Game started.");

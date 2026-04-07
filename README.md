@@ -21,6 +21,7 @@ This project is designed for local play on one machine (session-based login, no 
 - [Scoring rules](#scoring-rules)
 - [Project layout](#project-layout)
 - [API endpoints](#api-endpoints)
+- [Extending the app](#extending-the-app)
 - [Run tests](#run-tests)
 - [Data persistence](#data-persistence)
 - [Troubleshooting](#troubleshooting)
@@ -34,13 +35,7 @@ The app supports any number of players in the roster. After login, you set up pl
 
 For each new game, you select who is playing and drag players into the desired turn order. You can play in individual mode or in two teams with drag-and-drop team assignment.
 
-For **55 by 5**, each turn is entered as one total score value. A turn only counts if the total score is divisible by 5. Counted turn score is tracked as "fives" where:
-
-$$
-	ext{fives awarded} = \frac{\text{turn total}}{5}
-$$
-
-The winner is the first player to reach exactly 55 on a counted turn.
+For **55 by 5**, each turn is entered as one total score value using the on-screen keypad. A turn only counts if the total score is divisible by 5, and counted turns award `turn total / 5` fives. The winner is the first player or team to reach exactly 55 fives.
 
 ## Requirements
 
@@ -65,7 +60,7 @@ python app.py
 
 Then open:
 
-http://127.0.0.1:5000
+<http://127.0.0.1:5000>
 
 ## Run with Docker Compose
 
@@ -77,7 +72,7 @@ docker compose up --build
 
 Then open:
 
-http://127.0.0.1:5010
+<http://127.0.0.1:5010>
 
 Log in with the default admin credentials (`admin` / `admin`) and change the password via the User Administration panel.
 
@@ -94,7 +89,7 @@ APP_ADMIN_PASSWORD=my-strong-password
 Docker Compose picks up `.env` automatically. The three variables are:
 
 | Variable | Default | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | `APP_SECRET_KEY` | `change-me-before-going-live` | Flask session signing key — **must be changed** for any non-local deployment |
 | `APP_ADMIN_USERNAME` | `admin` | Bootstrap admin username (used only when no admin account exists yet) |
 | `APP_ADMIN_PASSWORD` | `admin` | Bootstrap admin password |
@@ -124,8 +119,8 @@ The app requires login before accessing the game UI.
 
 On first start (or whenever no admin account exists in the database) a bootstrap admin user is created automatically:
 
-| | Default | Override env var |
-|---|---|---|
+| Setting | Default | Override env var |
+| --- | --- | --- |
 | Username | `admin` | `APP_ADMIN_USERNAME` |
 | Password | `admin` | `APP_ADMIN_PASSWORD` |
 
@@ -150,6 +145,8 @@ After logging in as admin, the **User Administration** panel is visible in the t
 
 Admins can also clear finished game history from the **Recent Games** panel.
 
+Sessions expire after 30 minutes of inactivity. Logging out during an active game shows a confirmation prompt and abandons that game if confirmed.
+
 ## How to play in the UI
 
 1. Add players in the Players panel.
@@ -160,8 +157,8 @@ Admins can also clear finished game history from the **Recent Games** panel.
 6. In the separate **Select Game** panel, choose `55 by 5` or `English Cricket`.
 7. For English Cricket, a popup lets Team A choose whether to `Bat` or `Bowl`, then click `Start Game`.
 8. For `55 by 5`, click `55 by 5` once to begin the match.
-9. In Live Game, enter the turn value for the active player.
-10. Click Submit Score.
+9. In Live Game, use the on-screen keypad to enter the active player's score.
+10. Use `Submit Score`, `No Score`, or `Undo` as needed.
 11. Review completed games in Recent Games.
 
 Notes:
@@ -235,13 +232,22 @@ Main routes exposed by the Flask app:
 - `PUT /api/players/<player_id>` -> rename player
 - `DELETE /api/players/<player_id>` -> delete player (if not in active game)
 - `GET /api/games/active` -> active game state
-- `POST /api/games` -> create game from ordered player ids (supports `game_type`, `team_mode`, `team_assignments`)
+- `POST /api/games` -> create game from ordered player ids (supports `game_type`, `team_mode`, `team_assignments`, `team_names`, `starting_batting_team`)
 - `POST /api/games/<game_id>/turn` -> submit one turn total value
 - `DELETE /api/games/<game_id>/turn` -> undo the most recent turn
 - `GET /api/games/<game_id>/state` -> full game state
 - `GET /api/games/history` -> list finished games
 - `DELETE /api/games/history` -> delete all finished game history (admin only)
 - `GET /api/games/<game_id>/history` -> details of a finished/current game
+
+## Extending the app
+
+To add another game type cleanly:
+
+1. Add the new `game_type` value in `app.py` metadata and creation validation.
+2. Keep backend scoring/replay rules in the small helper functions used by `recompute_game_state()`.
+3. Add a dedicated renderer or UI branch in `static/js/script.js` rather than mixing new rules into existing keypad handlers.
+4. Cover the new flow with both API tests in `tests/test_app.py` and, if it affects the UI, Selenium tests in `tests/test_gui_selenium.py`.
 
 ## Run tests
 
@@ -336,7 +342,7 @@ If port 5000 is busy, run with a different port:
 python -m flask --app app run --port 5001
 ```
 
-Then open http://127.0.0.1:5001
+Then open <http://127.0.0.1:5001>
 
 ### Drag and drop not updating order
 

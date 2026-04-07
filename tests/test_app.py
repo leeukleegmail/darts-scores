@@ -648,6 +648,35 @@ def test_active_game_and_undo_success_paths(client):
     assert undo.get_json()["game"]["current_turn_position"] == 0
 
 
+def test_team_mode_undo_recomputes_scores_and_turn_order(client):
+    p1 = add_player(client, "UndoTeamA")
+    p2 = add_player(client, "UndoTeamB")
+    game = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2],
+            "game_type": "55by5",
+            "team_mode": "teams",
+            "team_assignments": {str(p1): "team_a", str(p2): "team_b"},
+        },
+    ).get_json()["game"]
+
+    first_turn = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 25})
+    assert first_turn.status_code == 200
+    second_turn = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p2, "total_points": 20})
+    assert second_turn.status_code == 200
+
+    undo = client.delete(f"/api/games/{game['id']}/turn")
+    assert undo.status_code == 200
+
+    state = undo.get_json()["game"]
+    players = {player["id"]: player for player in state["players"]}
+    assert players[p1]["fives"] == 5
+    assert players[p2]["fives"] == 0
+    assert state["active_player_id"] == p2
+    assert len(state["turns"]) == 1
+
+
 def test_not_found_and_finished_paths(client):
     undo_missing = client.delete("/api/games/9999/turn")
     assert undo_missing.status_code == 404
@@ -792,6 +821,44 @@ def test_english_cricket_runs_and_wickets_finish_game(client):
     state = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
     assert state["status"] == "finished"
     assert state["winner_team"] in {"team_a", "team_b", None}
+
+
+def test_english_cricket_second_innings_chase_finishes_immediately(client):
+    p1 = add_player(client, "Chase A")
+    p2 = add_player(client, "Chase B")
+
+    game = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2],
+            "game_type": "english_cricket",
+            "team_mode": "solo",
+        },
+    ).get_json()["game"]
+
+    inning_one_turns = [
+        (p2, 0),
+        (p1, 50),
+        (p2, 10),
+        (p1, 0),
+    ]
+    for player_id, total in inning_one_turns:
+        turn = client.post(
+            f"/api/games/{game['id']}/turn",
+            json={"player_id": player_id, "total_points": total},
+        )
+        assert turn.status_code == 200
+
+    winning_chase = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p2, "total_points": 51},
+    )
+    assert winning_chase.status_code == 200
+
+    state = winning_chase.get_json()["game"]
+    assert state["status"] == "finished"
+    assert state["winner_team"] == "team_b"
+    assert state["cricket_state"]["runs"]["team_b"] == 11
 
 
 def test_55by5_team_mode_winner(client):

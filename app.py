@@ -352,6 +352,7 @@ def parse_team_names(raw_value: str | None) -> dict[str, str]:
 
 
 def parse_cricket_state(raw_value: str | None) -> dict:
+    """Deserialize stored cricket state and fill any missing fields with safe defaults."""
     default_state = build_initial_cricket_state(TEAM_A)
     if not raw_value:
         return default_state
@@ -408,22 +409,129 @@ def team_label(team_key: str | None, team_names: dict[str, str] | None = None) -
     return None
 
 
+def reset_game_scores(score_rows: list[GameScore]) -> dict[int, GameScore]:
+    """Reset persisted score rows before replaying turns from scratch."""
+    score_by_player = {row.player_id: row for row in score_rows}
+    for row in score_rows:
+        row.fives = 0
+    return score_by_player
+
+
+def reset_game_progress(game: Game) -> None:
+    """Return the game to an in-progress baseline ready for deterministic replay."""
+    game.status = "active"
+    game.current_turn_position = 0
+    game.winner_player_id = None
+    game.winner_team = None
+    game.finished_at = None
+
+
+def finish_game(game: Game, *, winner_player_id: int | None = None, winner_team: str | None = None) -> None:
+    """Mark a replayed game as finished and record the winner."""
+    game.status = "finished"
+    game.winner_player_id = winner_player_id
+    game.winner_team = winner_team
+    game.finished_at = datetime.now(timezone.utc)
+
+
+def apply_standard_turn(
+    game: Game,
+    turn: Turn,
+    score_row: GameScore,
+    assignments: dict[int, str],
+    team_totals: dict[str, int],
+) -> None:
+    """Apply one 55 by 5 turn during replay."""
+    _, counted, awarded = turn_result(turn.total_points)
+
+    if game.team_mode == "teams":
+        team = assignments.get(turn.player_id, TEAM_A)
+        projected = team_totals[team] + awarded
+        if counted and projected > 55:
+            counted = False
+            awarded = 0
+        if counted:
+            team_totals[team] = projected
+            if projected == 55:
+                finish_game(game, winner_team=team)
+    else:
+        projected = score_row.fives + awarded
+        if counted and projected > 55:
+            counted = False
+            awarded = 0
+        if counted and projected == 55:
+            finish_game(game, winner_player_id=turn.player_id)
+
+    turn.counted = counted
+    turn.fives_awarded = awarded
+    score_row.fives += awarded
+
+
+def apply_cricket_turn(
+    game: Game,
+    turn: Turn,
+    score_row: GameScore,
+    assignments: dict[int, str],
+    cricket_state: dict,
+) -> None:
+    """Apply one English Cricket turn during replay."""
+    team = assignments.get(turn.player_id, TEAM_A)
+    batting_team = cricket_state["batting_team"]
+    bowling_team = cricket_state["bowling_team"]
+
+    if team == batting_team:
+        runs = max(turn.total_points - 40, 0)
+        turn.counted = runs > 0
+        turn.fives_awarded = runs
+        score_row.fives += runs
+        cricket_state["runs"][batting_team] += runs
+
+        if cricket_state["inning"] == 2:
+            chase_target = cricket_state["runs"][bowling_team]
+            if cricket_state["runs"][batting_team] > chase_target:
+                finish_game(game, winner_team=batting_team)
+        return
+
+    marks = max(0, turn.total_points)
+    current_marks = cricket_state["wickets"][bowling_team]
+    gained = min(marks, CRICKET_WICKET_TARGET - current_marks)
+    turn.counted = gained > 0
+    turn.fives_awarded = gained
+    score_row.fives += gained
+    cricket_state["wickets"][bowling_team] += gained
+
+    if cricket_state["wickets"][bowling_team] < CRICKET_WICKET_TARGET:
+        return
+
+    if cricket_state["inning"] == 1:
+        cricket_state["inning"] = 2
+        cricket_state["batting_team"], cricket_state["bowling_team"] = (
+            cricket_state["bowling_team"],
+            cricket_state["batting_team"],
+        )
+        return
+
+    team_a_runs = cricket_state["runs"][TEAM_A]
+    team_b_runs = cricket_state["runs"][TEAM_B]
+    if team_a_runs > team_b_runs:
+        finish_game(game, winner_team=TEAM_A)
+    elif team_b_runs > team_a_runs:
+        finish_game(game, winner_team=TEAM_B)
+    else:
+        finish_game(game)
+
+
 def recompute_game_state(game: Game) -> None:
+    """Replay every stored turn to rebuild scores, turn order, and winners."""
     ordered = game_ordered_players(game.id)
     if not ordered:
         return
 
     assignments = parse_team_assignments(game.team_assignments)
     score_rows = GameScore.query.filter_by(game_id=game.id).all()
-    score_by_player = {row.player_id: row for row in score_rows}
-    for row in score_rows:
-        row.fives = 0
+    score_by_player = reset_game_scores(score_rows)
 
-    game.status = "active"
-    game.current_turn_position = 0
-    game.winner_player_id = None
-    game.winner_team = None
-    game.finished_at = None
+    reset_game_progress(game)
 
     stored_cricket_state = parse_cricket_state(game.cricket_state)
     if game.game_type == "english_cricket":
@@ -431,6 +539,7 @@ def recompute_game_state(game: Game) -> None:
         game.current_turn_position = starting_turn_position(ordered, assignments, cricket_state["bowling_team"])
     else:
         cricket_state = stored_cricket_state
+
     team_totals = {TEAM_A: 0, TEAM_B: 0}
     turns = Turn.query.filter_by(game_id=game.id).order_by(Turn.turn_number.asc()).all()
 
@@ -451,77 +560,9 @@ def recompute_game_state(game: Game) -> None:
             continue
 
         if game.game_type == "english_cricket":
-            team = assignments.get(turn.player_id, TEAM_A)
-            batting_team = cricket_state["batting_team"]
-            bowling_team = cricket_state["bowling_team"]
-
-            if team == batting_team:
-                runs = max(turn.total_points - 40, 0)
-                turn.counted = runs > 0
-                turn.fives_awarded = runs
-                score_row.fives += runs
-                cricket_state["runs"][batting_team] += runs
-
-                if cricket_state["inning"] == 2:
-                    chase_target = cricket_state["runs"][bowling_team]
-                    if cricket_state["runs"][batting_team] > chase_target:
-                        game.status = "finished"
-                        game.winner_team = batting_team
-                        game.finished_at = datetime.now(timezone.utc)
-            else:
-                marks = max(0, turn.total_points)
-                current_marks = cricket_state["wickets"][bowling_team]
-                gained = min(marks, CRICKET_WICKET_TARGET - current_marks)
-                turn.counted = gained > 0
-                turn.fives_awarded = gained
-                score_row.fives += gained
-                cricket_state["wickets"][bowling_team] += gained
-
-                if cricket_state["wickets"][bowling_team] >= CRICKET_WICKET_TARGET:
-                    if cricket_state["inning"] == 1:
-                        cricket_state["inning"] = 2
-                        cricket_state["batting_team"], cricket_state["bowling_team"] = (
-                            cricket_state["bowling_team"],
-                            cricket_state["batting_team"],
-                        )
-                    else:
-                        game.status = "finished"
-                        team_a_runs = cricket_state["runs"][TEAM_A]
-                        team_b_runs = cricket_state["runs"][TEAM_B]
-                        if team_a_runs > team_b_runs:
-                            game.winner_team = TEAM_A
-                        elif team_b_runs > team_a_runs:
-                            game.winner_team = TEAM_B
-                        game.finished_at = datetime.now(timezone.utc)
+            apply_cricket_turn(game, turn, score_row, assignments, cricket_state)
         else:
-            counted = turn.total_points % 5 == 0
-            awarded = turn.total_points // 5 if counted else 0
-
-            if game.team_mode == "teams":
-                team = assignments.get(turn.player_id, TEAM_A)
-                projected = team_totals[team] + awarded
-                if counted and projected > 55:
-                    counted = False
-                    awarded = 0
-                if counted:
-                    team_totals[team] = projected
-                    if projected == 55:
-                        game.status = "finished"
-                        game.winner_team = team
-                        game.finished_at = datetime.now(timezone.utc)
-            else:
-                projected = score_row.fives + awarded
-                if counted and projected > 55:
-                    counted = False
-                    awarded = 0
-                if counted and projected == 55:
-                    game.status = "finished"
-                    game.winner_player_id = turn.player_id
-                    game.finished_at = datetime.now(timezone.utc)
-
-            turn.counted = counted
-            turn.fives_awarded = awarded
-            score_row.fives += awarded
+            apply_standard_turn(game, turn, score_row, assignments, team_totals)
 
         if game.status == "active":
             game.current_turn_position = (game.current_turn_position + 1) % len(ordered)
@@ -574,23 +615,59 @@ def game_scores_map(game_id: int) -> dict[int, int]:
     return {row.player_id: row.fives for row in rows}
 
 
+def active_player_id_for_game(game: Game, ordered_players: list[dict]) -> int | None:
+    if game.status != "active" or not ordered_players:
+        return None
+    if not 0 <= game.current_turn_position < len(ordered_players):
+        return None
+    return ordered_players[game.current_turn_position]["id"]
+
+
+def serialize_players_for_game(
+    ordered_players: list[dict],
+    scores: dict[int, int],
+    assignments: dict[int, str],
+) -> list[dict]:
+    return [
+        {
+            "id": item["id"],
+            "name": item["name"],
+            "position": item["position"],
+            "fives": scores.get(item["id"], 0),
+            "team": assignments.get(item["id"]),
+        }
+        for item in ordered_players
+    ]
+
+
+def serialize_turns_for_game(game_id: int) -> list[dict]:
+    turns = (
+        db.session.query(Turn, Player)
+        .join(Player, Player.id == Turn.player_id)
+        .filter(Turn.game_id == game_id)
+        .order_by(Turn.turn_number.asc())
+        .all()
+    )
+    return [
+        {
+            "turn_number": turn.turn_number,
+            "player_id": turn.player_id,
+            "player_name": player.name,
+            "total_points": turn.total_points,
+            "counted": turn.counted,
+            "fives_awarded": turn.fives_awarded,
+            "created_at": now_iso(turn.created_at),
+        }
+        for turn, player in turns
+    ]
+
+
 def serialize_game_state(game: Game) -> dict:
+    """Return the full JSON game payload consumed by the UI and tests."""
     ordered_players = game_ordered_players(game.id)
     scores = game_scores_map(game.id)
     assignments = parse_team_assignments(game.team_assignments)
     team_names = parse_team_names(game.team_names)
-    cricket_state = parse_cricket_state(game.cricket_state)
-    active_player_id = None
-    if game.status == "active" and ordered_players:
-        active_player_id = ordered_players[game.current_turn_position]["id"]
-
-    turns = (
-        db.session.query(Turn, Player)
-        .join(Player, Player.id == Turn.player_id)
-        .filter(Turn.game_id == game.id)
-        .order_by(Turn.turn_number.asc())
-        .all()
-    )
 
     return {
         "id": game.id,
@@ -601,34 +678,14 @@ def serialize_game_state(game: Game) -> dict:
         "winner_team_name": team_label(game.winner_team, team_names),
         "team_names": team_names,
         "current_turn_position": game.current_turn_position,
-        "active_player_id": active_player_id,
+        "active_player_id": active_player_id_for_game(game, ordered_players),
         "winner_player_id": game.winner_player_id,
         "started_at": now_iso(game.started_at),
         "finished_at": now_iso(game.finished_at),
         "team_assignments": {str(k): v for k, v in assignments.items()},
-        "cricket_state": cricket_state if game.game_type == "english_cricket" else None,
-        "players": [
-            {
-                "id": item["id"],
-                "name": item["name"],
-                "position": item["position"],
-                "fives": scores.get(item["id"], 0),
-                "team": assignments.get(item["id"]),
-            }
-            for item in ordered_players
-        ],
-        "turns": [
-            {
-                "turn_number": turn.turn_number,
-                "player_id": turn.player_id,
-                "player_name": player.name,
-                "total_points": turn.total_points,
-                "counted": turn.counted,
-                "fives_awarded": turn.fives_awarded,
-                "created_at": now_iso(turn.created_at),
-            }
-            for turn, player in turns
-        ],
+        "cricket_state": parse_cricket_state(game.cricket_state) if game.game_type == "english_cricket" else None,
+        "players": serialize_players_for_game(ordered_players, scores, assignments),
+        "turns": serialize_turns_for_game(game.id),
     }
 
 
@@ -842,6 +899,89 @@ def get_active_game():
     return jsonify({"game": serialize_game_state(game)})
 
 
+def validate_ordered_player_ids(raw_player_ids: object) -> tuple[list[int] | None, str | None]:
+    """Validate the ordered player ids supplied for a new game."""
+    if not isinstance(raw_player_ids, list) or not raw_player_ids:
+        return None, "ordered_player_ids must be a non-empty list."
+    if len(raw_player_ids) != len(set(raw_player_ids)):
+        return None, "ordered_player_ids contains duplicate players."
+    if any(not isinstance(player_id, int) for player_id in raw_player_ids):
+        return None, "ordered_player_ids must contain integers."
+
+    players = Player.query.filter(Player.id.in_(raw_player_ids)).all()
+    if len(players) != len(raw_player_ids):
+        return None, "One or more players were not found."
+    return raw_player_ids, None
+
+
+def normalize_requested_team_names(raw_team_names: object) -> tuple[dict[str, str] | None, str | None]:
+    if raw_team_names and not isinstance(raw_team_names, dict):
+        return None, "team_names must be an object when team mode is teams."
+
+    team_names = default_team_names()
+    if isinstance(raw_team_names, dict):
+        for team_key, fallback in team_names.items():
+            team_names[team_key] = normalize_team_name_value(raw_team_names.get(team_key), fallback)
+    return team_names, None
+
+
+def normalize_requested_team_assignments(
+    game_type: str,
+    team_mode: str,
+    ordered_player_ids: list[int],
+    raw_assignments: object,
+) -> tuple[dict[int, str] | None, str | None]:
+    normalized_assignments: dict[int, str] = {}
+
+    if team_mode == "teams":
+        if not isinstance(raw_assignments, dict):
+            return None, "team_assignments must be an object when team mode is teams."
+
+        for raw_player_id, team in raw_assignments.items():
+            try:
+                pid = int(raw_player_id)
+            except (TypeError, ValueError):
+                return None, "team_assignments contains invalid player id."
+            if pid not in ordered_player_ids:
+                return None, "team_assignments contains unknown player id."
+            if team not in {TEAM_A, TEAM_B}:
+                return None, "team_assignments must use team_a or team_b."
+            normalized_assignments[pid] = team
+
+        if len(normalized_assignments) != len(ordered_player_ids):
+            return None, "Every selected player must be assigned to a team."
+        if set(normalized_assignments.values()) != {TEAM_A, TEAM_B}:
+            return None, "Both Team A and Team B must have at least one player."
+        return normalized_assignments, None
+
+    if game_type == "english_cricket":
+        if len(ordered_player_ids) != 2:
+            return None, "English Cricket in solo mode requires exactly two players."
+        normalized_assignments[ordered_player_ids[0]] = TEAM_A
+        normalized_assignments[ordered_player_ids[1]] = TEAM_B
+
+    return normalized_assignments, None
+
+
+def build_new_game_start_state(
+    game_type: str,
+    ordered_player_ids: list[int],
+    normalized_assignments: dict[int, str],
+    starting_batting_team: str | None,
+) -> tuple[int, str | None]:
+    if game_type != "english_cricket":
+        return 0, None
+
+    opening_state = build_initial_cricket_state(starting_batting_team)
+    ordered_for_start = [{"id": player_id} for player_id in ordered_player_ids]
+    initial_turn_position = starting_turn_position(
+        ordered_for_start,
+        normalized_assignments,
+        opening_state["bowling_team"],
+    )
+    return initial_turn_position, json.dumps(opening_state)
+
+
 @app.post("/api/games")
 def create_game():
     if Game.query.filter_by(status="active").first():
@@ -850,64 +990,30 @@ def create_game():
     payload = request.get_json(silent=True) or {}
     game_type = normalize_game_type(payload.get("game_type"))
     team_mode = normalize_team_mode(payload.get("team_mode"))
-    ordered_player_ids = payload.get("ordered_player_ids") or []
-    if not isinstance(ordered_player_ids, list) or not ordered_player_ids:
-        return jsonify({"error": "ordered_player_ids must be a non-empty list."}), 400
 
-    if len(ordered_player_ids) != len(set(ordered_player_ids)):
-        return jsonify({"error": "ordered_player_ids contains duplicate players."}), 400
+    ordered_player_ids, error = validate_ordered_player_ids(payload.get("ordered_player_ids") or [])
+    if error:
+        return jsonify({"error": error}), 400
 
-    players = Player.query.filter(Player.id.in_(ordered_player_ids)).all()
-    if len(players) != len(ordered_player_ids):
-        return jsonify({"error": "One or more players were not found."}), 400
+    team_names, error = normalize_requested_team_names(payload.get("team_names") or {})
+    if error:
+        return jsonify({"error": error}), 400
 
-    raw_assignments = payload.get("team_assignments") or {}
-    raw_team_names = payload.get("team_names") or {}
-    if raw_team_names and not isinstance(raw_team_names, dict):
-        return jsonify({"error": "team_names must be an object when team mode is teams."}), 400
+    normalized_assignments, error = normalize_requested_team_assignments(
+        game_type,
+        team_mode,
+        ordered_player_ids,
+        payload.get("team_assignments") or {},
+    )
+    if error:
+        return jsonify({"error": error}), 400
 
-    team_names = default_team_names()
-    if isinstance(raw_team_names, dict):
-        for team_key, fallback in team_names.items():
-            team_names[team_key] = normalize_team_name_value(raw_team_names.get(team_key), fallback)
-
-    normalized_assignments: dict[int, str] = {}
-    if team_mode == "teams":
-        if not isinstance(raw_assignments, dict):
-            return jsonify({"error": "team_assignments must be an object when team mode is teams."}), 400
-        for raw_player_id, team in raw_assignments.items():
-            try:
-                pid = int(raw_player_id)
-            except (TypeError, ValueError):
-                return jsonify({"error": "team_assignments contains invalid player id."}), 400
-            if pid not in ordered_player_ids:
-                return jsonify({"error": "team_assignments contains unknown player id."}), 400
-            if team not in {TEAM_A, TEAM_B}:
-                return jsonify({"error": "team_assignments must use team_a or team_b."}), 400
-            normalized_assignments[pid] = team
-
-        if len(normalized_assignments) != len(ordered_player_ids):
-            return jsonify({"error": "Every selected player must be assigned to a team."}), 400
-        if set(normalized_assignments.values()) != {TEAM_A, TEAM_B}:
-            return jsonify({"error": "Both Team A and Team B must have at least one player."}), 400
-    elif game_type == "english_cricket":
-        if len(ordered_player_ids) != 2:
-            return jsonify({"error": "English Cricket in solo mode requires exactly two players."}), 400
-        normalized_assignments[ordered_player_ids[0]] = TEAM_A
-        normalized_assignments[ordered_player_ids[1]] = TEAM_B
-
-    initial_turn_position = 0
-    cricket_state = None
-    if game_type == "english_cricket":
-        starting_batting_team = normalize_cricket_team(payload.get("starting_batting_team"), TEAM_A)
-        opening_state = build_initial_cricket_state(starting_batting_team)
-        cricket_state = json.dumps(opening_state)
-        ordered_for_start = [{"id": player_id} for player_id in ordered_player_ids]
-        initial_turn_position = starting_turn_position(
-            ordered_for_start,
-            normalized_assignments,
-            opening_state["bowling_team"],
-        )
+    initial_turn_position, cricket_state = build_new_game_start_state(
+        game_type,
+        ordered_player_ids,
+        normalized_assignments,
+        normalize_cricket_team(payload.get("starting_batting_team"), TEAM_A),
+    )
 
     game = Game(
         status="active",
