@@ -183,6 +183,20 @@ def test_active_game_hides_select_game_panel_and_change_game_button(live_server,
     assert not browser.find_element(By.ID, "game-selection-panel").is_displayed()
 
 
+def test_logout_during_active_game_prompts_for_confirmation(live_server, browser):
+    browser.get(live_server)
+    start_single_player_game(browser, "Nora")
+
+    browser.find_element(By.CSS_SELECTOR, ".logout-form button[type='submit']").click()
+    alert = _wait(browser).until(ec.alert_is_present())
+
+    assert "quit the current game" in alert.text.lower()
+
+    alert.dismiss()
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
+    assert "Nora to Throw" in browser.find_element(By.ID, "active-game-meta").text
+
+
 def test_help_button_opens_user_manual_in_header(live_server, browser):
     browser.get(live_server)
 

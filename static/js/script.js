@@ -51,6 +51,7 @@ const winnerOverlayEl = document.getElementById("winner-overlay");
 const bustBannerEl = document.getElementById("bust-banner");
 const scoreWarningBannerEl = document.getElementById("score-warning-banner");
 const currentUserEl = document.getElementById("current-user");
+const logoutFormEl = document.querySelector(".logout-form");
 const adminPanelEl = document.getElementById("admin-panel");
 const clearHistoryEl = document.getElementById("clear-history");
 const userAccountsListEl = document.getElementById("user-accounts-list");
@@ -183,6 +184,14 @@ function showWinnerOverlay(winnerName) {
 function showMessage(text, isError = false) {
   messageEl.textContent = text;
   messageEl.className = isError ? "message error" : "message";
+}
+
+function confirmLogoutIfNeeded() {
+  if (!state.game || state.game.status !== "active") {
+    return true;
+  }
+
+  return window.confirm("Logging out will also quit the current game. Continue?");
 }
 
 async function logoutForInactivity() {
@@ -1491,6 +1500,13 @@ async function init() {
     }
     rebuildOrder();
   });
+
+  if (logoutFormEl) {
+    logoutFormEl.addEventListener("submit", (event) => {
+      if (confirmLogoutIfNeeded()) return;
+      event.preventDefault();
+    });
+  }
 
   const createUserForm = document.getElementById("create-user-form");
   if (createUserForm) {
