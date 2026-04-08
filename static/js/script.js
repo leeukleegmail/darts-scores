@@ -973,12 +973,14 @@ function getCricketTeamInfo(game, teamKey, grouped, fallbackStart = 0) {
   const members = grouped[teamKey].length ? grouped[teamKey] : fallbackMembers;
   const teamName = teamDisplayName(teamKey, game.team_names);
   const memberNames = members.map((player) => player.name).join(", ") || "No players selected";
+  const isTeamMode = game.team_mode === "teams";
   return {
     key: teamKey,
     teamName,
     members,
     memberNames,
-    title: memberNames,
+    roleName: isTeamMode ? teamName : memberNames,
+    title: isTeamMode ? memberNames : "",
     subtitle: "",
   };
 }
@@ -1098,8 +1100,8 @@ function renderCricketDashboard(game) {
   cricketBowlingPanelEl.innerHTML = `
     <div class="cricket-panel-header">
       <div>
-        <p class="cricket-role-tag">Bowling Side : ${bowlingInfo.teamName}</p>
-        <h4>${bowlingInfo.title}</h4>
+        <p class="cricket-role-tag">Bowling Side : ${bowlingInfo.roleName}</p>
+        ${bowlingInfo.title ? `<h4>${bowlingInfo.title}</h4>` : ""}
         ${bowlingInfo.subtitle ? `<p class="hint">${bowlingInfo.subtitle}</p>` : ""}
       </div>
       <div class="cricket-score-pill">
@@ -1118,8 +1120,8 @@ function renderCricketDashboard(game) {
   cricketBattingPanelEl.innerHTML = `
     <div class="cricket-panel-header">
       <div>
-        <p class="cricket-role-tag">Batting Side : ${battingInfo.teamName}</p>
-        <h4>${battingInfo.title}</h4>
+        <p class="cricket-role-tag">Batting Side : ${battingInfo.roleName}</p>
+        ${battingInfo.title ? `<h4>${battingInfo.title}</h4>` : ""}
         ${battingInfo.subtitle ? `<p class="hint">${battingInfo.subtitle}</p>` : ""}
       </div>
       <div class="cricket-score-group">
