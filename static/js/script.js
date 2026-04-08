@@ -978,8 +978,8 @@ function getCricketTeamInfo(game, teamKey, grouped, fallbackStart = 0) {
     teamName,
     members,
     memberNames,
-    title: game.team_mode === "teams" ? teamName : memberNames,
-    subtitle: game.team_mode === "teams" ? memberNames : teamName,
+    title: memberNames,
+    subtitle: "",
   };
 }
 
@@ -1098,9 +1098,9 @@ function renderCricketDashboard(game) {
   cricketBowlingPanelEl.innerHTML = `
     <div class="cricket-panel-header">
       <div>
-        <p class="cricket-role-tag">Bowling Side</p>
+        <p class="cricket-role-tag">Bowling Side : ${bowlingInfo.teamName}</p>
         <h4>${bowlingInfo.title}</h4>
-        <p class="hint">${bowlingInfo.subtitle}</p>
+        ${bowlingInfo.subtitle ? `<p class="hint">${bowlingInfo.subtitle}</p>` : ""}
       </div>
       <div class="cricket-score-pill">
         <span>Wickets</span>
@@ -1118,9 +1118,9 @@ function renderCricketDashboard(game) {
   cricketBattingPanelEl.innerHTML = `
     <div class="cricket-panel-header">
       <div>
-        <p class="cricket-role-tag">Batting Side</p>
+        <p class="cricket-role-tag">Batting Side : ${battingInfo.teamName}</p>
         <h4>${battingInfo.title}</h4>
-        <p class="hint">${battingInfo.subtitle}</p>
+        ${battingInfo.subtitle ? `<p class="hint">${battingInfo.subtitle}</p>` : ""}
       </div>
       <div class="cricket-score-group">
         <div class="cricket-score-pill runs-pill">
@@ -1297,14 +1297,7 @@ function renderGame() {
     const winnerName = game.winner_team_name || game.players.find((p) => p.id === game.winner_player_id)?.name || "Tie";
     activeGameMetaEl.innerHTML = `<strong>Winner: ${winnerName}</strong>`;
   } else if (isCricket) {
-    const { cs, battingTeam, bowlingTeam, battingInfo, bowlingInfo } = getCricketContext(game);
-    const inning = cs.inning || 1;
-    const runs = cs.runs || {};
-    const wickets = cs.wickets || {};
-    activeGameMetaEl.innerHTML = `
-      <strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong><br/>
-      Inning ${inning}: ${battingInfo.teamName} batting on ${runs[battingTeam] || 0}, ${bowlingInfo.teamName} bowling with ${wickets[bowlingTeam] || 0} / 10 wicket marks.
-    `;
+    activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong>`;
   } else {
     activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong>`;
   }

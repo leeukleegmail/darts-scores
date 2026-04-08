@@ -10,18 +10,16 @@
     <main class="app-shell">
       <header class="hero">
         <h1 id="hero-title">Set Up Your Darts Game</h1>
-        <p id="hero-subtitle">Pick your players, sort out teams and order, then choose a game to start scoring.</p>
         <div class="user-bar">
+          <button type="button" id="help-button" class="btn-ghost header-help-button" aria-haspopup="dialog" aria-controls="help-overlay">
+            Help
+          </button>
           <span id="current-user"></span>
-          <div class="user-bar-actions">
-            <button type="button" id="help-button" class="btn-ghost header-help-button" aria-haspopup="dialog" aria-controls="help-overlay">
-              Help
-            </button>
-            <form action="/logout" method="post" class="logout-form">
-              <button type="submit">Log out</button>
-            </form>
-          </div>
+          <form action="/logout" method="post" class="logout-form">
+            <button type="submit">Log out</button>
+          </form>
         </div>
+        <p id="hero-subtitle">Pick your players, sort out teams and order, then choose a game to start scoring.</p>
       </header>
 
       <section class="panel hidden" id="admin-panel">
