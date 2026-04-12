@@ -186,6 +186,57 @@ def start_noughts_game(browser, first_player: str, second_player: str):
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "noughts-dashboard")))
 
 
+def start_noughts_team_game(browser, team_a_players: list, team_b_players: list):
+    """Start a Noughts and Crosses game in teams mode.
+
+    Players are added in the order team_a_players + team_b_players.
+    syncTeamAssignments() auto-balances them alternately into Team A / Team B,
+    so the calling convention determines which players end up on which team:
+      add order [a0, a1, b0, b1] → Team A: a0, b0; Team B: a1, b1
+    We let the auto-balance handle placement rather than using the swap UI,
+    which avoids relying on fragile drag/swap interaction details.
+    """
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "setup-panel")))
+
+    all_players = team_a_players + team_b_players
+    for player_name in all_players:
+        add_player(browser, player_name)
+        player_checkbox = _wait(browser).until(
+            ec.presence_of_element_located(
+                (
+                    By.XPATH,
+                    f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
+                )
+            )
+        )
+        if not player_checkbox.is_selected():
+            player_checkbox.click()
+
+    team_mode = _wait(browser).until(ec.element_to_be_clickable((By.ID, "team-mode-teams")))
+    if not team_mode.is_selected():
+        team_mode.click()
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "team-assignment")))
+    # Wait for auto-balance to populate both lists
+    _wait(browser).until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "#team-a-list li")) > 0)
+    _wait(browser).until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "#team-b-list li")) > 0)
+
+    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-noughts-and-crosses"))).click()
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "noughts-dashboard")))
+
+
+def noughts_click_cell(browser, cell_index: int, mark: str) -> None:
+    """Click a Noughts board cell and confirm the mark in the overlay."""
+    board = _wait(browser).until(ec.visibility_of_element_located((By.ID, "noughts-dashboard")))
+    cell = board.find_element(By.CSS_SELECTOR, f"[data-board-index='{cell_index}']")
+    cell.click()
+    chooser = _wait(browser).until(ec.visibility_of_element_located((By.ID, "noughts-mark-overlay")))
+    chooser.find_element(By.CSS_SELECTOR, f"[data-noughts-mark='{mark}']").click()
+    _wait(browser).until(
+        lambda d: d.find_elements(By.CSS_SELECTOR, f"[data-board-index='{cell_index}'].is-marked")
+    )
+
+
 def submit_standard_score_with_keypad(browser, value: int):
     keypad = _wait(browser).until(ec.visibility_of_element_located((By.ID, "standard-score-keypad")))
     display = browser.find_element(By.ID, "turn-total")
@@ -743,3 +794,263 @@ def test_non_divisible_by_five_shows_popup_and_keeps_total(live_server, browser)
     scoreboard_text = browser.find_element(By.ID, "scoreboard").text
     assert "Eve" in scoreboard_text
     assert "0" in scoreboard_text
+
+
+# ---------------------------------------------------------------------------
+# Noughts and Crosses – individual play
+# ---------------------------------------------------------------------------
+
+def test_noughts_individual_x_o_pills_show_player_names(live_server, browser):
+    """X and O side pills display the individual player names."""
+    browser.get(live_server)
+    start_noughts_game(browser, "Alice", "Bob")
+
+    dashboard = browser.find_element(By.ID, "noughts-dashboard")
+    pills = dashboard.find_elements(By.CSS_SELECTOR, ".noughts-side-pill")
+    pill_text = " ".join(p.text for p in pills)
+    assert "Alice" in pill_text
+    assert "Bob" in pill_text
+
+
+def test_noughts_individual_cell_can_be_claimed_with_x(live_server, browser):
+    """Clicking an unclaimed cell and choosing X marks it as X."""
+    browser.get(live_server)
+    start_noughts_game(browser, "Clara", "Dan")
+
+    noughts_click_cell(browser, 0, "X")
+
+    cell = browser.find_element(By.CSS_SELECTOR, "[data-board-index='0']")
+    assert "is-x" in cell.get_attribute("class")
+    assert cell.find_element(By.CSS_SELECTOR, ".noughts-cell-mark").text.strip() == "X"
+
+
+def test_noughts_individual_cell_can_be_claimed_with_o(live_server, browser):
+    """Clicking an unclaimed cell and choosing O marks it as O."""
+    browser.get(live_server)
+    start_noughts_game(browser, "Eli", "Fay")
+
+    noughts_click_cell(browser, 1, "O")
+
+    cell = browser.find_element(By.CSS_SELECTOR, "[data-board-index='1']")
+    assert "is-o" in cell.get_attribute("class")
+    assert cell.find_element(By.CSS_SELECTOR, ".noughts-cell-mark").text.strip() == "O"
+
+
+def test_noughts_individual_turn_appears_in_turn_log(live_server, browser):
+    """Each claimed cell is recorded in the turns list."""
+    browser.get(live_server)
+    start_noughts_game(browser, "Grace", "Hal")
+
+    noughts_click_cell(browser, 2, "X")
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#1 Grace:"))
+    turn_text = browser.find_element(By.ID, "turns-list").text
+    assert "X" in turn_text or "x" in turn_text.lower()
+
+    noughts_click_cell(browser, 3, "O")
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#2 Hal:"))
+
+
+def test_noughts_individual_undo_button_is_visible_and_functional(live_server, browser):
+    """Undo removes the last claimed cell from the board."""
+    browser.get(live_server)
+    start_noughts_game(browser, "Ida", "Jake")
+
+    noughts_click_cell(browser, 4, "X")
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#1 Ida:"))
+
+    undo_btn = _wait(browser).until(ec.element_to_be_clickable((By.ID, "cricket-undo-turn")))
+    assert undo_btn.is_displayed()
+    undo_btn.click()
+
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "message"), "Last turn undone."))
+    # Cell should be unclaimed again
+    cell = _wait(browser).until(
+        lambda d: d.find_element(By.CSS_SELECTOR, "[data-board-index='4']")
+    )
+    _wait(browser).until(lambda d: "is-marked" not in d.find_element(By.CSS_SELECTOR, "[data-board-index='4']").get_attribute("class"))
+
+
+def test_noughts_individual_undo_preserves_other_cells(live_server, browser):
+    """Undoing the last move does not disturb previously claimed cells."""
+    browser.get(live_server)
+    start_noughts_game(browser, "Kim", "Leo")
+
+    noughts_click_cell(browser, 0, "X")
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#1 Kim:"))
+    noughts_click_cell(browser, 1, "O")
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#2 Leo:"))
+
+    browser.find_element(By.ID, "cricket-undo-turn").click()
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "message"), "Last turn undone."))
+
+    # Cell 0 (first move) must still be claimed
+    _wait(browser).until(lambda d: "is-marked" in d.find_element(By.CSS_SELECTOR, "[data-board-index='0']").get_attribute("class"))
+    # Cell 1 (undone move) must be unclaimed
+    _wait(browser).until(lambda d: "is-marked" not in d.find_element(By.CSS_SELECTOR, "[data-board-index='1']").get_attribute("class"))
+
+
+def test_noughts_individual_winning_line_shows_winner_overlay(live_server, browser):
+    """Completing a three-in-a-row triggers the winner overlay."""
+    browser.get(live_server)
+    start_noughts_game(browser, "Mia", "Ned")
+
+    # Claim cells 0, 1, 2 with X (rows 0–2 of the top row) to make X win
+    # Alternate marks: Mia=X, Ned=O
+    noughts_click_cell(browser, 0, "X")
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#1 Mia:"))
+    noughts_click_cell(browser, 3, "O")
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#2 Ned:"))
+    noughts_click_cell(browser, 1, "X")
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#3 Mia:"))
+    noughts_click_cell(browser, 4, "O")
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#4 Ned:"))
+    noughts_click_cell(browser, 2, "X")
+
+    # Winner overlay must appear
+    overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
+    assert overlay.is_displayed()
+    winner_text = overlay.text
+    assert "Mia" in winner_text or "X" in winner_text
+
+
+def test_noughts_individual_claimed_cell_is_disabled(live_server, browser):
+    """A cell that has already been claimed cannot be clicked again."""
+    browser.get(live_server)
+    start_noughts_game(browser, "Ona", "Pat")
+
+    noughts_click_cell(browser, 5, "X")
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#1 Ona:"))
+
+    cell = browser.find_element(By.CSS_SELECTOR, "[data-board-index='5']")
+    assert cell.get_attribute("disabled") is not None
+
+
+def test_noughts_individual_cancel_overlay_leaves_cell_unclaimed(live_server, browser):
+    """Cancelling the mark overlay leaves the cell unclaimed."""
+    browser.get(live_server)
+    start_noughts_game(browser, "Ray", "Sue")
+
+    board = browser.find_element(By.ID, "noughts-dashboard")
+    board.find_element(By.CSS_SELECTOR, "[data-board-index='6']").click()
+    chooser = _wait(browser).until(ec.visibility_of_element_located((By.ID, "noughts-mark-overlay")))
+    cancel_btn = chooser.find_element(By.ID, "noughts-mark-cancel")
+    cancel_btn.click()
+
+    _wait(browser).until(ec.invisibility_of_element_located((By.ID, "noughts-mark-overlay")))
+    cell = browser.find_element(By.CSS_SELECTOR, "[data-board-index='6']")
+    assert "is-marked" not in (cell.get_attribute("class") or "")
+
+
+def test_noughts_individual_quit_returns_to_setup(live_server, browser):
+    """Quitting an active Noughts game returns to the setup screen."""
+    browser.get(live_server)
+    start_noughts_game(browser, "Tom", "Uma")
+
+    browser.execute_script("window.confirm = function () { return true; };")
+    browser.find_element(By.ID, "quit-game").click()
+
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "message"), "Game quit."))
+    _wait(browser).until(lambda d: not d.find_element(By.ID, "live-panel").is_displayed())
+    assert browser.find_element(By.ID, "players-panel").is_displayed()
+
+
+# ---------------------------------------------------------------------------
+# Noughts and Crosses – team play
+# ---------------------------------------------------------------------------
+
+def test_noughts_team_x_o_pills_show_team_names_with_initials(live_server, browser):
+    """In team mode the X/O pills show 'Team A (V & X)' style initials labels.
+
+    Auto-balance with add-order [Vera, Walt, Xena, Yuki] yields:
+    Team A: Vera, Xena  Team B: Walt, Yuki
+    """
+    browser.get(live_server)
+    start_noughts_team_game(browser, ["Vera", "Walt"], ["Xena", "Yuki"])
+
+    dashboard = browser.find_element(By.ID, "noughts-dashboard")
+    pills = dashboard.find_elements(By.CSS_SELECTOR, ".noughts-side-pill")
+    pill_text = " ".join(p.text for p in pills)
+    assert "Team A" in pill_text
+    assert "Team B" in pill_text
+    # Initials in parentheses should be present (Team A: V & X, Team B: W & Y)
+    assert "(" in pill_text
+    assert "V" in pill_text or "X" in pill_text
+
+
+def test_noughts_team_cell_can_be_claimed_by_team(live_server, browser):
+    """A team member can claim a cell; the cell shows the team's marker.
+
+    Auto-balance with [Zara, Andy, Beth, Cole] → Team A: Zara, Beth; Team B: Andy, Cole.
+    First turn belongs to Zara (Team A / X).
+    """
+    browser.get(live_server)
+    start_noughts_team_game(browser, ["Zara", "Andy"], ["Beth", "Cole"])
+
+    noughts_click_cell(browser, 0, "X")
+    _wait(browser).until(lambda d: "#1" in d.find_element(By.ID, "turns-list").text)
+
+    cell = browser.find_element(By.CSS_SELECTOR, "[data-board-index='0']")
+    assert "is-marked" in cell.get_attribute("class")
+
+
+def test_noughts_team_undo_restores_cell(live_server, browser):
+    """Undo in team mode un-claims the cell and the board label is preserved.
+
+    Auto-balance with [Dean, Ella, Fred, Gwen] → Team A: Dean, Fred; Team B: Ella, Gwen.
+    First turn: Dean (Team A / X).
+    """
+    browser.get(live_server)
+    start_noughts_team_game(browser, ["Dean", "Ella"], ["Fred", "Gwen"])
+
+    board = browser.find_element(By.ID, "noughts-dashboard")
+    first_cell = board.find_elements(By.CSS_SELECTOR, "[data-board-index]")[0]
+    original_label = first_cell.find_element(By.CSS_SELECTOR, ".noughts-cell-label").text.strip()
+
+    noughts_click_cell(browser, 0, "X")
+    _wait(browser).until(lambda d: "#1" in d.find_element(By.ID, "turns-list").text)
+
+    browser.find_element(By.ID, "cricket-undo-turn").click()
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "message"), "Last turn undone."))
+
+    _wait(browser).until(lambda d: "is-marked" not in d.find_element(By.CSS_SELECTOR, "[data-board-index='0']").get_attribute("class"))
+    restored_label = browser.find_element(By.CSS_SELECTOR, "[data-board-index='0'] .noughts-cell-label").text.strip()
+    assert restored_label == original_label
+
+
+def test_noughts_team_winning_line_shows_winner_overlay(live_server, browser):
+    """Team X completing a three-in-a-row triggers the winner overlay.
+
+    Auto-balance with [Hugo, Iris, Jack, Kate] → Team A: Hugo, Jack; Team B: Iris, Kate.
+    Interleaved order: Hugo(X), Iris(O), Jack(X), Kate(O).
+    Hugo and Jack play X; Iris plays O for the blocking turns.
+    """
+    browser.get(live_server)
+    start_noughts_team_game(browser, ["Hugo", "Iris"], ["Jack", "Kate"])
+
+    noughts_click_cell(browser, 0, "X")
+    _wait(browser).until(lambda d: "#1" in d.find_element(By.ID, "turns-list").text)
+    noughts_click_cell(browser, 3, "O")
+    _wait(browser).until(lambda d: "#2" in d.find_element(By.ID, "turns-list").text)
+    noughts_click_cell(browser, 1, "X")
+    _wait(browser).until(lambda d: "#3" in d.find_element(By.ID, "turns-list").text)
+    noughts_click_cell(browser, 4, "O")
+    _wait(browser).until(lambda d: "#4" in d.find_element(By.ID, "turns-list").text)
+    noughts_click_cell(browser, 2, "X")
+
+    overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
+    assert overlay.is_displayed()
+    winner_text = overlay.text
+    assert "Team A" in winner_text or "X" in winner_text
+
+
+def test_noughts_team_quit_returns_to_setup(live_server, browser):
+    """Quitting a team Noughts game returns to the setup screen."""
+    browser.get(live_server)
+    start_noughts_team_game(browser, ["Liam", "Maya"], ["Noel", "Orla"])
+
+    browser.execute_script("window.confirm = function () { return true; };")
+    browser.find_element(By.ID, "quit-game").click()
+
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "message"), "Game quit."))
+    _wait(browser).until(lambda d: not d.find_element(By.ID, "live-panel").is_displayed())
+    assert browser.find_element(By.ID, "players-panel").is_displayed()

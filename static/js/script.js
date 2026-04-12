@@ -695,6 +695,13 @@ function teamDisplayName(teamKey, rawNames = state.teamNames) {
   return teamKey === "team_b" ? names.team_b : names.team_a;
 }
 
+function teamInitialsLabel(teamName, members) {
+  if (teamName !== "Team A" && teamName !== "Team B") return teamName;
+  if (!members || !members.length) return teamName;
+  const initials = members.map((p) => (p.name || "?")[0].toUpperCase()).join(" & ");
+  return `${teamName} (${initials})`;
+}
+
 function oppositeTeam(teamKey) {
   return teamKey === "team_b" ? "team_a" : "team_b";
 }
@@ -1177,7 +1184,7 @@ function groupPlayersByTeam(players) {
 function getCricketTeamInfo(game, teamKey, grouped, fallbackStart = 0) {
   const fallbackMembers = grouped.unassigned.slice(fallbackStart, fallbackStart + 1);
   const members = grouped[teamKey].length ? grouped[teamKey] : fallbackMembers;
-  const teamName = teamDisplayName(teamKey, game.team_names);
+  const teamName = teamInitialsLabel(teamDisplayName(teamKey, game.team_names), members);
   const memberNames = members.map((player) => player.name).join(", ") || "No players selected";
   const isTeamMode = game.team_mode === "teams";
   return {
@@ -1220,9 +1227,9 @@ function renderStandardScoreboard(game) {
   if (game.team_mode === "teams") {
     const grouped = groupPlayersByTeam(players);
     for (const teamKey of ["team_a", "team_b"]) {
-      const label = teamDisplayName(teamKey, game.team_names);
       const members = grouped[teamKey];
       if (!members.length) continue;
+      const label = teamInitialsLabel(teamDisplayName(teamKey, game.team_names), members);
       const teamRow = document.createElement("tr");
       teamRow.className = "team-header-row";
       const teamTotal = members.reduce((sum, player) => sum + player.fives, 0);
@@ -1418,8 +1425,9 @@ function renderNoughtsAndCrossesDashboard(game) {
   const noughtsState = game.noughts_and_crosses_state || { cells: [] };
   const cells = Array.isArray(noughtsState.cells) ? noughtsState.cells : [];
   const winningLine = new Set(Array.isArray(noughtsState.winning_line) ? noughtsState.winning_line : []);
-  const xName = noughtsState.x_name || "X";
-  const oName = noughtsState.o_name || "O";
+  const grouped = game.team_mode === "teams" ? groupPlayersByTeam([...game.players]) : null;
+  const xName = grouped ? teamInitialsLabel(noughtsState.x_name || "X", grouped.team_a) : (noughtsState.x_name || "X");
+  const oName = grouped ? teamInitialsLabel(noughtsState.o_name || "O", grouped.team_b) : (noughtsState.o_name || "O");
 
   noughtsDashboardEl.classList.remove("hidden");
   noughtsDashboardEl.innerHTML = `
@@ -1550,7 +1558,7 @@ function renderGame() {
     sharedTurnActionsEl.classList.toggle("hidden", game.status !== "active");
   }
   if (cricketUndoTurnEl) {
-    const showUndo = game.status === "active";
+    const showUndo = (isCricket || isNoughts) && game.status === "active";
     cricketUndoTurnEl.classList.toggle("hidden", !showUndo);
     cricketUndoTurnEl.disabled = !showUndo || !game.turns.length;
   }
