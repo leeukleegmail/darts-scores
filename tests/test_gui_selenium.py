@@ -518,6 +518,58 @@ def test_english_cricket_rejects_more_than_two_individual_players(live_server, b
     assert not browser.find_element(By.ID, "cricket-start-overlay").is_displayed()
 
 
+def test_noughts_and_crosses_team_mode_can_start(live_server, browser):
+    browser.get(live_server)
+
+    for player_name in ("Nora", "Omar", "Pia", "Quin"):
+        add_player(browser, player_name)
+        player_checkbox = _wait(browser).until(
+            ec.presence_of_element_located(
+                (
+                    By.XPATH,
+                    f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
+                )
+            )
+        )
+        if not player_checkbox.is_selected():
+            player_checkbox.click()
+
+    team_mode = _wait(browser).until(ec.element_to_be_clickable((By.ID, "team-mode-teams")))
+    if not team_mode.is_selected():
+        team_mode.click()
+
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "team-assignment")))
+    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-noughts-and-crosses"))).click()
+
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
+    dashboard = _wait(browser).until(ec.visibility_of_element_located((By.ID, "noughts-dashboard")))
+    assert "Team A" in dashboard.text
+    assert "Team B" in dashboard.text
+
+
+def test_noughts_and_crosses_rejects_more_than_two_individual_players(live_server, browser):
+    browser.get(live_server)
+
+    for player_name in ("Rae", "Seth", "Tia"):
+        add_player(browser, player_name)
+        player_checkbox = _wait(browser).until(
+            ec.presence_of_element_located(
+                (
+                    By.XPATH,
+                    f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
+                )
+            )
+        )
+        if not player_checkbox.is_selected():
+            player_checkbox.click()
+
+    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-noughts-and-crosses"))).click()
+
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "bust-banner"), "Select exactly two players to play Noughts and Crosses."))
+    _wait(browser).until(lambda d: "visible" in d.find_element(By.ID, "bust-banner").get_attribute("class"))
+    assert not browser.find_element(By.ID, "live-panel").is_displayed()
+
+
 def test_submit_turn_updates_score_and_clears_input(live_server, browser):
     browser.get(live_server)
     start_single_player_game(browser, "Bob")

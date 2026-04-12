@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import json
 import os
+import random
 from pathlib import Path
 
 from flask import Flask, g, jsonify, redirect, render_template, request, session, url_for
@@ -250,17 +251,8 @@ TEAM_A = "team_a"
 TEAM_B = "team_b"
 NOUGHTS_AND_CROSSES_MARK_X = "X"
 NOUGHTS_AND_CROSSES_MARK_O = "O"
-NOUGHTS_AND_CROSSES_TARGETS = [
-    "Treble 20",
-    "Small 14",
-    "Double 2",
-    "Double 16",
-    "Bullseye",
-    "Treble 9",
-    "Small 7",
-    "Double 10",
-    "Treble 18",
-]
+NOUGHTS_AND_CROSSES_DARTBOARD_NUMBERS = list(range(1, 21))
+NOUGHTS_AND_CROSSES_SEGMENTS = ["Big", "Small", "Double", "Treble"]
 NOUGHTS_AND_CROSSES_WIN_LINES = (
     (0, 1, 2),
     (3, 4, 5),
@@ -271,6 +263,22 @@ NOUGHTS_AND_CROSSES_WIN_LINES = (
     (0, 4, 8),
     (2, 4, 6),
 )
+
+
+def generate_random_noughts_targets() -> list[str]:
+    """Generate random dartboard targets for Noughts and Crosses board.
+    Center cell (index 4) is always Bullseye.
+    Other 8 cells are random combinations of numbers (1-20) and segments.
+    """
+    targets = []
+    for i in range(9):
+        if i == 4:
+            targets.append("Bullseye")
+        else:
+            number = random.choice(NOUGHTS_AND_CROSSES_DARTBOARD_NUMBERS)
+            segment = random.choice(NOUGHTS_AND_CROSSES_SEGMENTS)
+            targets.append(f"{segment} {number}")
+    return targets
 
 
 def default_team_names() -> dict[str, str]:
@@ -318,8 +326,9 @@ def build_initial_cricket_state(starting_batting_team: str | None = TEAM_A) -> d
 
 
 def build_initial_noughts_and_crosses_state() -> dict:
+    targets = generate_random_noughts_targets()
     return {
-        "cells": [{"label": label, "mark": None} for label in NOUGHTS_AND_CROSSES_TARGETS],
+        "cells": [{"label": label, "mark": None} for label in targets],
         "winner_marker": None,
         "winning_line": [],
     }
@@ -461,21 +470,21 @@ def decode_noughts_marker(encoded_marker: int | None) -> str | None:
 
 
 def parse_noughts_and_crosses_state(raw_value: str | None) -> dict:
-    default_state = build_initial_noughts_and_crosses_state()
     if not raw_value:
-        return default_state
+        return build_initial_noughts_and_crosses_state()
 
     try:
         decoded = json.loads(raw_value)
     except (TypeError, ValueError):
-        return default_state
+        return build_initial_noughts_and_crosses_state()
     if not isinstance(decoded, dict):
-        return default_state
+        return build_initial_noughts_and_crosses_state()
 
     raw_cells = decoded.get("cells") if isinstance(decoded.get("cells"), list) else []
     cells = []
-    for index, fallback_label in enumerate(NOUGHTS_AND_CROSSES_TARGETS):
+    for index in range(9):
         raw_cell = raw_cells[index] if index < len(raw_cells) and isinstance(raw_cells[index], dict) else {}
+        fallback_label = "Bullseye" if index == 4 else f"Square {index + 1}"
         cells.append(
             {
                 "label": str(raw_cell.get("label") or fallback_label),
@@ -486,7 +495,7 @@ def parse_noughts_and_crosses_state(raw_value: str | None) -> dict:
     raw_winning_line = decoded.get("winning_line") if isinstance(decoded.get("winning_line"), list) else []
     winning_line = [
         index for index in raw_winning_line
-        if isinstance(index, int) and 0 <= index < len(NOUGHTS_AND_CROSSES_TARGETS)
+        if isinstance(index, int) and 0 <= index < 9
     ][:3]
 
     return {
@@ -707,7 +716,15 @@ def recompute_game_state(game: Game) -> None:
     else:
         cricket_state = stored_cricket_state
 
-    noughts_state = build_initial_noughts_and_crosses_state() if game.game_type == "noughts_and_crosses" else stored_noughts_state
+    if game.game_type == "noughts_and_crosses":
+        # Preserve generated board labels when replaying turns (e.g., undo) and only reset marks/outcome.
+        noughts_state = stored_noughts_state
+        for cell in noughts_state["cells"]:
+            cell["mark"] = None
+        noughts_state["winner_marker"] = None
+        noughts_state["winning_line"] = []
+    else:
+        noughts_state = stored_noughts_state
 
     team_totals = {TEAM_A: 0, TEAM_B: 0}
     turns = Turn.query.filter_by(game_id=game.id).order_by(Turn.turn_number.asc()).all()
@@ -823,6 +840,7 @@ def serialize_turns_for_game(game: Game) -> list[dict]:
         .order_by(Turn.turn_number.asc())
         .all()
     )
+    noughts_state = parse_noughts_and_crosses_state(game.noughts_and_crosses_state) if game.game_type == "noughts_and_crosses" else {}
     return [
         {
             "turn_number": turn.turn_number,
@@ -833,7 +851,7 @@ def serialize_turns_for_game(game: Game) -> list[dict]:
             "fives_awarded": turn.fives_awarded,
             "noughts_marker": decode_noughts_marker(turn.dart_2) if game.game_type == "noughts_and_crosses" else None,
             "board_index": turn.total_points if game.game_type == "noughts_and_crosses" else None,
-            "board_label": NOUGHTS_AND_CROSSES_TARGETS[turn.total_points] if game.game_type == "noughts_and_crosses" and 0 <= turn.total_points < len(NOUGHTS_AND_CROSSES_TARGETS) else None,
+            "board_label": noughts_state.get("cells", [])[turn.total_points].get("label") if game.game_type == "noughts_and_crosses" and 0 <= turn.total_points < 9 else None,
             "created_at": now_iso(turn.created_at),
         }
         for turn, player in turns
@@ -1263,7 +1281,7 @@ def submit_turn(game_id: int):
 
     noughts_marker = None
     if game.game_type == "noughts_and_crosses":
-        if not 0 <= total_points < len(NOUGHTS_AND_CROSSES_TARGETS):
+        if not 0 <= total_points < 9:
             return jsonify({"error": "Select a valid board square."}), 400
         noughts_marker = normalize_noughts_marker(payload.get("noughts_marker"), None)
 
