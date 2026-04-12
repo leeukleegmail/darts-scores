@@ -243,6 +243,8 @@ body {
 .team-list li {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
   width: 100%;
   max-width: 100%;
   min-height: 2.2rem;
@@ -408,7 +410,35 @@ button:hover {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 0.5rem;
   cursor: grab;
+}
+
+.sortable-player-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sortable-controls {
+  display: inline-flex;
+  gap: 0.3rem;
+}
+
+.sortable-btn {
+  min-width: 2rem;
+  min-height: 2rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(0, 0, 0, 0.25);
+  color: #fff;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.sortable-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
 }
 
 .order-list li.dragging {
@@ -965,6 +995,16 @@ td {
   .turn-actions button,
   .score-key {
     width: 100%;
+  }
+
+  .chip {
+    min-height: 2.25rem;
+    padding: 0.45rem 0.8rem;
+  }
+
+  .sortable-btn {
+    min-width: 2.25rem;
+    min-height: 2.25rem;
   }
 
   .cricket-panel-header,

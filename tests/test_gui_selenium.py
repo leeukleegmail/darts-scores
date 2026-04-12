@@ -179,6 +179,20 @@ def submit_standard_score_with_keypad(browser, value: int):
     keypad.find_element(By.CSS_SELECTOR, "[data-keypad-action='submit']").click()
 
 
+def submit_cricket_score_with_keypad(browser, value: int):
+    keypad = _wait(browser).until(ec.visibility_of_element_located((By.ID, "cricket-batting-keypad")))
+    display = browser.find_element(By.ID, "cricket-batting-total")
+
+    existing_value = display.get_attribute("value") or ""
+    for _ in existing_value:
+        keypad.find_element(By.CSS_SELECTOR, "[data-keypad-action='backspace']").click()
+
+    for digit in str(value):
+        keypad.find_element(By.CSS_SELECTOR, f"[data-keypad-value='{digit}']").click()
+
+    keypad.find_element(By.CSS_SELECTOR, "[data-keypad-action='submit']").click()
+
+
 def test_start_game_shows_live_view(live_server, browser):
     browser.get(live_server)
     start_single_player_game(browser, "Alice")
@@ -221,10 +235,13 @@ def test_english_cricket_batting_panel_shows_onscreen_keypad(live_server, browse
 
     batting_panel = _wait(browser).until(ec.visibility_of_element_located((By.ID, "cricket-batting-panel")))
     keypad = batting_panel.find_element(By.CSS_SELECTOR, ".score-keypad")
+    batting_input = batting_panel.find_element(By.ID, "cricket-batting-total")
 
     assert keypad.is_displayed()
     assert keypad.find_element(By.CSS_SELECTOR, "[data-keypad-action='submit']").text.strip() == "Submit Score"
     assert keypad.find_element(By.CSS_SELECTOR, "[data-keypad-action='no-score']").text.strip() == "No Score"
+    assert batting_input.get_attribute("readonly") is not None
+    assert batting_input.get_attribute("inputmode") == "none"
 
 
 def test_logout_during_active_game_prompts_for_confirmation(live_server, browser):
@@ -523,10 +540,8 @@ def test_english_cricket_live_view_uses_two_panels(live_server, browser):
 
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "Ivy to Throw"))
     _wait(browser).until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "#cricket-bowling-panel .bullseye-chip.is-hit")) == 6)
-    batting_input = _wait(browser).until(ec.element_to_be_clickable((By.ID, "cricket-batting-total")))
-    batting_input.clear()
-    batting_input.send_keys("60")
-    browser.find_element(By.ID, "cricket-submit-batting").click()
+    _wait(browser).until(lambda d: d.find_element(By.ID, "cricket-batting-total").is_enabled())
+    submit_cricket_score_with_keypad(browser, 60)
 
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "Jules to Throw"))
     browser.find_element(By.ID, "cricket-undo-turn").click()
@@ -547,10 +562,8 @@ def test_english_cricket_shows_target_and_remaining_runs_in_second_innings(live_
     browser.find_element(By.ID, "cricket-submit-bowling").click()
 
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "Ivy to Throw"))
-    batting_input = _wait(browser).until(ec.element_to_be_clickable((By.ID, "cricket-batting-total")))
-    batting_input.clear()
-    batting_input.send_keys("60")
-    browser.find_element(By.ID, "cricket-submit-batting").click()
+    _wait(browser).until(lambda d: d.find_element(By.ID, "cricket-batting-total").is_enabled())
+    submit_cricket_score_with_keypad(browser, 60)
 
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "Jules to Throw"))
     for _ in range(4):
@@ -558,7 +571,7 @@ def test_english_cricket_shows_target_and_remaining_runs_in_second_innings(live_
     _wait(browser).until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "#cricket-bowling-panel .bullseye-chip.is-selected")) == 4)
     browser.find_element(By.ID, "cricket-submit-bowling").click()
 
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "cricket-batting-panel"), "Jules"))
+    _wait(browser).until(lambda d: "jules" in d.find_element(By.ID, "cricket-batting-panel").text.lower())
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "cricket-batting-panel"), "TARGET"))
     batting_panel = browser.find_element(By.ID, "cricket-batting-panel")
     panel_text = batting_panel.text.lower()

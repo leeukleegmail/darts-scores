@@ -236,7 +236,6 @@ function appendDigitToScoreInput(input, digit) {
   if (!(input instanceof HTMLInputElement) || input.disabled) return;
   const currentValue = input.value === "0" ? "" : input.value.trim();
   input.value = `${currentValue}${digit}`.slice(0, 3);
-  input.focus();
 }
 
 async function undoLastTurn() {
@@ -278,7 +277,6 @@ function setupScoreKeypad() {
     if (action === "backspace") {
       if (input instanceof HTMLInputElement) {
         input.value = input.value.slice(0, -1);
-        input.focus();
       }
       return;
     }
@@ -724,7 +722,7 @@ function renderCricketRoleSelection() {
         ${selectedChoice === "bat" ? "checked" : ""}
       />
       <span>
-        <strong>Bat</strong>
+        <strong>Bat (Score)</strong>
       </span>
     </label>
     <label class="cricket-role-choice">
@@ -735,7 +733,7 @@ function renderCricketRoleSelection() {
         ${selectedChoice === "bowl" ? "checked" : ""}
       />
       <span>
-        <strong>Bowl</strong>
+        <strong>Bowl (Bulls)</strong>
       </span>
     </label>
   `;
@@ -847,11 +845,24 @@ function renderTeamAssignment() {
   for (const id of state.orderedPlayerIds) {
     const player = state.players.find((p) => p.id === id);
     if (!player) continue;
+    const team = state.teamAssignments[id] || "team_a";
     const li = document.createElement("li");
     li.draggable = true;
     li.dataset.playerId = String(id);
-    li.textContent = player.name;
-    const team = state.teamAssignments[id] || "team_a";
+    li.innerHTML = `
+      <span class="sortable-player-name">${player.name}</span>
+      <span class="sortable-controls" aria-label="Reorder controls for ${player.name}">
+        <button type="button" class="sortable-btn" data-team-action="up" aria-label="Move ${player.name} up">↑</button>
+        <button type="button" class="sortable-btn" data-team-action="down" aria-label="Move ${player.name} down">↓</button>
+        <button
+          type="button"
+          class="sortable-btn"
+          data-team-action="swap"
+          data-team-target="${team === "team_b" ? "team_a" : "team_b"}"
+          aria-label="Move ${player.name} to ${team === "team_b" ? "Team A" : "Team B"}"
+        >⇄</button>
+      </span>
+    `;
     if (team === "team_b") {
       teamBListEl.appendChild(li);
     } else {
@@ -925,6 +936,57 @@ function setupTeamDragAndDrop() {
   });
 }
 
+function setupTeamTouchOrderingControls() {
+  const moveWithinList = (list, item, direction) => {
+    if (!(list instanceof HTMLElement) || !(item instanceof HTMLElement)) return;
+
+    if (direction < 0) {
+      const previous = item.previousElementSibling;
+      if (previous) {
+        list.insertBefore(item, previous);
+      }
+      return;
+    }
+
+    const next = item.nextElementSibling;
+    if (next) {
+      list.insertBefore(next, item);
+    }
+  };
+
+  [teamAListEl, teamBListEl].forEach((list) => {
+    if (!(list instanceof HTMLElement)) return;
+
+    list.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+
+      const button = target.closest("[data-team-action]");
+      if (!(button instanceof HTMLButtonElement)) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const listItem = button.closest("li");
+      if (!(listItem instanceof HTMLLIElement)) return;
+
+      const action = button.getAttribute("data-team-action");
+      if (action === "up") {
+        moveWithinList(list, listItem, -1);
+      } else if (action === "down") {
+        moveWithinList(list, listItem, 1);
+      } else if (action === "swap") {
+        const targetTeam = button.getAttribute("data-team-target") === "team_b" ? teamBListEl : teamAListEl;
+        if (targetTeam instanceof HTMLElement && targetTeam !== list) {
+          targetTeam.appendChild(listItem);
+        }
+      }
+
+      updateOrderFromTeamLists();
+    });
+  });
+}
+
 function rebuildOrder() {
   const validSelection = new Set(state.selectedPlayerIds);
   const preservedOrder = state.orderedPlayerIds.filter((id) => validSelection.has(id));
@@ -948,8 +1010,50 @@ function renderOrderList() {
     const li = document.createElement("li");
     li.draggable = true;
     li.dataset.id = String(player.id);
-    li.innerHTML = `<span>${player.name}</span><span>::</span>`;
+    li.innerHTML = `
+      <span class="sortable-player-name">${player.name}</span>
+      <span class="sortable-controls" aria-label="Reorder controls for ${player.name}">
+        <button type="button" class="sortable-btn" data-order-action="up" aria-label="Move ${player.name} up">↑</button>
+        <button type="button" class="sortable-btn" data-order-action="down" aria-label="Move ${player.name} down">↓</button>
+      </span>
+    `;
     orderListEl.appendChild(li);
+  });
+}
+
+function setupOrderTouchControls() {
+  if (!orderListEl) return;
+
+  orderListEl.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+
+    const button = target.closest("[data-order-action]");
+    if (!(button instanceof HTMLButtonElement)) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const listItem = button.closest("li");
+    if (!(listItem instanceof HTMLLIElement)) return;
+
+    const playerId = Number(listItem.dataset.id);
+    if (!playerId) return;
+
+    const currentIndex = state.orderedPlayerIds.indexOf(playerId);
+    if (currentIndex < 0) return;
+
+    const action = button.getAttribute("data-order-action");
+    const targetIndex = action === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= state.orderedPlayerIds.length) return;
+
+    const reordered = [...state.orderedPlayerIds];
+    const [moved] = reordered.splice(currentIndex, 1);
+    reordered.splice(targetIndex, 0, moved);
+    state.orderedPlayerIds = reordered;
+
+    renderOrderList();
+    renderCricketRoleSelection();
   });
 }
 
@@ -1144,7 +1248,7 @@ function renderCricketDashboard(game) {
     <div class="cricket-entry-stack">
       <label class="cricket-entry-field" for="cricket-batting-total">
         <span>Score</span>
-        <input id="cricket-batting-total" type="number" inputmode="numeric" min="0" max="180" value="" ${isBattingTurn ? "" : "disabled"} />
+        <input id="cricket-batting-total" type="number" inputmode="none" min="0" max="180" value="" readonly ${isBattingTurn ? "" : "disabled"} />
       </label>
       <div
         id="cricket-batting-keypad"
@@ -1447,6 +1551,8 @@ async function init() {
   setupScoreKeypad();
   setupDragAndDrop();
   setupTeamDragAndDrop();
+  setupOrderTouchControls();
+  setupTeamTouchOrderingControls();
   await loadAuthUser();
   setHelpSection(activeHelpSection);
   resetInactivityTimer();
