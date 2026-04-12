@@ -761,6 +761,75 @@ def test_create_english_cricket_solo_mode(client):
     assert game["active_player_id"] == p2
 
 
+def test_create_noughts_and_crosses_solo_mode(client):
+    p1 = add_player(client, "Noughts A")
+    p2 = add_player(client, "Noughts B")
+
+    res = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2],
+            "game_type": "noughts_and_crosses",
+            "team_mode": "solo",
+        },
+    )
+    assert res.status_code == 201
+    game = res.get_json()["game"]
+    assert game["game_type"] == "noughts_and_crosses"
+    assert game["team_mode"] == "solo"
+    assert game["active_player_id"] == p1
+    assert len(game["noughts_and_crosses_state"]["cells"]) == 9
+    assert game["noughts_and_crosses_state"]["cells"][4]["label"] == "Bullseye"
+    assert game["noughts_and_crosses_state"]["cells"][0]["mark"] is None
+
+
+def test_create_noughts_and_crosses_team_mode(client):
+    p1 = add_player(client, "Noughts Team A1")
+    p2 = add_player(client, "Noughts Team B1")
+    p3 = add_player(client, "Noughts Team A2")
+    p4 = add_player(client, "Noughts Team B2")
+
+    res = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2, p3, p4],
+            "game_type": "noughts_and_crosses",
+            "team_mode": "teams",
+            "team_assignments": {
+                str(p1): "team_a",
+                str(p2): "team_b",
+                str(p3): "team_a",
+                str(p4): "team_b",
+            },
+        },
+    )
+
+    assert res.status_code == 201
+    game = res.get_json()["game"]
+    assert game["game_type"] == "noughts_and_crosses"
+    assert game["team_mode"] == "teams"
+    assert game["noughts_and_crosses_state"]["x_name"] == "Team A"
+    assert game["noughts_and_crosses_state"]["o_name"] == "Team B"
+
+
+def test_create_noughts_and_crosses_solo_mode_requires_exactly_two_players(client):
+    p1 = add_player(client, "Solo Noughts A")
+    p2 = add_player(client, "Solo Noughts B")
+    p3 = add_player(client, "Solo Noughts C")
+
+    res = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2, p3],
+            "game_type": "noughts_and_crosses",
+            "team_mode": "solo",
+        },
+    )
+
+    assert res.status_code == 400
+    assert res.get_json()["error"] == "Noughts and Crosses in solo mode requires exactly two players."
+
+
 def test_create_english_cricket_can_choose_starting_batting_team(client):
     p1 = add_player(client, "Cricket C")
     p2 = add_player(client, "Cricket D")
@@ -859,6 +928,71 @@ def test_english_cricket_second_innings_chase_finishes_immediately(client):
     assert state["status"] == "finished"
     assert state["winner_team"] == "team_b"
     assert state["cricket_state"]["runs"]["team_b"] == 11
+
+
+def test_noughts_and_crosses_marks_board_and_finishes_on_three_in_a_row(client):
+    p1 = add_player(client, "Crosses")
+    p2 = add_player(client, "Noughts")
+
+    game = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2],
+            "game_type": "noughts_and_crosses",
+            "team_mode": "solo",
+        },
+    ).get_json()["game"]
+
+    moves = [
+        (p1, 0, "X"),
+        (p2, 3, "O"),
+        (p1, 1, "X"),
+        (p2, 4, "O"),
+        (p1, 2, "X"),
+    ]
+
+    latest = None
+    for player_id, cell_index, marker in moves:
+        latest = client.post(
+            f"/api/games/{game['id']}/turn",
+            json={"player_id": player_id, "total_points": cell_index, "noughts_marker": marker},
+        )
+        assert latest.status_code == 200
+
+    payload = latest.get_json()
+    cells = payload["game"]["noughts_and_crosses_state"]["cells"]
+    assert [cells[index]["mark"] for index in (0, 1, 2)] == ["X", "X", "X"]
+    assert payload["game"]["status"] == "finished"
+    assert payload["game"]["winner_player_id"] == p1
+    assert payload["game"]["noughts_and_crosses_state"]["winning_line"] == [0, 1, 2]
+
+
+def test_noughts_and_crosses_undo_preserves_board_labels(client):
+    p1 = add_player(client, "Undo Crosses")
+    p2 = add_player(client, "Undo Noughts")
+
+    game = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2],
+            "game_type": "noughts_and_crosses",
+            "team_mode": "solo",
+        },
+    ).get_json()["game"]
+
+    initial_labels = [cell["label"] for cell in game["noughts_and_crosses_state"]["cells"]]
+
+    first_move = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": 0, "noughts_marker": "X"},
+    )
+    assert first_move.status_code == 200
+
+    undone = client.delete(f"/api/games/{game['id']}/turn")
+    assert undone.status_code == 200
+
+    final_labels = [cell["label"] for cell in undone.get_json()["game"]["noughts_and_crosses_state"]["cells"]]
+    assert final_labels == initial_labels
 
 
 def test_55by5_team_mode_winner(client):

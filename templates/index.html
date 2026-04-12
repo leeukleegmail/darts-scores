@@ -96,11 +96,14 @@
         <div class="mode-buttons">
           <button type="button" id="choose-55by5" class="mode-btn">55 by 5</button>
           <button type="button" id="choose-english-cricket" class="mode-btn">English Cricket</button>
+          <button type="button" id="choose-noughts-and-crosses" class="mode-btn mode-btn--new">
+            <span class="mode-btn-sticker">New</span>
+            Noughts and Crosses
+          </button>
         </div>
       </section>
 
       <section class="panel hidden" id="live-panel">
-        <h2>Live Game</h2>
         <div id="active-game-meta"></div>
 
         <div id="standard-scoreboard-section">
@@ -137,6 +140,8 @@
             <section id="cricket-bowling-panel" class="cricket-side-panel"></section>
             <section id="cricket-batting-panel" class="cricket-side-panel"></section>
           </div>
+
+          <div id="noughts-dashboard" class="noughts-dashboard hidden"></div>
 
           <div class="turn-actions shared-actions">
             <button id="cricket-undo-turn" type="button" class="hidden" aria-label="Undo last turn" title="Undo last turn">↺</button>
@@ -175,6 +180,7 @@
             <button type="button" class="help-nav-btn active" data-help-section="quick-start">Quick Start</button>
             <button type="button" class="help-nav-btn" data-help-section="55by5">55 by 5</button>
             <button type="button" class="help-nav-btn" data-help-section="cricket">English Cricket</button>
+            <button type="button" class="help-nav-btn" data-help-section="noughts">Noughts and Crosses</button>
             <button type="button" class="help-nav-btn" data-help-section="admin">Accounts & History</button>
           </nav>
 
@@ -185,7 +191,7 @@
                 <li>Add names in <strong>All Players</strong>.</li>
                 <li>Select who is playing and drag them into order.</li>
                 <li>Choose <strong>Individual</strong> or <strong>Teams</strong>.</li>
-                <li>Pick a game from <strong>Select Game</strong>.</li>
+                <li>Pick a game from <strong>Select Game</strong> (the green <strong>New</strong> sticker marks Noughts and Crosses).</li>
                 <li>Enter scores in <strong>Live Game</strong> and review <strong>Recent Games</strong>.</li>
               </ol>
               <p class="help-callout">Tip: only one active game can run at a time, so finish or quit the current match before starting another.</p>
@@ -210,6 +216,17 @@
                 <li>For bowling, click the bull markers to record wicket marks, then submit the turn.</li>
                 <li>For batting, enter the total score; runs are counted from strong scoring turns.</li>
                 <li>In the chase, the panel shows <strong>Target</strong> and <strong>Remaining Runs</strong>.</li>
+              </ul>
+            </section>
+
+            <section class="help-section" data-help-section="noughts">
+              <h4>Noughts and Crosses</h4>
+              <ul class="help-points">
+                <li>Each match generates a fresh board of dart targets using <strong>Big</strong>, <strong>Small</strong>, <strong>Double</strong>, and <strong>Treble</strong> segments from 1 to 20.</li>
+                <li>The center square is always <strong>Bullseye</strong>.</li>
+                <li>Tap an open square and choose whether to claim it as <strong>X</strong> or <strong>O</strong>.</li>
+                <li>The X/O side boxes show who is assigned each side; turn order is managed by players at the board.</li>
+                <li>When a game ends, use <strong>Rematch</strong> in the winner popup to restart with swapped starting side/order.</li>
               </ul>
             </section>
 
@@ -244,12 +261,26 @@
       </div>
     </div>
 
+    <div id="noughts-mark-overlay" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="noughts-mark-title">
+      <div class="modal-card noughts-mark-card">
+        <h3 id="noughts-mark-title">Claim Square</h3>
+        <p id="noughts-mark-prompt" class="hint">Assign this square to:</p>
+        <div id="noughts-mark-options" class="noughts-mark-options"></div>
+        <div class="modal-actions">
+          <button id="noughts-mark-cancel" type="button" class="btn-ghost">Cancel</button>
+        </div>
+      </div>
+    </div>
+
     <div id="winner-overlay" class="winner-overlay">
       <canvas id="fireworks-canvas"></canvas>
       <div class="winner-overlay__content">
         <p class="winner-label">Winner!</p>
         <p id="winner-name" class="winner-name"></p>
-        <button id="winner-continue" type="button">Continue</button>
+        <div class="winner-overlay__actions">
+          <button id="winner-rematch" type="button" class="btn-primary">Rematch</button>
+          <button id="winner-continue" type="button" class="btn-ghost">Continue</button>
+        </div>
       </div>
     </div>
 

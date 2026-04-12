@@ -10,6 +10,7 @@ const state = {
   cricketPendingMarks: 0,
   cricketSelectedMarks: [],
   cricketStartingBattingTeam: "team_a",
+  pendingNoughtsCellIndex: null,
 };
 
 const appShellEl = document.querySelector(".app-shell");
@@ -49,6 +50,11 @@ const turnInputLabelEl = document.getElementById("turn-input-label");
 const cricketDashboardEl = document.getElementById("cricket-dashboard");
 const cricketBowlingPanelEl = document.getElementById("cricket-bowling-panel");
 const cricketBattingPanelEl = document.getElementById("cricket-batting-panel");
+const noughtsDashboardEl = document.getElementById("noughts-dashboard");
+const noughtsMarkOverlayEl = document.getElementById("noughts-mark-overlay");
+const noughtsMarkPromptEl = document.getElementById("noughts-mark-prompt");
+const noughtsMarkOptionsEl = document.getElementById("noughts-mark-options");
+const noughtsMarkCancelEl = document.getElementById("noughts-mark-cancel");
 const scoreboardSectionEl = document.getElementById("standard-scoreboard-section");
 const historyPanelEl = document.getElementById("history-panel");
 const winnerOverlayEl = document.getElementById("winner-overlay");
@@ -444,7 +450,7 @@ async function submitScore(totalPoints) {
 
     const numericTotal = Number.isFinite(Number(totalPoints)) ? Number(totalPoints) : 0;
 
-    if (state.game.game_type !== "english_cricket" && numericTotal % 5 !== 0) {
+    if (state.game.game_type === "55by5" && numericTotal % 5 !== 0) {
       showScoreWarningBanner("Total scored must be divisible by 5.");
     }
 
@@ -484,7 +490,7 @@ async function submitScore(totalPoints) {
       }
 
       const t = response.turn;
-      const isBust = response.game.game_type !== "english_cricket" && !t.counted && t.total_points % 5 === 0;
+      const isBust = response.game.game_type === "55by5" && !t.counted && t.total_points % 5 === 0;
       if (isBust) {
         const bustedPlayer = response.game.players.find((p) => p.id === t.player_id)?.name || "Player";
         showBustBanner(`${bustedPlayer} bust!`);
@@ -504,12 +510,61 @@ async function submitScore(totalPoints) {
         return;
       }
 
+      if (response.game.game_type === "noughts_and_crosses") {
+        showMessage(
+          t.counted
+            ? `${t.noughts_marker || "Move"} claimed ${t.board_label || `square ${t.board_index + 1}`}.`
+            : `${t.board_label || "That square"} is already claimed.`
+        );
+        return;
+      }
+
       showMessage(
         t.counted
           ? `Turn counted: ${t.total_points} points = +${t.fives_awarded} fives.`
           : isBust
             ? `Bust: ${t.total_points} would exceed 55 and does not count.`
             : `Turn not counted: ${t.total_points} is not divisible by 5.`
+      );
+    } catch (err) {
+      showMessage(err.message, true);
+    }
+  };
+
+  pendingTurnSubmission = pendingTurnSubmission.then(executeSubmission, executeSubmission);
+  return pendingTurnSubmission;
+}
+
+async function submitNoughtsMove(cellIndex, marker) {
+  const executeSubmission = async () => {
+    if (!state.game || state.game.status !== "active") return;
+
+    try {
+      const response = await api(`/api/games/${state.game.id}/turn`, {
+        method: "POST",
+        body: JSON.stringify({
+          player_id: state.game.active_player_id,
+          total_points: cellIndex,
+          noughts_marker: marker,
+        }),
+      });
+
+      closeNoughtsMarkOverlay();
+      syncStateFromGame(response.game);
+      renderGame();
+      await loadHistory();
+
+      if (response.game.status === "finished") {
+        const winnerName = response.game.winner_team_name || response.game.players.find((p) => p.id === response.game.winner_player_id)?.name || "Tie";
+        showWinnerOverlay(winnerName);
+        return;
+      }
+
+      const turn = response.turn;
+      showMessage(
+        turn.counted
+          ? `${turn.noughts_marker || marker} claimed ${turn.board_label || `square ${cellIndex + 1}`}.`
+          : `${turn.board_label || "That square"} is already claimed.`
       );
     } catch (err) {
       showMessage(err.message, true);
@@ -560,6 +615,7 @@ function renderPlayers() {
 
 function selectedGameName() {
   if (state.gameType === "english_cricket") return "English Cricket";
+  if (state.gameType === "noughts_and_crosses") return "Noughts and Crosses";
   if (state.gameType === "55by5") return "55 by 5";
   return "";
 }
@@ -577,6 +633,12 @@ function updateHeroCopy(game) {
   if (activeGameType === "english_cricket") {
     heroTitleEl.textContent = "English Cricket";
     heroSubtitleEl.textContent = "Batting scores runs above 40 while bowling hunts 10 bull hits to finish the innings.";
+    return;
+  }
+
+  if (activeGameType === "noughts_and_crosses") {
+    heroTitleEl.textContent = "Noughts and Crosses";
+    heroSubtitleEl.textContent = "Click a dart target square and assign it to X or O to build three in a row.";
     return;
   }
 
@@ -618,6 +680,7 @@ function resetTeamNames() {
 
 function syncStateFromGame(game) {
   state.game = game;
+  state.pendingNoughtsCellIndex = null;
   if (!game) return;
 
   state.gameType = game.game_type || "55by5";
@@ -687,6 +750,45 @@ function closeCricketStartOverlay() {
   if (cricketStartOverlayEl) {
     cricketStartOverlayEl.classList.remove("visible");
   }
+}
+
+function closeNoughtsMarkOverlay() {
+  state.pendingNoughtsCellIndex = null;
+  if (noughtsMarkOverlayEl) {
+    noughtsMarkOverlayEl.classList.remove("visible");
+  }
+}
+
+function openNoughtsMarkOverlay(cellIndex, label) {
+  if (!noughtsMarkOverlayEl || !noughtsMarkPromptEl || !noughtsMarkOptionsEl || !state.game) return;
+
+  const activePlayer = state.game.players.find((player) => player.id === state.game.active_player_id);
+  const defaultMarker = activePlayer?.team === "team_b" ? "O" : "X";
+  const noughtsState = state.game.noughts_and_crosses_state || {};
+  const xName = noughtsState.x_name || "X";
+  const oName = noughtsState.o_name || "O";
+
+  state.pendingNoughtsCellIndex = cellIndex;
+  noughtsMarkPromptEl.textContent = `Assign ${label} to:`;
+  noughtsMarkOptionsEl.innerHTML = `
+    <button type="button" class="noughts-mark-choice${defaultMarker === "X" ? " is-default" : ""}" data-noughts-mark="X">
+      <strong>X</strong>
+      <span>${xName}</span>
+    </button>
+    <button type="button" class="noughts-mark-choice${defaultMarker === "O" ? " is-default" : ""}" data-noughts-mark="O">
+      <strong>O</strong>
+      <span>${oName}</span>
+    </button>
+  `;
+
+  noughtsMarkOptionsEl.querySelectorAll("[data-noughts-mark]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const marker = button.getAttribute("data-noughts-mark") || defaultMarker;
+      await submitNoughtsMove(cellIndex, marker);
+    });
+  });
+
+  noughtsMarkOverlayEl.classList.add("visible");
 }
 
 function renderCricketRoleSelection() {
@@ -1094,8 +1196,10 @@ function getCricketContext(game) {
   const grouped = groupPlayersByTeam(game.players);
   const battingTeam = cs.batting_team === "team_b" ? "team_b" : "team_a";
   const bowlingTeam = cs.bowling_team === "team_a" ? "team_a" : "team_b";
-  const battingInfo = getCricketTeamInfo(game, battingTeam, grouped, 0);
-  const bowlingInfo = getCricketTeamInfo(game, bowlingTeam, grouped, 1);
+  const battingFallbackIndex = battingTeam === "team_b" ? 1 : 0;
+  const bowlingFallbackIndex = bowlingTeam === "team_b" ? 1 : 0;
+  const battingInfo = getCricketTeamInfo(game, battingTeam, grouped, battingFallbackIndex);
+  const bowlingInfo = getCricketTeamInfo(game, bowlingTeam, grouped, bowlingFallbackIndex);
   const activePlayer = game.players.find((player) => player.id === game.active_player_id);
   const activeTeam = activePlayer?.team || battingTeam;
   return {
@@ -1204,7 +1308,7 @@ function renderCricketDashboard(game) {
   cricketBowlingPanelEl.innerHTML = `
     <div class="cricket-panel-header">
       <div>
-        <p class="cricket-role-tag">Bowling Side : ${bowlingInfo.roleName}</p>
+        <p class="cricket-role-tag"><span class="cricket-role-label">Bowling Side :</span> <span class="cricket-role-value">${bowlingInfo.roleName}</span></p>
         ${bowlingInfo.title ? `<h4>${bowlingInfo.title}</h4>` : ""}
         ${bowlingInfo.subtitle ? `<p class="hint">${bowlingInfo.subtitle}</p>` : ""}
       </div>
@@ -1224,7 +1328,7 @@ function renderCricketDashboard(game) {
   cricketBattingPanelEl.innerHTML = `
     <div class="cricket-panel-header">
       <div>
-        <p class="cricket-role-tag">Batting Side : ${battingInfo.roleName}</p>
+        <p class="cricket-role-tag"><span class="cricket-role-label">Batting Side :</span> <span class="cricket-role-value">${battingInfo.roleName}</span></p>
         ${battingInfo.title ? `<h4>${battingInfo.title}</h4>` : ""}
         ${battingInfo.subtitle ? `<p class="hint">${battingInfo.subtitle}</p>` : ""}
       </div>
@@ -1308,6 +1412,59 @@ function renderCricketDashboard(game) {
   }
 }
 
+function renderNoughtsAndCrossesDashboard(game) {
+  if (!noughtsDashboardEl) return;
+
+  const noughtsState = game.noughts_and_crosses_state || { cells: [] };
+  const cells = Array.isArray(noughtsState.cells) ? noughtsState.cells : [];
+  const winningLine = new Set(Array.isArray(noughtsState.winning_line) ? noughtsState.winning_line : []);
+  const xName = noughtsState.x_name || "X";
+  const oName = noughtsState.o_name || "O";
+
+  noughtsDashboardEl.classList.remove("hidden");
+  noughtsDashboardEl.innerHTML = `
+    <div class="noughts-status-card">
+      <div class="noughts-side-pill noughts-side-pill-x">
+        <strong>X</strong>
+        <span>${xName}</span>
+      </div>
+      <div class="noughts-status-spacer" aria-hidden="true"></div>
+      <div class="noughts-side-pill noughts-side-pill-o">
+        <strong>O</strong>
+        <span>${oName}</span>
+      </div>
+    </div>
+    <div class="noughts-board" aria-label="Noughts and Crosses board">
+      ${cells.map((cell, index) => {
+        const mark = cell?.mark || "";
+        const isClaimed = Boolean(mark);
+        const isWinning = winningLine.has(index);
+        return `
+          <button
+            type="button"
+            class="noughts-cell${mark ? ` is-marked is-${mark.toLowerCase()}` : ""}${isWinning ? " is-winning" : ""}"
+            data-board-index="${index}"
+            ${game.status === "active" && !isClaimed ? "" : "disabled"}
+            aria-label="${cell?.label || `Board square ${index + 1}`}${mark ? ` claimed by ${mark}` : ""}"
+          >
+            <span class="noughts-cell-label">${cell?.label || `Square ${index + 1}`}</span>
+            <span class="noughts-cell-mark">${mark || "?"}</span>
+          </button>
+        `;
+      }).join("")}
+    </div>
+  `;
+
+  noughtsDashboardEl.querySelectorAll("[data-board-index]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const cellIndex = Number(button.getAttribute("data-board-index"));
+      const label = button.querySelector(".noughts-cell-label")?.textContent || `square ${cellIndex + 1}`;
+      if (!Number.isFinite(cellIndex)) return;
+      openNoughtsMarkOverlay(cellIndex, label);
+    });
+  });
+}
+
 function applyLayoutMode(game) {
   const activeMode = game && game.status === "active";
 
@@ -1315,6 +1472,7 @@ function applyLayoutMode(game) {
 
   if (activeMode) {
     closeCricketStartOverlay();
+    closeNoughtsMarkOverlay();
     if (gameSelectionPanelEl) {
       gameSelectionPanelEl.classList.add("hidden");
     }
@@ -1352,6 +1510,7 @@ function renderGame() {
 
   if (!game) {
     resetTeamNames();
+    closeNoughtsMarkOverlay();
     if (cricketUndoTurnEl) {
       cricketUndoTurnEl.classList.add("hidden");
       cricketUndoTurnEl.disabled = true;
@@ -1366,6 +1525,9 @@ function renderGame() {
     if (cricketDashboardEl) {
       cricketDashboardEl.classList.add("hidden");
     }
+    if (noughtsDashboardEl) {
+      noughtsDashboardEl.classList.add("hidden");
+    }
     if (scoreboardSectionEl) {
       scoreboardSectionEl.classList.remove("hidden");
     }
@@ -1373,6 +1535,7 @@ function renderGame() {
   }
 
   const isCricket = game.game_type === "english_cricket";
+  const isNoughts = game.game_type === "noughts_and_crosses";
   const headers = Array.from(document.querySelectorAll("#scoreboard-table thead th"));
   if (headers.length >= 3) {
     headers[0].textContent = "Player";
@@ -1381,35 +1544,44 @@ function renderGame() {
   }
 
   if (standardTurnControlsEl) {
-    standardTurnControlsEl.classList.toggle("hidden", isCricket || game.status !== "active");
+    standardTurnControlsEl.classList.toggle("hidden", isCricket || isNoughts || game.status !== "active");
   }
   if (sharedTurnActionsEl) {
     sharedTurnActionsEl.classList.toggle("hidden", game.status !== "active");
   }
   if (cricketUndoTurnEl) {
-    const showCricketUndo = isCricket && game.status === "active";
-    cricketUndoTurnEl.classList.toggle("hidden", !showCricketUndo);
-    cricketUndoTurnEl.disabled = !showCricketUndo || !game.turns.length;
+    const showUndo = game.status === "active";
+    cricketUndoTurnEl.classList.toggle("hidden", !showUndo);
+    cricketUndoTurnEl.disabled = !showUndo || !game.turns.length;
   }
   if (cricketDashboardEl) {
     cricketDashboardEl.classList.toggle("hidden", !isCricket);
   }
+  if (noughtsDashboardEl) {
+    noughtsDashboardEl.classList.toggle("hidden", !isNoughts);
+  }
   if (scoreboardSectionEl) {
-    scoreboardSectionEl.classList.toggle("hidden", isCricket);
+    scoreboardSectionEl.classList.toggle("hidden", isCricket || isNoughts);
   }
 
   const activePlayer = game.players.find((p) => p.id === game.active_player_id);
   if (game.status === "finished") {
+    closeNoughtsMarkOverlay();
     const winnerName = game.winner_team_name || game.players.find((p) => p.id === game.winner_player_id)?.name || "Tie";
     activeGameMetaEl.innerHTML = `<strong>Winner: ${winnerName}</strong>`;
   } else if (isCricket) {
     activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong>`;
+  } else if (isNoughts) {
+    activeGameMetaEl.innerHTML = "<strong>Noughts and Crosses</strong>";
   } else {
     activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong>`;
   }
 
   if (isCricket) {
     renderCricketDashboard(game);
+    scoreboardEl.innerHTML = "";
+  } else if (isNoughts) {
+    renderNoughtsAndCrossesDashboard(game);
     scoreboardEl.innerHTML = "";
   } else {
     renderStandardScoreboard(game);
@@ -1422,12 +1594,18 @@ function renderGame() {
       ? (turn.counted
         ? `+${turn.fives_awarded} ${turn.total_points <= 6 ? "wicket marks" : "runs"}`
         : "no score")
-      : turn.counted
-        ? `+${turn.fives_awarded} fives`
-        : turn.total_points % 5 === 0
-          ? "bust"
-          : "+0 fives";
-    li.textContent = `#${turn.turn_number} ${turn.player_name}: total ${turn.total_points} (${turnNote})`;
+      : isNoughts
+        ? (turn.counted
+          ? `${turn.noughts_marker || "Mark"} on ${turn.board_label || `square ${turn.board_index + 1}`}`
+          : `${turn.board_label || "square"} already taken`)
+        : turn.counted
+          ? `+${turn.fives_awarded} fives`
+          : turn.total_points % 5 === 0
+            ? "bust"
+            : "+0 fives";
+    li.textContent = isNoughts
+      ? `#${turn.turn_number} ${turn.player_name}: ${turnNote}`
+      : `#${turn.turn_number} ${turn.player_name}: total ${turn.total_points} (${turnNote})`;
     turnsListEl.appendChild(li);
   }
 
@@ -1438,7 +1616,7 @@ function renderGame() {
     bullHitEl.classList.add("hidden");
   }
 
-  const shouldShowTurnArea = isCricket || game.status === "active";
+  const shouldShowTurnArea = isCricket || isNoughts || game.status === "active";
   turnInputEl.classList.toggle("hidden", !shouldShowTurnArea);
 }
 
@@ -1467,7 +1645,11 @@ async function loadHistory() {
   for (const game of games) {
     const li = document.createElement("li");
     const names = game.participants.map((p) => p.name).join(" -> ");
-    const modeLabel = game.game_type === "english_cricket" ? "English Cricket" : "55 by 5";
+    const modeLabel = game.game_type === "english_cricket"
+      ? "English Cricket"
+      : game.game_type === "noughts_and_crosses"
+        ? "Noughts and Crosses"
+        : "55 by 5";
     const winner = game.winner_team_name || game.winner_name || "Unknown";
     li.textContent = `[${modeLabel}] Game #${game.id}: Winner ${winner}, ${game.turn_count} turns. Order: ${names}`;
     historyListEl.appendChild(li);
@@ -1529,21 +1711,100 @@ async function startConfiguredGame() {
     }
   }
 
-  const response = await api("/api/games", {
-    method: "POST",
-    body: JSON.stringify({
-      ordered_player_ids: state.orderedPlayerIds,
-      game_type: state.gameType,
-      team_mode: state.teamMode,
-      team_assignments: teamAssignments,
-      team_names: state.teamMode === "teams" ? normalizeTeamNames(state.teamNames) : undefined,
-      starting_batting_team: state.gameType === "english_cricket" ? state.cricketStartingBattingTeam : undefined,
-    }),
-  });
-  syncStateFromGame(response.game);
-  renderGame();
-  await loadHistory();
-  showMessage("Game started.");
+  if (state.gameType === "noughts_and_crosses" && state.teamMode === "solo" && state.orderedPlayerIds.length !== 2) {
+    showBustBanner("Select exactly two players to play Noughts and Crosses.");
+    return;
+  }
+
+  try {
+    const response = await api("/api/games", {
+      method: "POST",
+      body: JSON.stringify({
+        ordered_player_ids: state.orderedPlayerIds,
+        game_type: state.gameType,
+        team_mode: state.teamMode,
+        team_assignments: teamAssignments,
+        team_names: state.teamMode === "teams" ? normalizeTeamNames(state.teamNames) : undefined,
+        starting_batting_team: state.gameType === "english_cricket" ? state.cricketStartingBattingTeam : undefined,
+      }),
+    });
+    syncStateFromGame(response.game);
+    renderGame();
+    await loadHistory();
+    showMessage("Game started.");
+  } catch (err) {
+    showBustBanner(err.message || "Unable to start game.");
+    showMessage(err.message || "Unable to start game.", true);
+  }
+}
+
+async function startRematch() {
+  if (!state.game) {
+    showMessage("No previous game to rematch.", true);
+    return;
+  }
+
+  try {
+    const finishedGame = state.game;
+    const gameType = finishedGame.game_type;
+    const teamMode = finishedGame.team_mode;
+    const orderedPlayerIds = finishedGame.players.map((p) => p.id);
+    
+    // Determine new starting position
+    let newOrderedPlayerIds = [...orderedPlayerIds];
+    let newTeamAssignments = undefined;
+    let newStartingBattingTeam = state.cricketStartingBattingTeam;
+
+    if (teamMode === "teams") {
+      // Swap team assignments for teams mode
+      const swappedAssignments = {};
+      finishedGame.players.forEach((player) => {
+        const currentTeam = finishedGame.team_assignments?.[player.id] || "team_a";
+        swappedAssignments[String(player.id)] = currentTeam === "team_a" ? "team_b" : "team_a";
+      });
+      newTeamAssignments = swappedAssignments;
+
+      // For Cricket teams, also swap the batting team
+      if (gameType === "english_cricket") {
+        const currentBattingTeam = finishedGame.cricket_state?.starting_batting_team || "team_a";
+        newStartingBattingTeam = currentBattingTeam === "team_a" ? "team_b" : "team_a";
+      }
+    } else {
+      // For solo mode, rotate player order (move first to last)
+      if (newOrderedPlayerIds.length > 1) {
+        newOrderedPlayerIds = [...newOrderedPlayerIds.slice(1), newOrderedPlayerIds[0]];
+      }
+    }
+
+    // Close winner overlay
+    if (stopFireworks) { 
+      stopFireworks(); 
+      stopFireworks = null; 
+    }
+    if (winnerOverlayEl) {
+      winnerOverlayEl.classList.remove("visible");
+    }
+
+    // Create rematch game
+    const response = await api("/api/games", {
+      method: "POST",
+      body: JSON.stringify({
+        ordered_player_ids: newOrderedPlayerIds,
+        game_type: gameType,
+        team_mode: teamMode,
+        team_assignments: newTeamAssignments,
+        team_names: teamMode === "teams" ? finishedGame.team_names : undefined,
+        starting_batting_team: gameType === "english_cricket" ? newStartingBattingTeam : undefined,
+      }),
+    });
+
+    syncStateFromGame(response.game);
+    renderGame();
+    await loadHistory();
+    showMessage("Rematch started with swapped starting positions.");
+  } catch (err) {
+    showMessage(err.message, true);
+  }
 }
 
 async function init() {
@@ -1563,6 +1824,7 @@ async function init() {
 
   const choose55Btn = document.getElementById("choose-55by5");
   const chooseCricketBtn = document.getElementById("choose-english-cricket");
+  const chooseNoughtsBtn = document.getElementById("choose-noughts-and-crosses");
   const teamModeSoloEl = document.getElementById("team-mode-solo");
   const teamModeTeamsEl = document.getElementById("team-mode-teams");
 
@@ -1616,6 +1878,9 @@ async function init() {
     if (cricketStartOverlayEl?.classList.contains("visible")) {
       closeCricketStartOverlay();
     }
+    if (noughtsMarkOverlayEl?.classList.contains("visible")) {
+      closeNoughtsMarkOverlay();
+    }
   });
 
   if (choose55Btn) {
@@ -1648,6 +1913,22 @@ async function init() {
     });
   }
 
+  if (chooseNoughtsBtn) {
+    chooseNoughtsBtn.addEventListener("click", async () => {
+      closeCricketStartOverlay();
+      closeNoughtsMarkOverlay();
+      state.gameType = "noughts_and_crosses";
+      state.teamMode = getTeamMode();
+      applyLayoutMode(state.game);
+      renderTeamAssignment();
+      try {
+        await startConfiguredGame();
+      } catch (err) {
+        showMessage(err.message, true);
+      }
+    });
+  }
+
   if (cricketStartCancelEl) {
     cricketStartCancelEl.addEventListener("click", () => {
       closeCricketStartOverlay();
@@ -1658,6 +1939,20 @@ async function init() {
     cricketStartOverlayEl.addEventListener("click", (event) => {
       if (event.target === cricketStartOverlayEl) {
         closeCricketStartOverlay();
+      }
+    });
+  }
+
+  if (noughtsMarkCancelEl) {
+    noughtsMarkCancelEl.addEventListener("click", () => {
+      closeNoughtsMarkOverlay();
+    });
+  }
+
+  if (noughtsMarkOverlayEl) {
+    noughtsMarkOverlayEl.addEventListener("click", (event) => {
+      if (event.target === noughtsMarkOverlayEl) {
+        closeNoughtsMarkOverlay();
       }
     });
   }
@@ -1854,6 +2149,13 @@ async function init() {
       state.gameType = null;
       renderGame();
       await loadHistory();
+    });
+  }
+
+  const winnerRematchBtn = document.getElementById("winner-rematch");
+  if (winnerRematchBtn) {
+    winnerRematchBtn.addEventListener("click", async () => {
+      await startRematch();
     });
   }
 
