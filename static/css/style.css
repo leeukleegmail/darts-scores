@@ -748,8 +748,8 @@ td {
 }
 
 .cricket-score-pill {
-  min-width: 88px;
-  padding: 0.5rem 0.7rem;
+  min-width: 132px;
+  padding: 0.85rem 1.15rem;
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.28);
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -758,7 +758,8 @@ td {
 
 .cricket-score-pill span {
   display: block;
-  font-size: 0.72rem;
+  font-size: 0.9rem;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: #d7d6d0;
@@ -766,8 +767,9 @@ td {
 
 .cricket-score-pill strong {
   display: block;
-  margin-top: 0.15rem;
-  font-size: 1.4rem;
+  margin-top: 0.25rem;
+  font-size: 2rem;
+  line-height: 1.1;
   color: #ffd93d;
 }
 
