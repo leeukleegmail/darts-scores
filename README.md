@@ -30,12 +30,18 @@ This project is designed for local play on one machine (session-based login, no 
 
 The app supports any number of players in the roster. After login, you set up players and teams on the setup page, then choose a game mode from the separate **Select Game** panel:
 
+- **X01**
 - **55 by 5**
 - **English Cricket**
+- **Noughts and Crosses**
 
-For each new game, you select who is playing and drag players into the desired turn order. You can play in individual mode or in two teams with drag-and-drop team assignment.
+For each new game, you select who is playing and drag players into the desired turn order. You can play in singles mode or in two teams with drag-and-drop team assignment.
 
 For **55 by 5**, each turn is entered as one total score value using the on-screen keypad. A turn only counts if the total score is divisible by 5, and counted turns award `turn total / 5` fives. The winner is the first player or team to reach exactly 55 fives.
+
+For **X01**, the start popup lets you choose `1001`, `501`, `301`, or `101`, then players or teams count down to exactly zero. Overshooting zero or leaving `1` is a bust and scores nothing for that turn.
+
+For **Noughts and Crosses**, each game generates a fresh board of dart targets and players claim squares as `X` or `O` until one side completes three in a row.
 
 ## Requirements
 
@@ -152,14 +158,15 @@ Sessions expire after 30 minutes of inactivity. Logging out during an active gam
 1. Add players in the Players panel.
 2. Check the players who will play in **Select Players**.
 3. Drag players in Selected Players to set the sequence.
-4. Choose `Individual` or `Teams` mode.
+4. Choose `Singles` or `Teams` mode.
 5. If using `Teams`, drag players between Team A and Team B.
-6. In the separate **Select Game** panel, choose `55 by 5` or `English Cricket`.
-7. For English Cricket, a popup lets Team A choose whether to `Bat` or `Bowl`, then click `Start Game`.
-8. For `55 by 5`, click `55 by 5` once to begin the match.
-9. In Live Game, use the on-screen keypad to enter the active player's score.
-10. Use `Submit Score`, `No Score`, or `Undo` as needed.
-11. Review completed games in Recent Games.
+6. In the separate **Select Game** panel, choose `X01`, `55 by 5`, `English Cricket`, or `Noughts and Crosses`.
+7. For X01, choose the starting score in the popup, then click `Start Game`.
+8. For English Cricket, a popup lets Team A choose whether to `Bat` or `Bowl`, then click `Start Game`.
+9. For `55 by 5` and `Noughts and Crosses`, click the game button once to begin the match.
+10. In Live Game, use the on-screen keypad to enter the active player's score, or click board squares in Noughts and Crosses.
+11. Use `Submit Score`, `No Score`, or `Undo` as needed.
+12. Review completed games in Recent Games.
 
 Notes:
 
@@ -178,14 +185,32 @@ Notes:
 - Winner is first player (or team in 2-team mode) to reach exactly 55 on a counted turn.
 - If a counted turn would push above 55, it is a bust and does not count.
 
+### X01
+
+- Supports singles mode or 2-team mode.
+- Start each game at `1001`, `501`, `301`, or `101`.
+- Each turn is entered as one total points value.
+- Winner is the first player or team to reach exactly `0`.
+- If a turn would push below `0`, it is a bust and does not count.
+- If a turn leaves exactly `1`, it is also a bust and does not count.
+- The live view shows the active remaining total and checkout suggestions where available.
+
 ### English Cricket
 
-- Supports individual mode (2 players) or 2-team mode.
+- Supports singles mode (2 players) or 2-team mode.
 - Game has two innings with role swap.
 - Batting turn: only points above 40 count as runs (`runs = total_points - 40` when over 40).
 - Bowling turn: enter bull marks for the turn; 10 marks closes the opponent's innings.
 - In inning 2, batting side wins immediately if it passes the other side's runs.
 - If innings completes without an immediate chase win, higher run total wins.
+
+### Noughts and Crosses
+
+- Supports singles mode (exactly 2 players) or 2-team mode.
+- Each game generates a board of dart targets; the center square is always `Bullseye`.
+- Clicking an open square lets the player assign it to `X` or `O`.
+- First side to make three in a row wins.
+- If all squares are claimed without a winning line, the game ends in a tie.
 
 Completed games are saved in history.
 Examples:
@@ -225,14 +250,17 @@ Main routes exposed by the Flask app:
 - `GET/POST /login` -> login page and login submit
 - `POST /logout` -> logout current session
 - `GET /api/auth/me` -> current authenticated user
+- `GET /api/auth/users` -> list app users (admin only)
 - `POST /api/auth/users` -> create app user (admin only)
+- `PUT /api/auth/users/<user_id>/password` -> update a user's password (admin only)
 - `GET /api/meta` -> config metadata (valid turn total range, targets, winning fives)
 - `GET /api/players` -> list players
+- `GET /api/players/<player_id>/stats` -> player summary stats by game type
 - `POST /api/players` -> create player
 - `PUT /api/players/<player_id>` -> rename player
 - `DELETE /api/players/<player_id>` -> delete player (if not in active game)
 - `GET /api/games/active` -> active game state
-- `POST /api/games` -> create game from ordered player ids (supports `game_type`, `team_mode`, `team_assignments`, `team_names`, `starting_batting_team`)
+- `POST /api/games` -> create game from ordered player ids (supports `game_type`, `team_mode`, `team_assignments`, `team_names`, `starting_batting_team`, `x01_starting_score`)
 - `POST /api/games/<game_id>/turn` -> submit one turn total value
 - `DELETE /api/games/<game_id>/turn` -> undo the most recent turn
 - `GET /api/games/<game_id>/state` -> full game state
@@ -289,10 +317,14 @@ docker compose run --rm test
 
 The current test suite verifies:
 
+- X01 setup, busts, shared team remaining, and end-to-end finish flows
 - Counted vs non-counted turns
 - Fives calculation
 - Win condition at exact 55
 - Bust behavior when a turn would exceed 55
+- English Cricket inning flow and start-role selection
+- Noughts and Crosses board flow and winning states
+- Player stats, admin account management, and history deletion
 - Game history persistence and admin history deletion
 
 ## Data persistence
