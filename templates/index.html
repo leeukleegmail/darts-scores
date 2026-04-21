@@ -62,7 +62,7 @@
         <div class="inline-form">
           <label class="chip">
             <input type="radio" name="team-mode" id="team-mode-solo" value="solo" checked />
-            <span>Individual</span>
+            <span>Singles</span>
           </label>
           <label class="chip">
             <input type="radio" name="team-mode" id="team-mode-teams" value="teams" />
@@ -95,6 +95,10 @@
         <h2>Select Game</h2>
         <p class="hint">When your players and teams are ready, choose a game below to begin.</p>
         <div class="mode-buttons">
+          <button type="button" id="choose-x01" class="mode-btn mode-btn--new">
+            <span class="mode-btn-sticker">New</span>
+            X01
+          </button>
           <button type="button" id="choose-55by5" class="mode-btn">55 by 5</button>
           <button type="button" id="choose-english-cricket" class="mode-btn">English Cricket</button>
           <button type="button" id="choose-noughts-and-crosses" class="mode-btn mode-btn--new">
@@ -124,6 +128,18 @@
         <div id="turn-input" class="turn-input hidden">
           <div id="standard-turn-controls" class="standard-turn-layout">
             <div class="standard-entry-panel">
+              <div id="x01-turn-panel" class="x01-turn-panel hidden">
+                <div class="x01-turn-summary">
+                  <div class="x01-turn-pill">
+                    <span>Remaining</span>
+                    <strong id="x01-active-remaining">501</strong>
+                  </div>
+                  <div class="x01-turn-pill">
+                    <span>Checkout</span>
+                    <strong id="x01-checkout-hint">-</strong>
+                  </div>
+                </div>
+              </div>
               <div class="darts-row">
                 <input id="turn-total" type="number" inputmode="none" min="0" max="180" value="" aria-label="Turn total" readonly />
               </div>
@@ -185,6 +201,7 @@
         <div class="help-layout">
           <nav id="help-nav" class="help-nav" aria-label="User manual sections">
             <button type="button" class="help-nav-btn active" data-help-section="quick-start">Quick Start</button>
+            <button type="button" class="help-nav-btn" data-help-section="x01">X01</button>
             <button type="button" class="help-nav-btn" data-help-section="55by5">55 by 5</button>
             <button type="button" class="help-nav-btn" data-help-section="cricket">English Cricket</button>
             <button type="button" class="help-nav-btn" data-help-section="noughts">Noughts and Crosses</button>
@@ -197,11 +214,21 @@
               <ol class="help-steps">
                 <li>Add names in <strong>All Players</strong>.</li>
                 <li>Select who is playing and drag them into order.</li>
-                <li>Choose <strong>Individual</strong> or <strong>Teams</strong>.</li>
+                <li>Choose <strong>Singles</strong> or <strong>Teams</strong>.</li>
                 <li>Pick a game from <strong>Select Game</strong> (the green <strong>New</strong> sticker marks Noughts and Crosses).</li>
                 <li>Enter scores in <strong>Live Game</strong> and review <strong>Recent Games</strong>.</li>
               </ol>
               <p class="help-callout">Tip: only one active game can run at a time, so finish or quit the current match before starting another.</p>
+            </section>
+
+            <section class="help-section" data-help-section="x01">
+              <h4>X01</h4>
+              <ul class="help-points">
+                <li>Choose <strong>1001</strong>, <strong>501</strong>, <strong>301</strong>, or <strong>101</strong> in the start popup.</li>
+                <li>Enter one total score for each turn using the keypad.</li>
+                <li>To win, finish on exactly zero. The player decides that their entry is valid before submitting the turn.</li>
+                <li>Overshooting or leaving <strong>1</strong> is a bust and the turn scores nothing.</li>
+              </ul>
             </section>
 
             <section class="help-section" data-help-section="55by5">
@@ -264,6 +291,35 @@
         <div class="modal-actions">
           <button id="cricket-start-cancel" type="button" class="btn-ghost">Cancel</button>
           <button id="cricket-start-game" type="button">Start Game</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="x01-start-overlay" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="x01-start-title">
+      <div class="modal-card x01-start-card">
+        <h3 id="x01-start-title">Start X01</h3>
+        <p class="hint">Choose the starting total for this match.</p>
+        <div class="x01-option-group">
+          <label class="cricket-role-choice">
+            <input type="radio" name="x01-starting-score" value="1001" />
+            <span><strong>1001</strong></span>
+          </label>
+          <label class="cricket-role-choice">
+            <input type="radio" name="x01-starting-score" value="501" checked />
+            <span><strong>501</strong></span>
+          </label>
+          <label class="cricket-role-choice">
+            <input type="radio" name="x01-starting-score" value="301" />
+            <span><strong>301</strong></span>
+          </label>
+          <label class="cricket-role-choice">
+            <input type="radio" name="x01-starting-score" value="101" />
+            <span><strong>101</strong></span>
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button id="x01-start-cancel" type="button" class="btn-ghost">Cancel</button>
+          <button id="x01-start-game" type="button">Start Game</button>
         </div>
       </div>
     </div>

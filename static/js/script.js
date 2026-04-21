@@ -10,6 +10,7 @@ const state = {
   cricketPendingMarks: 0,
   cricketSelectedMarks: [],
   cricketStartingBattingTeam: "team_a",
+  x01StartingScore: 501,
   pendingNoughtsCellIndex: null,
   playerStats: null,
   loadingPlayerStatsId: null,
@@ -47,6 +48,12 @@ const cricketStartPromptEl = document.getElementById("cricket-start-prompt");
 const cricketStartOptionsEl = document.getElementById("cricket-start-options");
 const cricketStartGameEl = document.getElementById("cricket-start-game");
 const cricketStartCancelEl = document.getElementById("cricket-start-cancel");
+const x01StartOverlayEl = document.getElementById("x01-start-overlay");
+const x01StartGameEl = document.getElementById("x01-start-game");
+const x01StartCancelEl = document.getElementById("x01-start-cancel");
+const x01TurnPanelEl = document.getElementById("x01-turn-panel");
+const x01ActiveRemainingEl = document.getElementById("x01-active-remaining");
+const x01CheckoutHintEl = document.getElementById("x01-checkout-hint");
 const teamAListEl = document.getElementById("team-a-list");
 const teamBListEl = document.getElementById("team-b-list");
 const teamANameInputEl = document.getElementById("team-a-name");
@@ -473,7 +480,6 @@ async function submitScore(totalPoints) {
     if (!state.game || state.game.status !== "active") return;
 
     const numericTotal = Number.isFinite(Number(totalPoints)) ? Number(totalPoints) : 0;
-
     if (state.game.game_type === "55by5" && numericTotal % 5 !== 0) {
       showScoreWarningBanner("Total scored must be divisible by 5.");
     }
@@ -489,6 +495,7 @@ async function submitScore(totalPoints) {
       syncStateFromGame(response.game);
       state.cricketPendingMarks = 0;
       state.cricketSelectedMarks = [];
+      resetX01TurnFlags();
 
       const turnTotalInput = document.getElementById("turn-total");
       if (turnTotalInput) {
@@ -518,6 +525,27 @@ async function submitScore(totalPoints) {
       if (isBust) {
         const bustedPlayer = response.game.players.find((p) => p.id === t.player_id)?.name || "Player";
         showBustBanner(`${bustedPlayer} bust!`);
+      }
+
+      if (response.game.game_type === "x01") {
+        const activePlayer = response.game.players.find((player) => player.id === t.player_id);
+        const remaining = activePlayer?.x01_remaining ?? activePlayer?.fives ?? 0;
+        if (t.x01_result === "bust_overshoot") {
+          showBustBanner(`${activePlayer?.name || "Player"} bust: score would go below zero.`);
+          showMessage(`Bust: ${t.total_points} would overshoot the finish.`, true);
+          return;
+        }
+        if (t.x01_result === "bust_leave_one") {
+          showBustBanner(`${activePlayer?.name || "Player"} bust: 1 remaining is not allowed.`);
+          showMessage("Bust: leaving 1 does not count.", true);
+          return;
+        }
+        showMessage(
+          t.counted
+            ? `Turn saved: ${t.total_points} scored, ${remaining} remaining.`
+            : `Turn saved: ${t.total_points} with no change.`,
+        );
+        return;
       }
 
       if (response.game.game_type === "english_cricket") {
@@ -652,10 +680,16 @@ function renderPlayers() {
 }
 
 function labelForGameType(gameType) {
+  if (gameType === "x01") return "X01";
   if (gameType === "english_cricket") return "English Cricket";
   if (gameType === "noughts_and_crosses") return "Noughts and Crosses";
   if (gameType === "55by5") return "55 by 5";
   return "55 by 5";
+}
+
+function playerStatsTitle(name) {
+  const safeName = typeof name === "string" && name.trim() ? name.trim() : "Player";
+  return `${safeName}'s Stats`;
 }
 
 function renderPlayerStats() {
@@ -666,11 +700,11 @@ function renderPlayerStats() {
     playerStatsOverlayEl.classList.add("visible");
     playerStatsPanelEl.innerHTML = `
       <div class="panel-header">
-        <h3 id="player-stats-title">Player Stats</h3>
+        <h3 id="player-stats-title">${playerStatsTitle(loadingPlayer?.name)}</h3>
         <button type="button" class="btn-ghost" data-close-player-stats aria-label="Close player stats">Close</button>
       </div>
       <div class="player-stats-body">
-        <p class="hint">Loading stats for ${loadingPlayer?.name || "player"}...</p>
+        <p class="hint">Loading stats...</p>
       </div>
     `;
     return;
@@ -702,7 +736,7 @@ function renderPlayerStats() {
   playerStatsOverlayEl.classList.add("visible");
   playerStatsPanelEl.innerHTML = `
     <div class="panel-header">
-      <h3 id="player-stats-title">${player.name} Stats</h3>
+      <h3 id="player-stats-title">${playerStatsTitle(player.name)}</h3>
       <button type="button" class="btn-ghost" data-close-player-stats aria-label="Close player stats">Close</button>
     </div>
     <div class="player-stats-body">
@@ -754,6 +788,12 @@ function updateHeroCopy(game) {
   if (!heroTitleEl || !heroSubtitleEl) return;
 
   const activeGameType = game && game.status === "active" ? game.game_type : null;
+  if (activeGameType === "x01") {
+    heroTitleEl.textContent = "X01";
+    heroSubtitleEl.textContent = "Count down to exactly zero and avoid busts from overshooting or leaving 1.";
+    return;
+  }
+
   if (activeGameType === "55by5") {
     heroTitleEl.textContent = "55 by 5";
     heroSubtitleEl.textContent = "Score in multiples of 5 and reach exactly 55 fives to win the game.";
@@ -818,6 +858,7 @@ function syncStateFromGame(game) {
   state.teamAssignments = game.team_assignments || {};
   setTeamNames(game.team_names || {}, { syncInputs: true });
   state.cricketStartingBattingTeam = game.cricket_state?.starting_batting_team || game.cricket_state?.batting_team || "team_a";
+  state.x01StartingScore = game.x01_state?.starting_score || 501;
 }
 
 function teamDisplayName(teamKey, rawNames = state.teamNames) {
@@ -904,6 +945,31 @@ function getCricketStartContext() {
 function closeCricketStartOverlay() {
   if (cricketStartOverlayEl) {
     cricketStartOverlayEl.classList.remove("visible");
+  }
+}
+
+function closeX01StartOverlay() {
+  if (x01StartOverlayEl) {
+    x01StartOverlayEl.classList.remove("visible");
+  }
+}
+
+function resetX01TurnFlags() {
+}
+
+function renderX01StartSelection() {
+  const selectedScore = String(state.x01StartingScore || 501);
+  document.querySelectorAll('input[name="x01-starting-score"]').forEach((input) => {
+    if (input instanceof HTMLInputElement) {
+      input.checked = input.value === selectedScore;
+    }
+  });
+}
+
+function openX01StartOverlay() {
+  renderX01StartSelection();
+  if (x01StartOverlayEl) {
+    x01StartOverlayEl.classList.add("visible");
   }
 }
 
@@ -1421,6 +1487,65 @@ function renderStandardScoreboard(game) {
   }
 }
 
+function renderX01TurnPanel(game) {
+  if (!x01TurnPanelEl || !x01ActiveRemainingEl || !x01CheckoutHintEl) return;
+
+  const x01State = game.x01_state || {};
+  const remaining = x01State.active_remaining ?? x01State.starting_score ?? 501;
+
+  x01TurnPanelEl.classList.toggle("hidden", game.game_type !== "x01");
+  x01ActiveRemainingEl.textContent = String(remaining);
+  x01CheckoutHintEl.textContent = x01State.active_checkout || "No checkout";
+}
+
+function renderX01Scoreboard(game) {
+  scoreboardEl.innerHTML = "";
+  const x01State = game.x01_state || {};
+  const players = [...game.players];
+
+  if (game.team_mode === "teams") {
+    const grouped = groupPlayersByTeam(players);
+    for (const teamKey of ["team_a", "team_b"]) {
+      const members = grouped[teamKey];
+      if (!members.length) continue;
+      const label = teamInitialsLabel(teamDisplayName(teamKey, game.team_names), members);
+      const teamRemaining = members[0]?.x01_remaining ?? x01State.starting_score ?? 501;
+      const teamRow = document.createElement("tr");
+      teamRow.className = "team-header-row";
+      teamRow.innerHTML = `
+        <td><strong>${label}</strong></td>
+        <td><strong>${teamRemaining}</strong></td>
+      `;
+      scoreboardEl.appendChild(teamRow);
+
+      for (const player of members) {
+        const tr = document.createElement("tr");
+        if (player.id === game.active_player_id && game.status === "active") {
+          tr.classList.add("active-row");
+        }
+        tr.innerHTML = `
+          <td class="scoreboard-member">${player.name}</td>
+          <td>${player.x01_remaining ?? teamRemaining}</td>
+        `;
+        scoreboardEl.appendChild(tr);
+      }
+    }
+    return;
+  }
+
+  for (const player of players) {
+    const tr = document.createElement("tr");
+    if (player.id === game.active_player_id && game.status === "active") {
+      tr.classList.add("active-row");
+    }
+    tr.innerHTML = `
+      <td>${player.name}</td>
+      <td>${player.x01_remaining ?? x01State.starting_score ?? 501}</td>
+    `;
+    scoreboardEl.appendChild(tr);
+  }
+}
+
 function renderCricketDashboard(game) {
   if (!cricketDashboardEl || !cricketBowlingPanelEl || !cricketBattingPanelEl) return;
 
@@ -1629,6 +1754,7 @@ function applyLayoutMode(game) {
 
   if (activeMode) {
     closeCricketStartOverlay();
+    closeX01StartOverlay();
     closeNoughtsMarkOverlay();
     if (gameSelectionPanelEl) {
       gameSelectionPanelEl.classList.add("hidden");
@@ -1679,6 +1805,9 @@ function renderGame() {
     if (standardTurnControlsEl) {
       standardTurnControlsEl.classList.remove("hidden");
     }
+    if (x01TurnPanelEl) {
+      x01TurnPanelEl.classList.add("hidden");
+    }
     if (cricketDashboardEl) {
       cricketDashboardEl.classList.add("hidden");
     }
@@ -1692,12 +1821,14 @@ function renderGame() {
   }
 
   const isCricket = game.game_type === "english_cricket";
+  const isX01 = game.game_type === "x01";
   const isNoughts = game.game_type === "noughts_and_crosses";
   const headers = Array.from(document.querySelectorAll("#scoreboard-table thead th"));
   if (headers.length >= 3) {
     headers[0].textContent = "Player";
-    headers[1].textContent = "Score";
+    headers[1].textContent = isX01 ? "Remaining" : "Score";
     headers[2].textContent = "Points Required";
+    headers[2].hidden = isX01;
   }
 
   if (standardTurnControlsEl) {
@@ -1730,6 +1861,9 @@ function renderGame() {
     activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong>`;
   } else if (isNoughts) {
     activeGameMetaEl.innerHTML = "<strong>Noughts and Crosses</strong>";
+  } else if (isX01) {
+    const checkoutText = game.x01_state?.active_checkout ? `<span class="hint">Checkout: ${game.x01_state.active_checkout}</span>` : "";
+    activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong>${checkoutText}`;
   } else {
     activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong>`;
   }
@@ -1740,7 +1874,11 @@ function renderGame() {
   } else if (isNoughts) {
     renderNoughtsAndCrossesDashboard(game);
     scoreboardEl.innerHTML = "";
+  } else if (isX01) {
+    renderX01TurnPanel(game);
+    renderX01Scoreboard(game);
   } else {
+    renderX01TurnPanel({ game_type: null });
     renderStandardScoreboard(game);
   }
 
@@ -1751,6 +1889,12 @@ function renderGame() {
       ? (turn.counted
         ? `+${turn.fives_awarded} ${turn.total_points <= 6 ? "wicket marks" : "runs"}`
         : "no score")
+      : isX01
+        ? (turn.x01_result === "bust_overshoot"
+          ? "bust below zero"
+          : turn.x01_result === "bust_leave_one"
+            ? "bust on 1 remaining"
+                : `${turn.total_points} scored`)
       : isNoughts
         ? (turn.counted
           ? `${turn.noughts_marker || "Mark"} on ${turn.board_label || `square ${turn.board_index + 1}`}`
@@ -1767,7 +1911,7 @@ function renderGame() {
   }
 
   if (turnInputLabelEl && !isCricket) {
-    turnInputLabelEl.textContent = "Total scored";
+    turnInputLabelEl.textContent = isX01 ? "Turn total" : "Total scored";
   }
   if (bullHitEl) {
     bullHitEl.classList.add("hidden");
@@ -1802,7 +1946,9 @@ async function loadHistory() {
   for (const game of games) {
     const li = document.createElement("li");
     const names = game.participants.map((p) => p.name).join(" -> ");
-    const modeLabel = game.game_type === "english_cricket"
+    const modeLabel = game.game_type === "x01"
+      ? "X01"
+      : game.game_type === "english_cricket"
       ? "English Cricket"
       : game.game_type === "noughts_and_crosses"
         ? "Noughts and Crosses"
@@ -1888,6 +2034,7 @@ async function startConfiguredGame() {
         team_assignments: teamAssignments,
         team_names: state.teamMode === "teams" ? normalizeTeamNames(state.teamNames) : undefined,
         starting_batting_team: state.gameType === "english_cricket" ? state.cricketStartingBattingTeam : undefined,
+        x01_starting_score: state.gameType === "x01" ? state.x01StartingScore : undefined,
       }),
     });
     syncStateFromGame(response.game);
@@ -1957,6 +2104,7 @@ async function startRematch() {
         team_assignments: newTeamAssignments,
         team_names: teamMode === "teams" ? finishedGame.team_names : undefined,
         starting_batting_team: gameType === "english_cricket" ? newStartingBattingTeam : undefined,
+        x01_starting_score: gameType === "x01" ? finishedGame.x01_state?.starting_score : undefined,
       }),
     });
 
@@ -1985,6 +2133,7 @@ async function init() {
   });
 
   const choose55Btn = document.getElementById("choose-55by5");
+  const chooseX01Btn = document.getElementById("choose-x01");
   const chooseCricketBtn = document.getElementById("choose-english-cricket");
   const chooseNoughtsBtn = document.getElementById("choose-noughts-and-crosses");
   const teamModeSoloEl = document.getElementById("team-mode-solo");
@@ -2054,14 +2203,42 @@ async function init() {
       closeCricketStartOverlay();
       return;
     }
+    if (x01StartOverlayEl?.classList.contains("visible")) {
+      closeX01StartOverlay();
+      return;
+    }
     if (noughtsMarkOverlayEl?.classList.contains("visible")) {
       closeNoughtsMarkOverlay();
     }
   });
 
+  document.querySelectorAll('input[name="x01-starting-score"]').forEach((input) => {
+    input.addEventListener("change", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement)) return;
+      state.x01StartingScore = Number(target.value) || 501;
+    });
+  });
+
+  if (chooseX01Btn) {
+    chooseX01Btn.addEventListener("click", () => {
+      closeCricketStartOverlay();
+      closeNoughtsMarkOverlay();
+      closePlayerStats();
+      state.gameType = "x01";
+      state.teamMode = getTeamMode();
+      state.x01StartingScore = 501;
+      resetX01TurnFlags();
+      applyLayoutMode(state.game);
+      renderTeamAssignment();
+      openX01StartOverlay();
+    });
+  }
+
   if (choose55Btn) {
     choose55Btn.addEventListener("click", async () => {
       closeCricketStartOverlay();
+      closeX01StartOverlay();
       closePlayerStats();
       state.gameType = "55by5";
       state.teamMode = getTeamMode();
@@ -2079,6 +2256,7 @@ async function init() {
   if (chooseCricketBtn) {
     chooseCricketBtn.addEventListener("click", () => {
       const wasSelected = state.gameType === "english_cricket";
+      closeX01StartOverlay();
       closePlayerStats();
       state.gameType = "english_cricket";
       state.teamMode = getTeamMode();
@@ -2094,6 +2272,7 @@ async function init() {
   if (chooseNoughtsBtn) {
     chooseNoughtsBtn.addEventListener("click", async () => {
       closeCricketStartOverlay();
+      closeX01StartOverlay();
       closeNoughtsMarkOverlay();
       closePlayerStats();
       state.gameType = "noughts_and_crosses";
@@ -2114,10 +2293,35 @@ async function init() {
     });
   }
 
+  if (x01StartCancelEl) {
+    x01StartCancelEl.addEventListener("click", () => {
+      closeX01StartOverlay();
+    });
+  }
+
+  if (x01StartGameEl) {
+    x01StartGameEl.addEventListener("click", async () => {
+      closeX01StartOverlay();
+      try {
+        await startConfiguredGame();
+      } catch (err) {
+        showMessage(err.message, true);
+      }
+    });
+  }
+
   if (cricketStartOverlayEl) {
     cricketStartOverlayEl.addEventListener("click", (event) => {
       if (event.target === cricketStartOverlayEl) {
         closeCricketStartOverlay();
+      }
+    });
+  }
+
+  if (x01StartOverlayEl) {
+    x01StartOverlayEl.addEventListener("click", (event) => {
+      if (event.target === x01StartOverlayEl) {
+        closeX01StartOverlay();
       }
     });
   }

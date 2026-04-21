@@ -58,6 +58,7 @@ class Game(db.Model):
     team_names = db.Column(db.Text, nullable=True)
     cricket_state = db.Column(db.Text, nullable=True)
     noughts_and_crosses_state = db.Column(db.Text, nullable=True)
+    x01_state = db.Column(db.Text, nullable=True)
     winner_team = db.Column(db.String(20), nullable=True)
     current_turn_position = db.Column(db.Integer, nullable=False, default=0)
     winner_player_id = db.Column(db.Integer, db.ForeignKey("players.id"), nullable=True)
@@ -267,6 +268,136 @@ NOUGHTS_AND_CROSSES_WIN_LINES = (
     (0, 4, 8),
     (2, 4, 6),
 )
+X01_VALID_STARTING_SCORES = (1001, 501, 301, 101)
+X01_RESULT_SCORED = 0
+X01_RESULT_BUST_OVERSHOOT = 1
+X01_RESULT_BUST_LEAVE_ONE = 2
+
+X01_CHECKOUTS = {
+    170: "T20 T20 Bull",
+    167: "T20 T19 Bull",
+    164: "T20 T18 Bull",
+    161: "T20 T17 Bull",
+    160: "T20 T20 D20",
+    158: "T20 T20 D19",
+    157: "T20 T19 D20",
+    156: "T20 T20 D18",
+    155: "T20 T19 D19",
+    154: "T20 T18 D20",
+    153: "T20 T19 D18",
+    152: "T20 T20 D16",
+    151: "T20 T17 D20",
+    150: "T20 T18 D18",
+    149: "T20 T19 D16",
+    148: "T20 T16 D20",
+    147: "T20 T17 D18",
+    146: "T20 T18 D16",
+    145: "T20 T15 D20",
+    144: "T20 T20 D12",
+    143: "T20 T17 D16",
+    142: "T20 T14 D20",
+    141: "T20 T19 D12",
+    140: "T20 T20 D10",
+    139: "T19 T14 D20",
+    138: "T20 T18 D12",
+    137: "T19 T16 D16",
+    136: "T20 T20 D8",
+    135: "Bull T15 D20",
+    134: "T20 T14 D16",
+    133: "T20 T19 D8",
+    132: "Bull Bull D16",
+    131: "T20 T13 D16",
+    130: "T20 T20 D5",
+    129: "T19 T16 D12",
+    128: "T18 T14 D16",
+    127: "T20 T17 D8",
+    126: "T19 T19 D6",
+    125: "Bull T15 D20",
+    124: "T20 T16 D8",
+    123: "T19 T16 D9",
+    122: "T18 T18 D7",
+    121: "T20 T11 D14",
+    120: "T20 20 D20",
+    119: "T19 T12 D13",
+    118: "T20 18 D20",
+    117: "T20 17 D20",
+    116: "T20 16 D20",
+    115: "T20 15 D20",
+    114: "T20 14 D20",
+    113: "T20 13 D20",
+    112: "T20 20 D16",
+    111: "T20 19 D16",
+    110: "T20 18 D16",
+    109: "T20 17 D16",
+    108: "T20 16 D16",
+    107: "T19 18 D16",
+    106: "T20 14 D16",
+    105: "T20 13 D16",
+    104: "T18 18 D16",
+    103: "T19 10 D18",
+    102: "T20 10 D16",
+    101: "T17 10 D20",
+    100: "T20 D20",
+    99: "T19 10 D16",
+    98: "T20 D19",
+    97: "T19 D20",
+    96: "T20 D18",
+    95: "T19 D19",
+    94: "T18 D20",
+    93: "T19 D18",
+    92: "T20 D16",
+    91: "T17 D20",
+    90: "T18 D18",
+    89: "T19 D16",
+    88: "T16 D20",
+    87: "T17 D18",
+    86: "T18 D16",
+    85: "T15 D20",
+    84: "T20 D12",
+    83: "T17 D16",
+    82: "Bull D16",
+    81: "T19 D12",
+    80: "T20 D10",
+    79: "T19 D11",
+    78: "T18 D12",
+    77: "T19 D10",
+    76: "T20 D8",
+    75: "T17 D12",
+    74: "T14 D16",
+    73: "T19 D8",
+    72: "T16 D12",
+    71: "T13 D16",
+    70: "T18 D8",
+    69: "T19 D6",
+    68: "T20 D4",
+    67: "T17 D8",
+    66: "T10 D18",
+    65: "25 D20",
+    64: "T16 D8",
+    63: "T13 D12",
+    62: "T10 D16",
+    61: "T15 D8",
+    60: "20 D20",
+    59: "19 D20",
+    58: "18 D20",
+    57: "17 D20",
+    56: "16 D20",
+    55: "15 D20",
+    54: "14 D20",
+    53: "13 D20",
+    52: "20 D16",
+    51: "19 D16",
+    50: "18 D16",
+    49: "17 D16",
+    48: "16 D16",
+    47: "15 D16",
+    46: "14 D16",
+    45: "13 D16",
+    44: "12 D16",
+    43: "11 D16",
+    42: "10 D16",
+    41: "9 D16",
+}
 
 
 def generate_random_noughts_targets() -> list[str]:
@@ -300,6 +431,8 @@ def normalize_game_type(raw_type: str | None) -> str:
     game_type = (raw_type or "55by5").strip().lower()
     if game_type == "english_cricket":
         return "english_cricket"
+    if game_type in {"x01", "501", "301", "1001", "101"}:
+        return "x01"
     if game_type in {"noughts_and_crosses", "noughts-and-crosses", "noughts", "tic_tac_toe", "tic-tac-toe", "tic tac toe"}:
         return "noughts_and_crosses"
     return "55by5"
@@ -336,6 +469,88 @@ def build_initial_noughts_and_crosses_state() -> dict:
         "winner_marker": None,
         "winning_line": [],
     }
+
+
+def normalize_x01_starting_score(raw_score: object, default: int = 501) -> int:
+    if isinstance(raw_score, int) and raw_score in X01_VALID_STARTING_SCORES:
+        return raw_score
+    return default
+
+
+def x01_entity_keys(team_mode: str, ordered_player_ids: list[int], assignments: dict[int, str]) -> list[str]:
+    if team_mode == "teams":
+        present_teams = {assignments.get(player_id) for player_id in ordered_player_ids}
+        return [team_key for team_key in (TEAM_A, TEAM_B) if team_key in present_teams]
+    return [str(player_id) for player_id in ordered_player_ids]
+
+
+def build_initial_x01_state(
+    ordered_player_ids: list[int],
+    assignments: dict[int, str],
+    team_mode: str,
+    starting_score: int = 501,
+) -> dict:
+    entity_keys = x01_entity_keys(team_mode, ordered_player_ids, assignments)
+    return {
+        "starting_score": normalize_x01_starting_score(starting_score),
+        "remaining_scores": {key: normalize_x01_starting_score(starting_score) for key in entity_keys},
+    }
+
+
+def parse_x01_state(
+    raw_value: str | None,
+    ordered_player_ids: list[int],
+    assignments: dict[int, str],
+    team_mode: str,
+) -> dict:
+    default_state = build_initial_x01_state(ordered_player_ids, assignments, team_mode)
+    if not raw_value:
+        return default_state
+
+    try:
+        decoded = json.loads(raw_value)
+    except (TypeError, ValueError):
+        return default_state
+    if not isinstance(decoded, dict):
+        return default_state
+
+    starting_score = normalize_x01_starting_score(decoded.get("starting_score"), default_state["starting_score"])
+    state = build_initial_x01_state(ordered_player_ids, assignments, team_mode, starting_score)
+
+    remaining_scores = decoded.get("remaining_scores") if isinstance(decoded.get("remaining_scores"), dict) else {}
+    for key in state["remaining_scores"]:
+        raw_remaining = remaining_scores.get(key)
+        if isinstance(raw_remaining, int) and 0 <= raw_remaining <= starting_score:
+            state["remaining_scores"][key] = raw_remaining
+    return state
+
+
+def x01_entity_key_for_player(game: Game, player_id: int, assignments: dict[int, str]) -> str:
+    if game.team_mode == "teams":
+        return assignments.get(player_id, TEAM_A)
+    return str(player_id)
+
+
+def encode_x01_turn_result(result: str | None) -> int:
+    if result == "bust_overshoot":
+        return X01_RESULT_BUST_OVERSHOOT
+    if result == "bust_leave_one":
+        return X01_RESULT_BUST_LEAVE_ONE
+    return X01_RESULT_SCORED
+
+
+def decode_x01_turn_result(encoded_result: int | None) -> str:
+    if encoded_result == X01_RESULT_BUST_OVERSHOOT:
+        return "bust_overshoot"
+    if encoded_result == X01_RESULT_BUST_LEAVE_ONE:
+        return "bust_leave_one"
+    return "scored"
+
+
+def x01_checkout_hint(remaining: int, opened: bool) -> str | None:
+    if not opened:
+        return None
+    return X01_CHECKOUTS.get(remaining)
 
 
 def starting_turn_position(ordered_players: list[dict], assignments: dict[int, str], bowling_team: str | None) -> int:
@@ -552,11 +767,11 @@ def team_label(team_key: str | None, team_names: dict[str, str] | None = None) -
     return None
 
 
-def reset_game_scores(score_rows: list[GameScore]) -> dict[int, GameScore]:
+def reset_game_scores(score_rows: list[GameScore], initial_value: int = 0) -> dict[int, GameScore]:
     """Reset persisted score rows before replaying turns from scratch."""
     score_by_player = {row.player_id: row for row in score_rows}
     for row in score_rows:
-        row.fives = 0
+        row.fives = initial_value
     return score_by_player
 
 
@@ -700,6 +915,53 @@ def apply_noughts_and_crosses_turn(
         finish_game(game)
 
 
+def apply_x01_turn(
+    game: Game,
+    turn: Turn,
+    ordered_players: list[dict],
+    score_by_player: dict[int, GameScore],
+    assignments: dict[int, str],
+    x01_state: dict,
+) -> None:
+    entity_key = x01_entity_key_for_player(game, turn.player_id, assignments)
+    remaining_scores = x01_state["remaining_scores"]
+    remaining = int(remaining_scores.get(entity_key, x01_state["starting_score"]))
+    result = "scored"
+
+    projected_remaining = remaining - turn.total_points
+    if projected_remaining < 0:
+        result = "bust_overshoot"
+    elif projected_remaining == 1:
+        result = "bust_leave_one"
+    if result != "scored":
+        turn.counted = False
+        turn.fives_awarded = 0
+        turn.dart_3 = encode_x01_turn_result(result)
+        return
+
+    turn.counted = turn.total_points > 0 or projected_remaining == 0
+    turn.fives_awarded = turn.total_points
+    turn.dart_3 = encode_x01_turn_result("scored")
+    remaining_scores[entity_key] = projected_remaining
+
+    if game.team_mode == "teams":
+        for player in ordered_players:
+            if assignments.get(player["id"], TEAM_A) == entity_key:
+                score_row = score_by_player.get(player["id"])
+                if score_row:
+                    score_row.fives = projected_remaining
+    else:
+        score_row = score_by_player.get(turn.player_id)
+        if score_row:
+            score_row.fives = projected_remaining
+
+    if projected_remaining == 0:
+        if game.team_mode == "teams":
+            finish_game(game, winner_team=entity_key)
+        else:
+            finish_game(game, winner_player_id=turn.player_id)
+
+
 def recompute_game_state(game: Game) -> None:
     """Replay every stored turn to rebuild scores, turn order, and winners."""
     ordered = game_ordered_players(game.id)
@@ -708,12 +970,28 @@ def recompute_game_state(game: Game) -> None:
 
     assignments = parse_team_assignments(game.team_assignments)
     score_rows = GameScore.query.filter_by(game_id=game.id).all()
-    score_by_player = reset_game_scores(score_rows)
+    initial_score = 0
+
+    if game.game_type == "x01":
+        stored_x01_state = parse_x01_state(
+            game.x01_state,
+            [player["id"] for player in ordered],
+            assignments,
+            game.team_mode,
+        )
+        initial_score = stored_x01_state["starting_score"]
+    score_by_player = reset_game_scores(score_rows, initial_score)
 
     reset_game_progress(game)
 
     stored_cricket_state = parse_cricket_state(game.cricket_state)
     stored_noughts_state = parse_noughts_and_crosses_state(game.noughts_and_crosses_state)
+    stored_x01_state = parse_x01_state(
+        game.x01_state,
+        [player["id"] for player in ordered],
+        assignments,
+        game.team_mode,
+    )
     if game.game_type == "english_cricket":
         cricket_state = build_initial_cricket_state(stored_cricket_state["starting_batting_team"])
         game.current_turn_position = starting_turn_position(ordered, assignments, cricket_state["bowling_team"])
@@ -729,6 +1007,16 @@ def recompute_game_state(game: Game) -> None:
         noughts_state["winning_line"] = []
     else:
         noughts_state = stored_noughts_state
+
+    if game.game_type == "x01":
+        x01_state = build_initial_x01_state(
+            [player["id"] for player in ordered],
+            assignments,
+            game.team_mode,
+            stored_x01_state["starting_score"],
+        )
+    else:
+        x01_state = stored_x01_state
 
     team_totals = {TEAM_A: 0, TEAM_B: 0}
     turns = Turn.query.filter_by(game_id=game.id).order_by(Turn.turn_number.asc()).all()
@@ -751,6 +1039,8 @@ def recompute_game_state(game: Game) -> None:
 
         if game.game_type == "english_cricket":
             apply_cricket_turn(game, turn, score_row, assignments, cricket_state)
+        elif game.game_type == "x01":
+            apply_x01_turn(game, turn, ordered, score_by_player, assignments, x01_state)
         elif game.game_type == "noughts_and_crosses":
             apply_noughts_and_crosses_turn(game, turn, ordered, assignments, noughts_state)
         else:
@@ -761,6 +1051,8 @@ def recompute_game_state(game: Game) -> None:
 
     if game.game_type == "english_cricket":
         game.cricket_state = json.dumps(cricket_state)
+    if game.game_type == "x01":
+        game.x01_state = json.dumps(x01_state)
     if game.game_type == "noughts_and_crosses":
         game.noughts_and_crosses_state = json.dumps(noughts_state)
 
@@ -786,6 +1078,8 @@ def ensure_game_schema_columns() -> None:
         statements.append("ALTER TABLE games ADD COLUMN cricket_state TEXT")
     if "noughts_and_crosses_state" not in existing_columns:
         statements.append("ALTER TABLE games ADD COLUMN noughts_and_crosses_state TEXT")
+    if "x01_state" not in existing_columns:
+        statements.append("ALTER TABLE games ADD COLUMN x01_state TEXT")
     if "winner_team" not in existing_columns:
         statements.append("ALTER TABLE games ADD COLUMN winner_team VARCHAR(20)")
 
@@ -823,6 +1117,8 @@ def serialize_players_for_game(
     ordered_players: list[dict],
     scores: dict[int, int],
     assignments: dict[int, str],
+    game: Game,
+    x01_state: dict | None = None,
 ) -> list[dict]:
     return [
         {
@@ -831,6 +1127,14 @@ def serialize_players_for_game(
             "position": item["position"],
             "fives": scores.get(item["id"], 0),
             "team": assignments.get(item["id"]),
+            "x01_remaining": (
+                (x01_state or {}).get("remaining_scores", {}).get(
+                    x01_entity_key_for_player(game, item["id"], assignments),
+                    scores.get(item["id"], 0),
+                )
+                if game.game_type == "x01"
+                else None
+            ),
         }
         for item in ordered_players
     ]
@@ -853,6 +1157,7 @@ def serialize_turns_for_game(game: Game) -> list[dict]:
             "total_points": turn.total_points,
             "counted": turn.counted,
             "fives_awarded": turn.fives_awarded,
+            "x01_result": decode_x01_turn_result(turn.dart_3) if game.game_type == "x01" else None,
             "noughts_marker": decode_noughts_marker(turn.dart_2) if game.game_type == "noughts_and_crosses" else None,
             "board_index": turn.total_points if game.game_type == "noughts_and_crosses" else None,
             "board_label": noughts_state.get("cells", [])[turn.total_points].get("label") if game.game_type == "noughts_and_crosses" and 0 <= turn.total_points < 9 else None,
@@ -882,9 +1187,21 @@ def serialize_game_state(game: Game) -> dict:
     assignments = parse_team_assignments(game.team_assignments)
     team_names = parse_team_names(game.team_names)
     noughts_state = parse_noughts_and_crosses_state(game.noughts_and_crosses_state)
+    x01_state = parse_x01_state(game.x01_state, [player["id"] for player in ordered_players], assignments, game.team_mode)
     if game.game_type == "noughts_and_crosses":
         noughts_state["x_name"] = noughts_side_name(ordered_players, assignments, team_names, TEAM_A, game.team_mode)
         noughts_state["o_name"] = noughts_side_name(ordered_players, assignments, team_names, TEAM_B, game.team_mode)
+    if game.game_type == "x01":
+        active_entity_key = (
+            x01_entity_key_for_player(game, active_player_id_for_game(game, ordered_players), assignments)
+            if active_player_id_for_game(game, ordered_players) is not None
+            else None
+        )
+        if active_entity_key:
+            remaining = x01_state["remaining_scores"].get(active_entity_key, x01_state["starting_score"])
+            x01_state["active_entity_key"] = active_entity_key
+            x01_state["active_remaining"] = remaining
+            x01_state["active_checkout"] = x01_checkout_hint(remaining, True)
 
     return {
         "id": game.id,
@@ -901,8 +1218,9 @@ def serialize_game_state(game: Game) -> dict:
         "finished_at": now_iso(game.finished_at),
         "team_assignments": {str(k): v for k, v in assignments.items()},
         "cricket_state": parse_cricket_state(game.cricket_state) if game.game_type == "english_cricket" else None,
+        "x01_state": x01_state if game.game_type == "x01" else None,
         "noughts_and_crosses_state": noughts_state if game.game_type == "noughts_and_crosses" else None,
-        "players": serialize_players_for_game(ordered_players, scores, assignments),
+        "players": serialize_players_for_game(ordered_players, scores, assignments, game, x01_state),
         "turns": serialize_turns_for_game(game),
     }
 
@@ -911,6 +1229,8 @@ def game_type_label(game_type: str | None) -> str:
     normalized = normalize_game_type(game_type)
     if normalized == "english_cricket":
         return "English Cricket"
+    if normalized == "x01":
+        return "X01"
     if normalized == "noughts_and_crosses":
         return "Noughts and Crosses"
     return "55 by 5"
@@ -933,7 +1253,7 @@ def player_outcome_for_game(game: Game, player_id: int) -> str | None:
 
 
 def build_player_stats(player: Player) -> dict:
-    supported_game_types = ("55by5", "english_cricket", "noughts_and_crosses")
+    supported_game_types = ("x01", "55by5", "english_cricket", "noughts_and_crosses")
     by_game_type = {
         game_type: {
             "game_type": game_type,
@@ -1121,6 +1441,7 @@ def api_meta():
             "common_targets": [20, 15, 10, 5],
             "winning_fives": 55,
             "game_types": [
+                {"id": "x01", "name": "X01"},
                 {"id": "55by5", "name": "55 by 5"},
                 {"id": "english_cricket", "name": "English Cricket"},
                 {"id": "noughts_and_crosses", "name": "Noughts and Crosses"},
@@ -1292,8 +1613,10 @@ def build_new_game_start_state(
     game_type: str,
     ordered_player_ids: list[int],
     normalized_assignments: dict[int, str],
+    team_mode: str,
     starting_batting_team: str | None,
-) -> tuple[int, str | None, str | None]:
+    x01_starting_score: int,
+) -> tuple[int, str | None, str | None, str | None]:
     if game_type == "english_cricket":
         opening_state = build_initial_cricket_state(starting_batting_team)
         ordered_for_start = [{"id": player_id} for player_id in ordered_player_ids]
@@ -1302,12 +1625,21 @@ def build_new_game_start_state(
             normalized_assignments,
             opening_state["bowling_team"],
         )
-        return initial_turn_position, json.dumps(opening_state), None
+        return initial_turn_position, json.dumps(opening_state), None, None
+
+    if game_type == "x01":
+        x01_state = build_initial_x01_state(
+            ordered_player_ids,
+            normalized_assignments,
+            team_mode,
+            x01_starting_score,
+        )
+        return 0, None, None, json.dumps(x01_state)
 
     if game_type == "noughts_and_crosses":
-        return 0, None, json.dumps(build_initial_noughts_and_crosses_state())
+        return 0, None, json.dumps(build_initial_noughts_and_crosses_state()), None
 
-    return 0, None, None
+    return 0, None, None, None
 
 
 @app.post("/api/games")
@@ -1318,6 +1650,7 @@ def create_game():
     payload = request.get_json(silent=True) or {}
     game_type = normalize_game_type(payload.get("game_type"))
     team_mode = normalize_team_mode(payload.get("team_mode"))
+    x01_starting_score = normalize_x01_starting_score(payload.get("x01_starting_score"), 501)
 
     ordered_player_ids, error = validate_ordered_player_ids(payload.get("ordered_player_ids") or [])
     if error:
@@ -1336,11 +1669,13 @@ def create_game():
     if error:
         return jsonify({"error": error}), 400
 
-    initial_turn_position, cricket_state, noughts_and_crosses_state = build_new_game_start_state(
+    initial_turn_position, cricket_state, noughts_and_crosses_state, x01_state = build_new_game_start_state(
         game_type,
         ordered_player_ids,
         normalized_assignments,
+        team_mode,
         normalize_cricket_team(payload.get("starting_batting_team"), TEAM_A),
+        x01_starting_score,
     )
 
     game = Game(
@@ -1351,6 +1686,7 @@ def create_game():
         team_names=json.dumps(team_names) if team_mode == "teams" else None,
         cricket_state=cricket_state,
         noughts_and_crosses_state=noughts_and_crosses_state,
+        x01_state=x01_state,
         current_turn_position=initial_turn_position,
     )
     db.session.add(game)
@@ -1399,8 +1735,11 @@ def submit_turn(game_id: int):
         game_id=game.id,
         player_id=player_id,
         turn_number=turn_count + 1,
-        dart_1=total_points,
-        dart_2=encode_noughts_marker(noughts_marker) if game.game_type == "noughts_and_crosses" else 0,
+        dart_1=0 if game.game_type == "x01" else total_points,
+        dart_2=(
+            encode_noughts_marker(noughts_marker) if game.game_type == "noughts_and_crosses"
+            else 0
+        ),
         dart_3=0,
         total_points=total_points,
         counted=False,
@@ -1420,6 +1759,7 @@ def submit_turn(game_id: int):
                 "total_points": turn.total_points,
                 "counted": turn.counted,
                 "fives_awarded": turn.fives_awarded,
+                "x01_result": decode_x01_turn_result(turn.dart_3) if game.game_type == "x01" else None,
             },
             "game": serialize_game_state(game),
         }
