@@ -142,16 +142,48 @@ body {
   gap: 0.6rem;
 }
 
+.admin-user-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
 .admin-user-meta {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 0.75rem;
+  flex: 1;
+  min-width: 0;
 }
 
 .admin-user-badges {
   display: flex;
   gap: 0.4rem;
+}
+
+.admin-user-toggle-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 1rem;
+  font-weight: 700;
+  flex: none;
+}
+
+.admin-user-details.hidden {
+  display: none;
 }
 
 .chip-static {

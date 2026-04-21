@@ -470,6 +470,89 @@ def test_non_admin_user_does_not_see_clear_history_button(live_server, browser):
     assert "hidden" in clear_history_button.get_attribute("class")
 
 
+def test_current_accounts_rows_start_collapsed_and_expand_on_click(live_server, browser):
+    browser.get(live_server)
+
+    browser.find_element(By.ID, "new-username").send_keys("collapseduser")
+    browser.find_element(By.ID, "new-password").send_keys("viewerpass")
+    browser.find_element(By.CSS_SELECTOR, "#create-user-form button[type='submit']").click()
+
+    account_toggle = _wait(browser).until(
+        ec.element_to_be_clickable(
+            (
+                By.XPATH,
+                "//ul[@id='user-accounts-list']/li[.//strong[normalize-space()='collapseduser']]//button[@data-admin-user-toggle]",
+            )
+        )
+    )
+    assert account_toggle.get_attribute("aria-expanded") == "false"
+
+    account_item = account_toggle.find_element(By.XPATH, "ancestor::li[1]")
+    details = account_item.find_element(By.CSS_SELECTOR, ".admin-user-details")
+    assert "hidden" in details.get_attribute("class")
+
+    account_toggle.click()
+
+    _wait(browser).until(
+        lambda d: d.find_element(
+            By.XPATH,
+            "//ul[@id='user-accounts-list']/li[.//strong[normalize-space()='collapseduser']]//button[@data-admin-user-toggle]",
+        ).get_attribute("aria-expanded") == "true"
+    )
+    account_item = browser.find_element(
+        By.XPATH,
+        "//ul[@id='user-accounts-list']/li[.//strong[normalize-space()='collapseduser']]",
+    )
+    details = account_item.find_element(By.CSS_SELECTOR, ".admin-user-details")
+    assert "hidden" not in details.get_attribute("class")
+    assert details.find_element(By.CSS_SELECTOR, "input[name='password']").is_displayed()
+    assert details.find_element(By.CSS_SELECTOR, "button[type='submit']").is_displayed()
+
+
+def test_admin_can_expand_account_row_and_update_password(live_server, browser):
+    browser.get(live_server)
+
+    browser.find_element(By.ID, "new-username").send_keys("passworduser")
+    browser.find_element(By.ID, "new-password").send_keys("viewerpass")
+    browser.find_element(By.CSS_SELECTOR, "#create-user-form button[type='submit']").click()
+
+    account_toggle = _wait(browser).until(
+        ec.element_to_be_clickable(
+            (
+                By.XPATH,
+                "//ul[@id='user-accounts-list']/li[.//strong[normalize-space()='passworduser']]//button[@data-admin-user-toggle]",
+            )
+        )
+    )
+    account_toggle.click()
+
+    password_input = _wait(browser).until(
+        ec.visibility_of_element_located(
+            (
+                By.XPATH,
+                "//ul[@id='user-accounts-list']/li[.//strong[normalize-space()='passworduser']]//input[@name='password']",
+            )
+        )
+    )
+    password_input.send_keys("newviewerpass")
+    browser.find_element(
+        By.XPATH,
+        "//ul[@id='user-accounts-list']/li[.//strong[normalize-space()='passworduser']]//button[@type='submit']",
+    ).click()
+
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "message"), "Password updated."))
+
+    browser.find_element(By.CSS_SELECTOR, ".logout-form button[type='submit']").click()
+    _wait(browser).until(ec.visibility_of_element_located((By.CSS_SELECTOR, ".login-form")))
+
+    browser.find_element(By.CSS_SELECTOR, "input[name='username']").send_keys("passworduser")
+    browser.find_element(By.CSS_SELECTOR, "input[name='password']").send_keys("newviewerpass")
+    browser.find_element(By.CSS_SELECTOR, ".login-form button[type='submit']").click()
+
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "players-panel")))
+    assert "passworduser" in browser.find_element(By.ID, "current-user").text
+
+
 def test_admin_created_user_adds_player_and_account_survives_player_delete(live_server, browser):
     browser.get(live_server)
 

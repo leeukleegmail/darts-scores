@@ -13,6 +13,7 @@ const state = {
   pendingNoughtsCellIndex: null,
   playerStats: null,
   loadingPlayerStatsId: null,
+  expandedAdminUserIds: new Set(),
 };
 
 const appShellEl = document.querySelector(".app-shell");
@@ -436,16 +437,26 @@ function renderAdminUsers(users) {
   userAccountsListEl.innerHTML = users
     .map((user) => `
       <li class="admin-user-item">
-        <div class="admin-user-meta">
-          <strong>${user.username}</strong>
-          <span class="admin-user-badges">
-            ${user.is_admin ? '<span class="chip chip-static">Admin</span>' : '<span class="chip chip-static">User</span>'}
+        <button
+          type="button"
+          class="admin-user-toggle"
+          data-admin-user-toggle="${user.id}"
+          aria-expanded="${state.expandedAdminUserIds.has(user.id) ? "true" : "false"}"
+        >
+          <span class="admin-user-meta">
+            <strong>${user.username}</strong>
+            <span class="admin-user-badges">
+              ${user.is_admin ? '<span class="chip chip-static">Admin</span>' : '<span class="chip chip-static">User</span>'}
+            </span>
           </span>
+          <span class="admin-user-toggle-icon" aria-hidden="true">${state.expandedAdminUserIds.has(user.id) ? "−" : "+"}</span>
+        </button>
+        <div class="admin-user-details${state.expandedAdminUserIds.has(user.id) ? "" : " hidden"}">
+          <form class="admin-user-password-form" data-user-id="${user.id}">
+            <input type="password" name="password" minlength="8" placeholder="New password" required />
+            <button type="submit">Update Password</button>
+          </form>
         </div>
-        <form class="admin-user-password-form" data-user-id="${user.id}">
-          <input type="password" name="password" minlength="8" placeholder="New password" required />
-          <button type="submit">Update Password</button>
-        </form>
       </li>
     `)
     .join("");
@@ -2275,6 +2286,26 @@ async function init() {
   }
 
   if (userAccountsListEl) {
+    userAccountsListEl.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+
+      const toggle = target.closest("[data-admin-user-toggle]");
+      if (!(toggle instanceof HTMLElement)) return;
+
+      const userId = Number(toggle.getAttribute("data-admin-user-toggle"));
+      if (!userId) return;
+
+      if (state.expandedAdminUserIds.has(userId)) {
+        state.expandedAdminUserIds.delete(userId);
+      } else {
+        state.expandedAdminUserIds.add(userId);
+      }
+      loadAdminUsers().catch((err) => {
+        showMessage(err.message, true);
+      });
+    });
+
     userAccountsListEl.addEventListener("submit", async (event) => {
       event.preventDefault();
       const form = event.target;
@@ -2290,6 +2321,7 @@ async function init() {
           body: JSON.stringify({ password: passwordInput.value }),
         });
         form.reset();
+        state.expandedAdminUserIds.add(Number(userId));
         showMessage("Password updated.");
       } catch (err) {
         showMessage(err.message, true);
