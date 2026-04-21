@@ -186,6 +186,40 @@ def start_noughts_game(browser, first_player: str, second_player: str):
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "noughts-dashboard")))
 
 
+def start_x01_game(browser, player_names, starting_score="501", team_mode="solo"):
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "setup-panel")))
+
+    for player_name in player_names:
+        add_player(browser, player_name)
+        player_checkbox = _wait(browser).until(
+            ec.presence_of_element_located(
+                (
+                    By.XPATH,
+                    f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
+                )
+            )
+        )
+        if not player_checkbox.is_selected():
+            player_checkbox.click()
+
+    if team_mode == "teams":
+        team_mode_toggle = _wait(browser).until(ec.element_to_be_clickable((By.ID, "team-mode-teams")))
+        if not team_mode_toggle.is_selected():
+            team_mode_toggle.click()
+        _wait(browser).until(ec.visibility_of_element_located((By.ID, "team-assignment")))
+        _wait(browser).until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "#team-a-list li")) > 0)
+        _wait(browser).until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "#team-b-list li")) > 0)
+
+    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-x01"))).click()
+    popup = _wait(browser).until(ec.visibility_of_element_located((By.ID, "x01-start-overlay")))
+
+    popup.find_element(By.CSS_SELECTOR, f"input[name='x01-starting-score'][value='{starting_score}']").click()
+
+    browser.find_element(By.ID, "x01-start-game").click()
+    _wait(browser).until(ec.invisibility_of_element_located((By.ID, "x01-start-overlay")))
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
+
+
 def start_noughts_team_game(browser, team_a_players: list, team_b_players: list):
     """Start a Noughts and Crosses game in teams mode.
 
@@ -596,6 +630,73 @@ def test_english_cricket_shows_starting_roles_popup_before_game_start(live_serve
     assert "will" in popup.text.lower()
     assert len(browser.find_elements(By.NAME, "cricket-start-choice")) == 2
     assert browser.find_element(By.ID, "cricket-start-game").is_displayed()
+
+
+def test_x01_shows_start_popup_with_defaults(live_server, browser):
+    browser.get(live_server)
+
+    add_player(browser, "X01 Starter")
+    player_checkbox = _wait(browser).until(
+        ec.presence_of_element_located(
+            (
+                By.XPATH,
+                "//div[@id='selectable-players']//label[.//span[normalize-space()='X01 Starter']]//input",
+            )
+        )
+    )
+    if not player_checkbox.is_selected():
+        player_checkbox.click()
+
+    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-x01"))).click()
+    popup = _wait(browser).until(ec.visibility_of_element_located((By.ID, "x01-start-overlay")))
+
+    assert popup.find_element(By.CSS_SELECTOR, "input[name='x01-starting-score'][value='501']").is_selected()
+
+    browser.find_element(By.ID, "x01-start-game").click()
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
+    assert "501" in browser.find_element(By.ID, "scoreboard").text
+    headers = browser.find_elements(By.CSS_SELECTOR, "#scoreboard-table thead th")
+    visible_headers = [header.text.strip() for header in headers if header.is_displayed()]
+    assert visible_headers == ["Player", "Remaining"]
+
+
+def test_x01_singles_game_can_complete_end_to_end(live_server, browser):
+    browser.get(live_server)
+    start_x01_game(browser, ["Ava"], starting_score="101")
+
+    submit_standard_score_with_keypad(browser, 60)
+
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "scoreboard"), "41"))
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "x01-checkout-hint"), "9 D16"))
+
+    submit_standard_score_with_keypad(browser, 41)
+
+    winner_overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
+    assert winner_overlay.is_displayed()
+    assert browser.find_element(By.ID, "winner-name").text.strip() == "Ava"
+
+
+def test_x01_team_game_can_complete_end_to_end(live_server, browser):
+    browser.get(live_server)
+    start_x01_game(browser, ["Aria", "Bryn"], starting_score="101", team_mode="teams")
+
+    scoreboard = _wait(browser).until(ec.visibility_of_element_located((By.ID, "scoreboard")))
+    assert "Team A" in scoreboard.text
+    assert "Team B" in scoreboard.text
+
+    submit_standard_score_with_keypad(browser, 60)
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "scoreboard"), "41"))
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "Bryn to Throw"))
+
+    submit_standard_score_with_keypad(browser, 0)
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#2 Bryn: total 0"))
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "Aria to Throw"))
+
+    submit_standard_score_with_keypad(browser, 41)
+
+    winner_overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
+    assert winner_overlay.is_displayed()
+    assert browser.find_element(By.ID, "winner-name").text.strip() == "Team A"
 
 
 def test_english_cricket_rejects_more_than_two_individual_players(live_server, browser):
