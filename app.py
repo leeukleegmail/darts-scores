@@ -134,6 +134,10 @@ def current_session_timestamp() -> int:
     return int(datetime.now(timezone.utc).timestamp())
 
 
+def find_player_by_name(name: str) -> Player | None:
+    return Player.query.filter(func.lower(Player.name) == name.lower()).first()
+
+
 def normalize_utc_datetime(value: datetime | None) -> datetime | None:
     if value is None:
         return None
@@ -903,6 +907,89 @@ def serialize_game_state(game: Game) -> dict:
     }
 
 
+def game_type_label(game_type: str | None) -> str:
+    normalized = normalize_game_type(game_type)
+    if normalized == "english_cricket":
+        return "English Cricket"
+    if normalized == "noughts_and_crosses":
+        return "Noughts and Crosses"
+    return "55 by 5"
+
+
+def player_outcome_for_game(game: Game, player_id: int) -> str | None:
+    if game.status != "finished":
+        return None
+
+    if game.team_mode == "teams":
+        assignments = parse_team_assignments(game.team_assignments)
+        player_team = assignments.get(player_id)
+        if not player_team or not game.winner_team:
+            return None
+        return "won" if player_team == game.winner_team else "lost"
+
+    if game.winner_player_id is None:
+        return None
+    return "won" if game.winner_player_id == player_id else "lost"
+
+
+def build_player_stats(player: Player) -> dict:
+    supported_game_types = ("55by5", "english_cricket", "noughts_and_crosses")
+    by_game_type = {
+        game_type: {
+            "game_type": game_type,
+            "label": game_type_label(game_type),
+            "played": 0,
+            "won": 0,
+            "lost": 0,
+        }
+        for game_type in supported_game_types
+    }
+
+    games = (
+        db.session.query(Game)
+        .join(GamePlayerOrder, Game.id == GamePlayerOrder.game_id)
+        .filter(GamePlayerOrder.player_id == player.id, Game.status == "finished")
+        .order_by(Game.finished_at.desc().nullslast(), Game.id.desc())
+        .all()
+    )
+
+    games_played = 0
+    games_won = 0
+    games_lost = 0
+
+    for game in games:
+        normalized_game_type = normalize_game_type(game.game_type)
+        summary = by_game_type.setdefault(
+            normalized_game_type,
+            {
+                "game_type": normalized_game_type,
+                "label": game_type_label(normalized_game_type),
+                "played": 0,
+                "won": 0,
+                "lost": 0,
+            },
+        )
+        summary["played"] += 1
+        games_played += 1
+
+        outcome = player_outcome_for_game(game, player.id)
+        if outcome == "won":
+            summary["won"] += 1
+            games_won += 1
+        elif outcome == "lost":
+            summary["lost"] += 1
+            games_lost += 1
+
+    win_rate = round((games_won / games_played) * 100, 1) if games_played else 0.0
+    return {
+        "games_played": games_played,
+        "games_won": games_won,
+        "games_lost": games_lost,
+        "win_rate": win_rate,
+        "by_game_type": [by_game_type[game_type] for game_type in supported_game_types],
+    }
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -990,6 +1077,10 @@ def create_app_user():
         is_admin=is_admin,
     )
     db.session.add(new_user)
+
+    if not find_player_by_name(username):
+        db.session.add(Player(name=username))
+
     db.session.commit()
 
     return jsonify({"id": new_user.id, "username": new_user.username, "is_admin": new_user.is_admin}), 201
@@ -1049,6 +1140,24 @@ def list_players():
     )
 
 
+@app.get("/api/players/<int:player_id>/stats")
+def get_player_stats(player_id: int):
+    player = db.session.get(Player, player_id)
+    if not player:
+        return jsonify({"error": "Player not found."}), 404
+
+    return jsonify(
+        {
+            "player": {
+                "id": player.id,
+                "name": player.name,
+                "created_at": now_iso(player.created_at),
+            },
+            "stats": build_player_stats(player),
+        }
+    )
+
+
 @app.post("/api/players")
 def create_player():
     payload = request.get_json(silent=True) or {}
@@ -1056,7 +1165,7 @@ def create_player():
     if not name:
         return jsonify({"error": "Player name is required."}), 400
 
-    existing = Player.query.filter(func.lower(Player.name) == name.lower()).first()
+    existing = find_player_by_name(name)
     if existing:
         return jsonify({"error": "A player with this name already exists."}), 400
 

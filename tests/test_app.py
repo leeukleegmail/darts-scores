@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import importlib
+import json
 import sys
 import tempfile
 import time
@@ -349,6 +350,60 @@ def test_admin_login_can_create_user(auth_client):
     assert create_user.status_code == 201
     assert create_user.get_json()["username"] == "viewer"
 
+    players = auth_client.get("/api/players")
+    assert players.status_code == 200
+    assert any(player["name"] == "viewer" for player in players.get_json())
+
+
+def test_deleting_player_does_not_delete_matching_user_account(auth_client):
+    login = auth_client.post(
+        "/login",
+        data={"username": "admin", "password": "admin"},
+        follow_redirects=False,
+    )
+    assert login.status_code == 302
+
+    created = auth_client.post(
+        "/api/auth/users",
+        json={"username": "paired-user", "password": "pairedpass", "is_admin": False},
+    )
+    assert created.status_code == 201
+
+    players = auth_client.get("/api/players")
+    assert players.status_code == 200
+    player = next(item for item in players.get_json() if item["name"] == "paired-user")
+
+    deleted = auth_client.delete(f"/api/players/{player['id']}")
+    assert deleted.status_code == 200
+    assert deleted.get_json()["ok"] is True
+
+    users = auth_client.get("/api/auth/users")
+    assert users.status_code == 200
+    assert any(item["username"] == "paired-user" for item in users.get_json())
+
+
+def test_create_user_reuses_existing_player_with_same_name(auth_client):
+    login = auth_client.post(
+        "/login",
+        data={"username": "admin", "password": "admin"},
+        follow_redirects=False,
+    )
+    assert login.status_code == 302
+
+    existing_player = auth_client.post("/api/players", json={"name": "Case Match"})
+    assert existing_player.status_code == 201
+
+    created = auth_client.post(
+        "/api/auth/users",
+        json={"username": "case match", "password": "playerpass", "is_admin": False},
+    )
+    assert created.status_code == 201
+
+    players = auth_client.get("/api/players")
+    assert players.status_code == 200
+    matching_players = [player for player in players.get_json() if player["name"].lower() == "case match"]
+    assert len(matching_players) == 1
+
 
 def test_admin_can_list_users_and_update_password(auth_client):
     login = auth_client.post(
@@ -493,6 +548,78 @@ def test_player_validation_and_conflicts(client):
     b = add_player(client, "Beta")
     conflict = client.put(f"/api/players/{b}", json={"name": "Alpha"})
     assert conflict.status_code == 400
+
+
+def test_player_stats_endpoint_summarizes_wins_losses_by_game_type(client_with_module):
+    client, app_module = client_with_module
+    alpha = add_player(client, "Alpha Stats")
+    beta = add_player(client, "Beta Stats")
+
+    with app_module.app.app_context():
+        solo_win = app_module.Game(
+            status="finished",
+            game_type="55by5",
+            team_mode="solo",
+            winner_player_id=alpha,
+            started_at=datetime.now(timezone.utc),
+            finished_at=datetime.now(timezone.utc),
+        )
+        solo_loss = app_module.Game(
+            status="finished",
+            game_type="55by5",
+            team_mode="solo",
+            winner_player_id=beta,
+            started_at=datetime.now(timezone.utc),
+            finished_at=datetime.now(timezone.utc),
+        )
+        team_win = app_module.Game(
+            status="finished",
+            game_type="english_cricket",
+            team_mode="teams",
+            winner_team="team_a",
+            team_assignments=json.dumps({str(alpha): "team_a", str(beta): "team_b"}),
+            team_names=json.dumps({"team_a": "A Team", "team_b": "B Team"}),
+            started_at=datetime.now(timezone.utc),
+            finished_at=datetime.now(timezone.utc),
+        )
+        app_module.db.session.add_all([solo_win, solo_loss, team_win])
+        app_module.db.session.flush()
+
+        for game in [solo_win, solo_loss, team_win]:
+            app_module.db.session.add_all(
+                [
+                    app_module.GamePlayerOrder(game_id=game.id, player_id=alpha, position=0),
+                    app_module.GamePlayerOrder(game_id=game.id, player_id=beta, position=1),
+                ]
+            )
+
+        app_module.db.session.commit()
+
+    response = client.get(f"/api/players/{alpha}/stats")
+    assert response.status_code == 200
+
+    payload = response.get_json()
+    assert payload["player"]["name"] == "Alpha Stats"
+    assert payload["stats"]["games_played"] == 3
+    assert payload["stats"]["games_won"] == 2
+    assert payload["stats"]["games_lost"] == 1
+
+    by_type = {item["game_type"]: item for item in payload["stats"]["by_game_type"]}
+    assert by_type["55by5"] == {"game_type": "55by5", "label": "55 by 5", "played": 2, "won": 1, "lost": 1}
+    assert by_type["english_cricket"] == {
+        "game_type": "english_cricket",
+        "label": "English Cricket",
+        "played": 1,
+        "won": 1,
+        "lost": 0,
+    }
+    assert by_type["noughts_and_crosses"] == {
+        "game_type": "noughts_and_crosses",
+        "label": "Noughts and Crosses",
+        "played": 0,
+        "won": 0,
+        "lost": 0,
+    }
 
 
 def test_delete_player_not_found_and_active_game_block(client):

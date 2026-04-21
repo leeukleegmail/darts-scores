@@ -11,6 +11,8 @@ const state = {
   cricketSelectedMarks: [],
   cricketStartingBattingTeam: "team_a",
   pendingNoughtsCellIndex: null,
+  playerStats: null,
+  loadingPlayerStatsId: null,
 };
 
 const appShellEl = document.querySelector(".app-shell");
@@ -22,6 +24,8 @@ const setupPanelEl = document.getElementById("setup-panel");
 const livePanelEl = document.getElementById("live-panel");
 const messageEl = document.getElementById("message");
 const playersListEl = document.getElementById("players-list");
+const playerStatsOverlayEl = document.getElementById("player-stats-overlay");
+const playerStatsPanelEl = document.getElementById("player-stats-panel");
 const selectablePlayersEl = document.getElementById("selectable-players");
 const orderListEl = document.getElementById("order-list");
 const orderSectionEl = document.getElementById("order-section");
@@ -395,6 +399,15 @@ function closeHelpOverlay() {
   helpOverlayEl.classList.remove("visible");
 }
 
+function closePlayerStats() {
+  state.playerStats = null;
+  state.loadingPlayerStatsId = null;
+  if (playerStatsOverlayEl) {
+    playerStatsOverlayEl.classList.remove("visible");
+  }
+  renderPlayers();
+}
+
 function stepHelpSection(direction) {
   if (!helpSectionOrder.length) return;
 
@@ -591,12 +604,25 @@ async function api(url, options = {}) {
 }
 
 function renderPlayers() {
+  if (state.playerStats && !state.players.some((player) => player.id === state.playerStats.player.id)) {
+    state.playerStats = null;
+  }
+
   playersListEl.innerHTML = "";
   selectablePlayersEl.innerHTML = "";
+  const selectedStatsId = state.playerStats?.player?.id ?? state.loadingPlayerStatsId;
 
   for (const player of state.players) {
     const li = document.createElement("li");
-    li.innerHTML = `<strong>${player.name}</strong> <button data-delete-id="${player.id}">Delete</button>`;
+    if (selectedStatsId === player.id) {
+      li.classList.add("player-selected");
+    }
+    li.innerHTML = `
+      <div class="player-row-main">
+        <button type="button" class="player-name-btn" data-stats-id="${player.id}" aria-label="Show stats for ${player.name}">${player.name}</button>
+      </div>
+      <button type="button" data-delete-id="${player.id}" aria-label="Delete ${player.name}">Delete</button>
+    `;
     playersListEl.appendChild(li);
 
     const chip = document.createElement("label");
@@ -611,13 +637,106 @@ function renderPlayers() {
   }
 
   renderTeamAssignment();
+  renderPlayerStats();
+}
+
+function labelForGameType(gameType) {
+  if (gameType === "english_cricket") return "English Cricket";
+  if (gameType === "noughts_and_crosses") return "Noughts and Crosses";
+  if (gameType === "55by5") return "55 by 5";
+  return "55 by 5";
+}
+
+function renderPlayerStats() {
+  if (!playerStatsPanelEl || !playerStatsOverlayEl) return;
+
+  const loadingPlayer = state.players.find((player) => player.id === state.loadingPlayerStatsId);
+  if (state.loadingPlayerStatsId) {
+    playerStatsOverlayEl.classList.add("visible");
+    playerStatsPanelEl.innerHTML = `
+      <div class="panel-header">
+        <h3 id="player-stats-title">Player Stats</h3>
+        <button type="button" class="btn-ghost" data-close-player-stats aria-label="Close player stats">Close</button>
+      </div>
+      <div class="player-stats-body">
+        <p class="hint">Loading stats for ${loadingPlayer?.name || "player"}...</p>
+      </div>
+    `;
+    return;
+  }
+
+  if (!state.playerStats) {
+    playerStatsOverlayEl.classList.remove("visible");
+    playerStatsPanelEl.innerHTML = "";
+    return;
+  }
+
+  const { player, stats } = state.playerStats;
+  const winRate = Number(stats.win_rate || 0).toFixed(1);
+  const breakdown = Array.isArray(stats.by_game_type)
+    ? stats.by_game_type.map((item) => {
+        const itemRate = item.played ? ((item.won / item.played) * 100).toFixed(1) : "0.0";
+        return `
+          <li class="player-stats-breakdown-row">
+            <strong>${item.label}</strong>
+            <span>${item.played}</span>
+            <span>${item.won}</span>
+            <span>${item.lost}</span>
+            <span>${itemRate}%</span>
+          </li>
+        `;
+      }).join("")
+    : "";
+
+  playerStatsOverlayEl.classList.add("visible");
+  playerStatsPanelEl.innerHTML = `
+    <div class="panel-header">
+      <h3 id="player-stats-title">${player.name} Stats</h3>
+      <button type="button" class="btn-ghost" data-close-player-stats aria-label="Close player stats">Close</button>
+    </div>
+    <div class="player-stats-body">
+      <div class="player-stats-summary player-stats-summary-header" aria-label="Player win loss summary">
+        <div class="player-stat-tile"><strong>${stats.games_played}</strong><span>Played</span></div>
+        <div class="player-stat-tile"><strong>${stats.games_won}</strong><span>Won</span></div>
+        <div class="player-stat-tile"><strong>${stats.games_lost}</strong><span>Lost</span></div>
+        <div class="player-stat-tile"><strong>${winRate}%</strong><span>Win %</span></div>
+      </div>
+      <div>
+        <p class="hint">${stats.games_played ? "Results by game type" : "No completed games recorded for this player yet."}</p>
+        <div class="player-stats-breakdown-wrap">
+          ${stats.games_played ? `
+            <div class="player-stats-breakdown-head" aria-hidden="true">
+              <span>Game</span>
+              <span>Played</span>
+              <span>Won</span>
+              <span>Lost</span>
+              <span>%</span>
+            </div>
+          ` : ""}
+          <ul class="player-stats-breakdown">${breakdown}</ul>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function loadPlayerStats(playerId) {
+  state.loadingPlayerStatsId = playerId;
+  renderPlayers();
+
+  try {
+    state.playerStats = await api(`/api/players/${playerId}/stats`);
+  } catch (err) {
+    state.playerStats = null;
+    showMessage(err.message, true);
+  } finally {
+    state.loadingPlayerStatsId = null;
+    renderPlayers();
+  }
 }
 
 function selectedGameName() {
-  if (state.gameType === "english_cricket") return "English Cricket";
-  if (state.gameType === "noughts_and_crosses") return "Noughts and Crosses";
-  if (state.gameType === "55by5") return "55 by 5";
-  return "";
+  return state.gameType ? labelForGameType(state.gameType) : "";
 }
 
 function updateHeroCopy(game) {
@@ -705,7 +824,7 @@ function teamInitialsLabel(teamName, members) {
 function winnerDisplayName(game, fallback = "Tie") {
   if (!game) return fallback;
   const baseWinnerName = game.winner_team_name || game.players.find((p) => p.id === game.winner_player_id)?.name || fallback;
-  if (game.team_mode !== "teams" || !game.winner_team) {
+  if (game.game_type !== "noughts_and_crosses" || game.team_mode !== "teams" || !game.winner_team) {
     return baseWinnerName;
   }
 
@@ -1902,13 +2021,27 @@ async function init() {
     });
   }
 
+  if (playerStatsOverlayEl) {
+    playerStatsOverlayEl.addEventListener("click", (event) => {
+      if (event.target === playerStatsOverlayEl) {
+        closePlayerStats();
+      }
+    });
+  }
+
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     if (helpOverlayEl?.classList.contains("visible")) {
       closeHelpOverlay();
+      return;
+    }
+    if (playerStatsOverlayEl?.classList.contains("visible")) {
+      closePlayerStats();
+      return;
     }
     if (cricketStartOverlayEl?.classList.contains("visible")) {
       closeCricketStartOverlay();
+      return;
     }
     if (noughtsMarkOverlayEl?.classList.contains("visible")) {
       closeNoughtsMarkOverlay();
@@ -1918,6 +2051,7 @@ async function init() {
   if (choose55Btn) {
     choose55Btn.addEventListener("click", async () => {
       closeCricketStartOverlay();
+      closePlayerStats();
       state.gameType = "55by5";
       state.teamMode = getTeamMode();
       state.cricketStartingBattingTeam = "team_a";
@@ -1934,6 +2068,7 @@ async function init() {
   if (chooseCricketBtn) {
     chooseCricketBtn.addEventListener("click", () => {
       const wasSelected = state.gameType === "english_cricket";
+      closePlayerStats();
       state.gameType = "english_cricket";
       state.teamMode = getTeamMode();
       if (!wasSelected) {
@@ -1949,6 +2084,7 @@ async function init() {
     chooseNoughtsBtn.addEventListener("click", async () => {
       closeCricketStartOverlay();
       closeNoughtsMarkOverlay();
+      closePlayerStats();
       state.gameType = "noughts_and_crosses";
       state.teamMode = getTeamMode();
       applyLayoutMode(state.game);
@@ -2047,7 +2183,18 @@ async function init() {
   playersListEl.addEventListener("click", async (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
-    const id = target.getAttribute("data-delete-id");
+
+    const statsTrigger = target.closest("[data-stats-id]");
+    if (statsTrigger instanceof HTMLElement) {
+      const statsId = Number(statsTrigger.getAttribute("data-stats-id"));
+      if (statsId) {
+        await loadPlayerStats(statsId);
+      }
+      return;
+    }
+
+    const deleteTrigger = target.closest("[data-delete-id]");
+    const id = deleteTrigger instanceof HTMLElement ? deleteTrigger.getAttribute("data-delete-id") : null;
     if (!id) return;
 
     try {
@@ -2058,6 +2205,17 @@ async function init() {
       showMessage(err.message, true);
     }
   });
+
+  if (playerStatsPanelEl) {
+    playerStatsPanelEl.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const closeTrigger = target.closest("[data-close-player-stats]");
+      if (!(closeTrigger instanceof HTMLElement)) return;
+
+      closePlayerStats();
+    });
+  }
 
   selectablePlayersEl.addEventListener("change", (event) => {
     const target = event.target;
@@ -2094,6 +2252,7 @@ async function init() {
         });
         createUserForm.reset();
         await loadAdminUsers();
+        await loadPlayers();
         showMessage("User created.");
       } catch (err) {
         showMessage(err.message, true);

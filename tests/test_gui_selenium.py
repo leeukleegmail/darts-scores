@@ -470,6 +470,41 @@ def test_non_admin_user_does_not_see_clear_history_button(live_server, browser):
     assert "hidden" in clear_history_button.get_attribute("class")
 
 
+def test_admin_created_user_adds_player_and_account_survives_player_delete(live_server, browser):
+    browser.get(live_server)
+
+    browser.find_element(By.ID, "new-username").send_keys("pairedviewer")
+    browser.find_element(By.ID, "new-password").send_keys("viewerpass")
+    browser.find_element(By.CSS_SELECTOR, "#create-user-form button[type='submit']").click()
+
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "user-accounts-list"), "pairedviewer"))
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "players-list"), "pairedviewer"))
+
+    delete_button = _wait(browser).until(
+        ec.element_to_be_clickable(
+            (
+                By.XPATH,
+                "//ul[@id='players-list']/li[.//button[@data-stats-id and normalize-space()='pairedviewer']]//button[@data-delete-id]",
+            )
+        )
+    )
+    delete_button.click()
+
+    _wait(browser).until_not(ec.text_to_be_present_in_element((By.ID, "players-list"), "pairedviewer"))
+    assert "pairedviewer" in browser.find_element(By.ID, "user-accounts-list").text
+
+    browser.find_element(By.CSS_SELECTOR, ".logout-form button[type='submit']").click()
+    _wait(browser).until(ec.visibility_of_element_located((By.CSS_SELECTOR, ".login-form")))
+
+    browser.find_element(By.CSS_SELECTOR, "input[name='username']").send_keys("pairedviewer")
+    browser.find_element(By.CSS_SELECTOR, "input[name='password']").send_keys("viewerpass")
+    browser.find_element(By.CSS_SELECTOR, ".login-form button[type='submit']").click()
+
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "players-panel")))
+    clear_history_button = browser.find_element(By.ID, "clear-history")
+    assert not clear_history_button.is_displayed()
+
+
 def test_55_by_5_individual_game_can_complete_end_to_end(live_server, browser):
     browser.get(live_server)
     start_single_player_game(browser, "Finn")
