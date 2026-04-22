@@ -1136,6 +1136,44 @@ def test_quit_requires_confirmation(live_server, browser):
     assert browser.find_element(By.ID, "setup-panel").is_displayed()
 
 
+def test_quit_restores_selected_players_in_setup(live_server, browser):
+    browser.get(live_server)
+
+    for player_name in ("Charlie", "Dana"):
+        add_player(browser, player_name)
+        player_checkbox = _wait(browser).until(
+            ec.presence_of_element_located(
+                (
+                    By.XPATH,
+                    f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
+                )
+            )
+        )
+        if not player_checkbox.is_selected():
+            player_checkbox.click()
+
+    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-55by5"))).click()
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
+
+    browser.execute_script("window.confirm = function () { return true; };")
+    browser.find_element(By.ID, "quit-game").click()
+
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "message"), "Game quit."))
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "setup-panel")))
+
+    selected_names = [
+        item.text.strip() for item in browser.find_elements(By.CSS_SELECTOR, "#order-list li .sortable-player-name")
+    ]
+    assert selected_names == ["Charlie", "Dana"]
+
+    for player_name in ("Charlie", "Dana"):
+        checkbox = browser.find_element(
+            By.XPATH,
+            f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
+        )
+        assert checkbox.is_selected()
+
+
 def test_bust_shows_red_banner_for_three_seconds(live_server, browser):
     browser.get(live_server)
     start_single_player_game(browser, "Dana")

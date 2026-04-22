@@ -929,6 +929,31 @@ function syncStateFromGame(game) {
   state.x01StartingScore = game.x01_state?.starting_score || 501;
 }
 
+function restoreLobbyStateFromGame(game) {
+  if (!game) return;
+
+  const orderedPlayerIds = Array.isArray(game.players)
+    ? game.players.map((player) => player.id).filter(Boolean)
+    : [];
+
+  state.selectedPlayerIds = new Set(orderedPlayerIds);
+  state.orderedPlayerIds = [...orderedPlayerIds];
+  state.teamMode = game.team_mode || "solo";
+  state.teamAssignments = { ...(game.team_assignments || {}) };
+  setTeamNames(game.team_names || {}, { syncInputs: true });
+  state.cricketStartingBattingTeam = game.cricket_state?.starting_batting_team || game.cricket_state?.batting_team || "team_a";
+  state.x01StartingScore = game.x01_state?.starting_score || 501;
+
+  const teamModeSoloEl = document.getElementById("team-mode-solo");
+  const teamModeTeamsEl = document.getElementById("team-mode-teams");
+  if (teamModeSoloEl instanceof HTMLInputElement) {
+    teamModeSoloEl.checked = state.teamMode !== "teams";
+  }
+  if (teamModeTeamsEl instanceof HTMLInputElement) {
+    teamModeTeamsEl.checked = state.teamMode === "teams";
+  }
+}
+
 function teamDisplayName(teamKey, rawNames = state.teamNames) {
   const names = normalizeTeamNames(rawNames);
   return teamKey === "team_b" ? names.team_b : names.team_a;
@@ -2700,6 +2725,7 @@ async function init() {
     if (!confirmed) return;
 
     try {
+      const previousGame = state.game;
       await api(`/api/games/${state.game.id}`, { method: "DELETE" });
       if (stopFireworks) { stopFireworks(); stopFireworks = null; }
       if (winnerOverlayEl) {
@@ -2708,6 +2734,8 @@ async function init() {
       state.game = null;
       state.gameType = null;
       renderGame();
+      restoreLobbyStateFromGame(previousGame);
+      await loadPlayers();
       await loadHistory();
       showMessage("Game quit.");
     } catch (err) {
