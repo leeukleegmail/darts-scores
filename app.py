@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import json
+import logging
 import os
 from pathlib import Path
 
-from flask import Flask, g, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, g, got_request_exception, jsonify, redirect, render_template, request, session, url_for
 from flask.cli import load_dotenv
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, or_, text
@@ -44,6 +45,41 @@ DB_PATH = BASE_DIR / "darts.db"
 
 load_dotenv(BASE_DIR / ".env")
 
+
+class SuppressPlayersAccessLogFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return should_log_werkzeug_message(record.getMessage())
+
+
+def should_log_werkzeug_message(message: str) -> bool:
+    return 'GET /api/players HTTP/1.1' not in message
+
+
+def configure_logging(flask_app: Flask) -> None:
+    log_level_name = os.getenv("APP_LOG_LEVEL", "INFO").upper()
+    log_level = getattr(logging, log_level_name, logging.INFO)
+
+    flask_app.logger.setLevel(log_level)
+
+    werkzeug_logger = logging.getLogger("werkzeug")
+    werkzeug_logger.setLevel(log_level)
+    if not any(isinstance(log_filter, SuppressPlayersAccessLogFilter) for log_filter in werkzeug_logger.filters):
+        werkzeug_logger.addFilter(SuppressPlayersAccessLogFilter())
+
+
+def log_unhandled_request_exception(sender: Flask, exception: Exception, **extra) -> None:
+    current_user = getattr(g, "current_user", None)
+    user_id = getattr(current_user, "id", None)
+    forwarded_for = request.headers.get("X-Forwarded-For")
+    remote_addr = forwarded_for or request.remote_addr or "-"
+    sender.logger.exception(
+        "Unhandled request exception: method=%s path=%s user_id=%s remote_addr=%s",
+        request.method,
+        request.path,
+        user_id,
+        remote_addr,
+    )
+
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("APP_SECRET_KEY", "change-this-secret-key")
 app.config["SESSION_COOKIE_HTTPONLY"] = True
@@ -52,6 +88,9 @@ app.config["SESSION_COOKIE_SECURE"] = os.getenv("SESSION_COOKIE_SECURE", "false"
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("SQLALCHEMY_DATABASE_URI", f"sqlite:///{DB_PATH}")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["JSON_SORT_KEYS"] = False
+
+configure_logging(app)
+got_request_exception.connect(log_unhandled_request_exception, app)
 
 SESSION_IDLE_TIMEOUT_SECONDS = 30 * 60
 

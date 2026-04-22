@@ -129,6 +129,14 @@ def add_player(client, name):
     return res.get_json()["id"]
 
 
+def test_should_log_werkzeug_message_suppresses_players_polling(client_with_module):
+    _client, app_module = client_with_module
+
+    assert not app_module.should_log_werkzeug_message('127.0.0.1 - - [22/Apr/2026 20:00:00] "GET /api/players HTTP/1.1" 200 -')
+    assert app_module.should_log_werkzeug_message('127.0.0.1 - - [22/Apr/2026 20:00:00] "POST /api/players HTTP/1.1" 201 -')
+    assert app_module.should_log_werkzeug_message('127.0.0.1 - - [22/Apr/2026 20:00:00] "GET /api/games/active HTTP/1.1" 200 -')
+
+
 def login_user(client, username, password="admin"):
     response = client.post(
         "/login",

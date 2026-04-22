@@ -104,6 +104,7 @@ APP_ADMIN_USERNAME=myadmin
 APP_ADMIN_PASSWORD=my-strong-password
 APP_HOST=127.0.0.1
 APP_PORT=5000
+APP_LOG_LEVEL=INFO
 ```
 
 `python app.py` reads this file via `python-dotenv`, and Docker Compose picks it up automatically.
@@ -117,6 +118,7 @@ The supported variables are:
 | `APP_ADMIN_PASSWORD` | `admin` | Bootstrap admin password |
 | `APP_HOST` | `127.0.0.1` | Host interface used by `python app.py`; set to `0.0.0.0` to expose the app on your LAN |
 | `APP_PORT` | `5000` | Port used by `python app.py` |
+| `APP_LOG_LEVEL` | `INFO` | Application and Werkzeug log level; `GET /api/players` polling requests are suppressed from access logs |
 
 Notes:
 
