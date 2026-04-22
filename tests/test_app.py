@@ -66,6 +66,37 @@ def auth_client(monkeypatch):
 
 
 @pytest.fixture()
+def multi_auth_clients(monkeypatch):
+    with tempfile.TemporaryDirectory(prefix="darts-multi-auth-test-") as db_dir:
+        db_path = f"{db_dir}/test.db"
+
+        monkeypatch.setenv("FLASK_ENV", "development")
+        monkeypatch.setenv("SQLALCHEMY_DATABASE_URI", f"sqlite:///{db_path}")
+        monkeypatch.setenv("APP_ADMIN_USERNAME", "admin")
+        monkeypatch.setenv("APP_ADMIN_PASSWORD", "admin")
+
+        sys.modules.pop("app", None)
+        app_module = importlib.import_module("app")
+        app, db = app_module.app, app_module.db
+
+        app.config.update(
+            {
+                "TESTING": False,
+                "SQLALCHEMY_TRACK_MODIFICATIONS": False,
+            }
+        )
+
+        with app.app_context():
+            db.drop_all()
+            db.create_all()
+            app_module.ensure_admin_user()
+
+        admin_client = app.test_client()
+        player_client = app.test_client()
+        yield admin_client, player_client, app_module
+
+
+@pytest.fixture()
 def client_with_module(monkeypatch):
     with tempfile.TemporaryDirectory(prefix="darts-module-test-") as db_dir:
         db_path = f"{db_dir}/test.db"
@@ -96,6 +127,16 @@ def add_player(client, name):
     res = client.post("/api/players", json={"name": name})
     assert res.status_code == 201
     return res.get_json()["id"]
+
+
+def login_user(client, username, password="admin"):
+    response = client.post(
+        "/login",
+        data={"username": username, "password": password},
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+    return response
 
 
 def test_turn_scoring_divisible_by_five(client):
@@ -333,6 +374,138 @@ def test_inactivity_timeout_quits_active_game_and_logs_user_out(auth_client):
         stored_game = app_module.db.session.get(app_module.Game, game["id"])
         assert stored_game.status == "abandoned"
         assert stored_game.finished_at is not None
+
+
+def test_different_users_can_run_active_games_at_the_same_time(multi_auth_clients):
+    admin_client, player_client, _app_module = multi_auth_clients
+
+    login_user(admin_client, "admin")
+    admin_player_id = add_player(admin_client, "Admin Active Player")
+
+    created_user = admin_client.post(
+        "/api/auth/users",
+        json={"username": "viewer", "password": "viewerpass", "is_admin": False},
+    )
+    assert created_user.status_code == 201
+
+    admin_game = admin_client.post("/api/games", json={"ordered_player_ids": [admin_player_id]})
+    assert admin_game.status_code == 201
+    admin_game_id = admin_game.get_json()["game"]["id"]
+
+    login_user(player_client, "viewer", "viewerpass")
+    viewer_players = player_client.get("/api/players")
+    assert viewer_players.status_code == 200
+    viewer_player_id = next(
+        player["id"]
+        for player in viewer_players.get_json()
+        if player["name"] == "viewer"
+    )
+
+    viewer_game = player_client.post("/api/games", json={"ordered_player_ids": [viewer_player_id]})
+    assert viewer_game.status_code == 201
+    viewer_game_id = viewer_game.get_json()["game"]["id"]
+
+    admin_active = admin_client.get("/api/games/active")
+    viewer_active = player_client.get("/api/games/active")
+    assert admin_active.status_code == 200
+    assert viewer_active.status_code == 200
+    assert admin_active.get_json()["game"]["id"] == admin_game_id
+    assert viewer_active.get_json()["game"]["id"] == viewer_game_id
+
+
+def test_players_in_other_users_active_games_are_marked_busy_and_rejected(multi_auth_clients):
+    admin_client, player_client, _app_module = multi_auth_clients
+
+    login_user(admin_client, "admin")
+    busy_player_id = add_player(admin_client, "Busy Admin Player")
+    free_player_id = add_player(admin_client, "Free Shared Player")
+
+    created_user = admin_client.post(
+        "/api/auth/users",
+        json={"username": "viewer", "password": "viewerpass", "is_admin": False},
+    )
+    assert created_user.status_code == 201
+
+    started = admin_client.post("/api/games", json={"ordered_player_ids": [busy_player_id]})
+    assert started.status_code == 201
+
+    login_user(player_client, "viewer", "viewerpass")
+    listed_players = player_client.get("/api/players")
+    assert listed_players.status_code == 200
+
+    players_by_name = {player["name"]: player for player in listed_players.get_json()}
+    assert players_by_name["Busy Admin Player"]["is_busy"] is True
+    assert players_by_name["Free Shared Player"]["is_busy"] is False
+
+    blocked = player_client.post(
+        "/api/games",
+        json={"ordered_player_ids": [busy_player_id, free_player_id]},
+    )
+    assert blocked.status_code == 400
+    assert blocked.get_json()["error"] == "Busy Admin Player is already in an active game."
+
+
+def test_logging_out_one_user_does_not_abandon_another_users_active_game(multi_auth_clients):
+    admin_client, player_client, app_module = multi_auth_clients
+
+    login_user(admin_client, "admin")
+    admin_player_id = add_player(admin_client, "Admin Session Player")
+    created_user = admin_client.post(
+        "/api/auth/users",
+        json={"username": "viewer", "password": "viewerpass", "is_admin": False},
+    )
+    assert created_user.status_code == 201
+
+    admin_game = admin_client.post("/api/games", json={"ordered_player_ids": [admin_player_id]}).get_json()["game"]
+
+    login_user(player_client, "viewer", "viewerpass")
+    viewer_player_id = next(
+        player["id"]
+        for player in player_client.get("/api/players").get_json()
+        if player["name"] == "viewer"
+    )
+    viewer_game = player_client.post("/api/games", json={"ordered_player_ids": [viewer_player_id]}).get_json()["game"]
+
+    logout = admin_client.post("/logout", follow_redirects=False)
+    assert logout.status_code == 302
+
+    viewer_active = player_client.get("/api/games/active")
+    assert viewer_active.status_code == 200
+    assert viewer_active.get_json()["game"]["id"] == viewer_game["id"]
+
+    with app_module.app.app_context():
+        stored_admin_game = app_module.db.session.get(app_module.Game, admin_game["id"])
+        stored_viewer_game = app_module.db.session.get(app_module.Game, viewer_game["id"])
+        assert stored_admin_game.status == "abandoned"
+        assert stored_viewer_game.status == "active"
+
+
+def test_users_only_see_their_own_games_and_history(multi_auth_clients):
+    admin_client, player_client, _app_module = multi_auth_clients
+
+    login_user(admin_client, "admin")
+    admin_player_id = add_player(admin_client, "Admin History Player")
+    created_user = admin_client.post(
+        "/api/auth/users",
+        json={"username": "viewer", "password": "viewerpass", "is_admin": False},
+    )
+    assert created_user.status_code == 201
+
+    admin_game = admin_client.post("/api/games", json={"ordered_player_ids": [admin_player_id]}).get_json()["game"]
+    for _ in range(11):
+        turn = admin_client.post(
+            f"/api/games/{admin_game['id']}/turn",
+            json={"player_id": admin_player_id, "total_points": 25},
+        )
+        assert turn.status_code == 200
+
+    login_user(player_client, "viewer", "viewerpass")
+    hidden_state = player_client.get(f"/api/games/{admin_game['id']}/state")
+    assert hidden_state.status_code == 404
+
+    viewer_history = player_client.get("/api/games/history")
+    assert viewer_history.status_code == 200
+    assert viewer_history.get_json() == []
 
 
 def test_admin_login_can_create_user(auth_client):

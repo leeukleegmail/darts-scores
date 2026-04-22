@@ -7,12 +7,15 @@ import random
 from pathlib import Path
 
 from flask import Flask, g, jsonify, redirect, render_template, request, session, url_for
+from flask.cli import load_dotenv
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import func, text
+from sqlalchemy import func, or_, text
 from werkzeug.security import check_password_hash, generate_password_hash
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "darts.db"
+
+load_dotenv(BASE_DIR / ".env")
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("APP_SECRET_KEY", "change-this-secret-key")
@@ -51,6 +54,7 @@ class Game(db.Model):
     __tablename__ = "games"
 
     id = db.Column(db.Integer, primary_key=True)
+    owner_user_id = db.Column(db.Integer, db.ForeignKey("app_users.id"), nullable=True)
     status = db.Column(db.String(20), nullable=False, default="active")
     game_type = db.Column(db.String(30), nullable=False, default="55by5")
     team_mode = db.Column(db.String(10), nullable=False, default="solo")
@@ -161,16 +165,69 @@ def abandon_games(games: list[Game]) -> int:
     return len(active_games)
 
 
-def abandon_active_games() -> int:
-    games = Game.query.filter_by(status="active").all()
+def visible_games_query(user: AppUser | None = None):
+    scoped_user = user or get_current_user()
+    if scoped_user:
+        return Game.query.filter(
+            or_(Game.owner_user_id == scoped_user.id, Game.owner_user_id.is_(None))
+        )
+    if app.config.get("TESTING"):
+        return Game.query
+    return Game.query.filter(Game.id.is_(None))
+
+
+def active_games_query(user: AppUser | None = None):
+    return visible_games_query(user).filter_by(status="active")
+
+
+def active_player_ids() -> set[int]:
+    return {
+        player_id
+        for (player_id,) in (
+            db.session.query(GamePlayerOrder.player_id)
+            .join(Game, Game.id == GamePlayerOrder.game_id)
+            .filter(Game.status == "active")
+            .distinct()
+            .all()
+        )
+    }
+
+
+def active_players_for_ids(player_ids: list[int]) -> list[Player]:
+    if not player_ids:
+        return []
+    return (
+        Player.query.join(GamePlayerOrder, GamePlayerOrder.player_id == Player.id)
+        .join(Game, Game.id == GamePlayerOrder.game_id)
+        .filter(Player.id.in_(player_ids), Game.status == "active")
+        .order_by(Player.name.asc())
+        .distinct()
+        .all()
+    )
+
+
+def get_game_for_request(game_id: int) -> Game | None:
+    user = get_current_user()
+    if user:
+        return Game.query.filter(
+            Game.id == game_id,
+            or_(Game.owner_user_id == user.id, Game.owner_user_id.is_(None)),
+        ).first()
+    if app.config.get("TESTING"):
+        return db.session.get(Game, game_id)
+    return None
+
+
+def abandon_active_games(user: AppUser | None = None) -> int:
+    games = active_games_query(user).all()
     return abandon_games(games)
 
 
-def abandon_expired_games(timeout_seconds: int = SESSION_IDLE_TIMEOUT_SECONDS) -> int:
+def abandon_expired_games(timeout_seconds: int = SESSION_IDLE_TIMEOUT_SECONDS, user: AppUser | None = None) -> int:
     threshold = normalize_utc_datetime(datetime.now(timezone.utc)) - timedelta(seconds=timeout_seconds)
     stale_games: list[Game] = []
 
-    for game in Game.query.filter_by(status="active").all():
+    for game in active_games_query(user).all():
         latest_turn = (
             Turn.query.with_entities(Turn.created_at)
             .filter_by(game_id=game.id)
@@ -213,8 +270,8 @@ def ensure_admin_user() -> None:
 def require_login():
     g.current_user = get_current_user()
 
-    if request.endpoint != "static":
-        abandon_expired_games()
+    if request.endpoint != "static" and (g.current_user or app.config.get("TESTING")):
+        abandon_expired_games(user=g.current_user)
 
     if app.config.get("TESTING"):
         return None
@@ -234,7 +291,7 @@ def require_login():
 
         now_ts = current_session_timestamp()
         if last_activity_at is not None and now_ts - last_activity_at >= SESSION_IDLE_TIMEOUT_SECONDS:
-            abandon_active_games()
+            abandon_active_games(g.current_user)
             session.clear()
             g.current_user = None
             if request.path.startswith("/api/"):
@@ -1068,6 +1125,8 @@ def ensure_game_schema_columns() -> None:
     statements: list[str] = []
     if "game_type" not in existing_columns:
         statements.append("ALTER TABLE games ADD COLUMN game_type VARCHAR(30) NOT NULL DEFAULT '55by5'")
+    if "owner_user_id" not in existing_columns:
+        statements.append("ALTER TABLE games ADD COLUMN owner_user_id INTEGER")
     if "team_mode" not in existing_columns:
         statements.append("ALTER TABLE games ADD COLUMN team_mode VARCHAR(10) NOT NULL DEFAULT 'solo'")
     if "team_assignments" not in existing_columns:
@@ -1336,8 +1395,9 @@ def login():
 
 @app.post("/logout")
 def logout():
-    if get_current_user():
-        abandon_active_games()
+    current_user = get_current_user()
+    if current_user:
+        abandon_active_games(current_user)
     session.clear()
     return redirect(url_for("login"))
 
@@ -1452,10 +1512,16 @@ def api_meta():
 
 @app.get("/api/players")
 def list_players():
+    busy_player_ids = active_player_ids()
     players = Player.query.order_by(Player.name.asc()).all()
     return jsonify(
         [
-            {"id": player.id, "name": player.name, "created_at": now_iso(player.created_at)}
+            {
+                "id": player.id,
+                "name": player.name,
+                "created_at": now_iso(player.created_at),
+                "is_busy": player.id in busy_player_ids,
+            }
             for player in players
         ]
     )
@@ -1538,7 +1604,7 @@ def delete_player(player_id: int):
 
 @app.get("/api/games/active")
 def get_active_game():
-    game = Game.query.filter_by(status="active").order_by(Game.started_at.desc()).first()
+    game = active_games_query().order_by(Game.started_at.desc()).first()
     if not game:
         return jsonify({"game": None})
     return jsonify({"game": serialize_game_state(game)})
@@ -1644,7 +1710,7 @@ def build_new_game_start_state(
 
 @app.post("/api/games")
 def create_game():
-    if Game.query.filter_by(status="active").first():
+    if active_games_query().first():
         return jsonify({"error": "Finish the active game before starting a new one."}), 400
 
     payload = request.get_json(silent=True) or {}
@@ -1655,6 +1721,12 @@ def create_game():
     ordered_player_ids, error = validate_ordered_player_ids(payload.get("ordered_player_ids") or [])
     if error:
         return jsonify({"error": error}), 400
+
+    busy_players = active_players_for_ids(ordered_player_ids)
+    if busy_players:
+        busy_player_names = ", ".join(player.name for player in busy_players)
+        verb = "is" if len(busy_players) == 1 else "are"
+        return jsonify({"error": f"{busy_player_names} {verb} already in an active game."}), 400
 
     team_names, error = normalize_requested_team_names(payload.get("team_names") or {})
     if error:
@@ -1679,6 +1751,7 @@ def create_game():
     )
 
     game = Game(
+        owner_user_id=get_current_user().id if get_current_user() else None,
         status="active",
         game_type=game_type,
         team_mode=team_mode,
@@ -1702,7 +1775,7 @@ def create_game():
 
 @app.post("/api/games/<int:game_id>/turn")
 def submit_turn(game_id: int):
-    game = db.session.get(Game, game_id)
+    game = get_game_for_request(game_id)
     if not game:
         return jsonify({"error": "Game not found."}), 404
     if game.status != "active":
@@ -1768,7 +1841,7 @@ def submit_turn(game_id: int):
 
 @app.delete("/api/games/<int:game_id>/turn")
 def undo_last_turn(game_id: int):
-    game = db.session.get(Game, game_id)
+    game = get_game_for_request(game_id)
     if not game:
         return jsonify({"error": "Game not found."}), 404
     if game.status not in ("active",):
@@ -1788,7 +1861,7 @@ def undo_last_turn(game_id: int):
 
 @app.delete("/api/games/<int:game_id>")
 def quit_game(game_id: int):
-    game = db.session.get(Game, game_id)
+    game = get_game_for_request(game_id)
     if not game:
         return jsonify({"error": "Game not found."}), 404
     if game.status != "active":
@@ -1807,7 +1880,7 @@ def games_history():
     limit = max(1, min(100, limit))
 
     games = (
-        Game.query.filter_by(status="finished")
+        visible_games_query().filter_by(status="finished")
         .order_by(Game.finished_at.desc().nullslast(), Game.id.desc())
         .limit(limit)
         .all()
@@ -1863,7 +1936,7 @@ def delete_games_history():
 
 @app.get("/api/games/<int:game_id>/state")
 def game_state(game_id: int):
-    game = db.session.get(Game, game_id)
+    game = get_game_for_request(game_id)
     if not game:
         return jsonify({"error": "Game not found."}), 404
     return jsonify({"game": serialize_game_state(game)})
@@ -1871,7 +1944,7 @@ def game_state(game_id: int):
 
 @app.get("/api/games/<int:game_id>/history")
 def game_history_detail(game_id: int):
-    game = db.session.get(Game, game_id)
+    game = get_game_for_request(game_id)
     if not game:
         return jsonify({"error": "Game not found."}), 404
 
@@ -1886,4 +1959,6 @@ with app.app_context():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    host = os.getenv("APP_HOST", "127.0.0.1")
+    port = int(os.getenv("APP_PORT", os.getenv("PORT", "5000")))
+    app.run(debug=True, host=host, port=port)

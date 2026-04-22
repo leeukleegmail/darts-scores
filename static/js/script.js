@@ -647,6 +647,19 @@ function renderPlayers() {
     state.playerStats = null;
   }
 
+  const availablePlayerIds = new Set(
+    state.players.filter((player) => !player.is_busy).map((player) => player.id)
+  );
+  state.selectedPlayerIds = new Set(
+    [...state.selectedPlayerIds].filter((playerId) => availablePlayerIds.has(playerId))
+  );
+  state.orderedPlayerIds = state.orderedPlayerIds.filter((playerId) => availablePlayerIds.has(playerId));
+  Object.keys(state.teamAssignments).forEach((playerId) => {
+    if (!availablePlayerIds.has(Number(playerId))) {
+      delete state.teamAssignments[playerId];
+    }
+  });
+
   playersListEl.innerHTML = "";
   selectablePlayersEl.innerHTML = "";
   const selectedStatsId = state.playerStats?.player?.id ?? state.loadingPlayerStatsId;
@@ -665,12 +678,13 @@ function renderPlayers() {
     playersListEl.appendChild(li);
 
     const chip = document.createElement("label");
-    chip.className = "chip";
+    chip.className = `chip${player.is_busy ? " chip-busy" : ""}`;
     chip.innerHTML = `
       <input type="checkbox" data-select-id="${player.id}" ${
       state.selectedPlayerIds.has(player.id) ? "checked" : ""
-    } />
+    } ${player.is_busy ? "disabled" : ""} />
       <span>${player.name}</span>
+      ${player.is_busy ? '<span class="mode-btn-sticker chip-busy-sticker">Busy</span>' : ""}
     `;
     selectablePlayersEl.appendChild(chip);
   }
@@ -1999,6 +2013,8 @@ async function loadAuthUser() {
 }
 
 async function startConfiguredGame() {
+  await loadPlayers();
+
   if (!state.gameType) {
     showBustBanner("Choose a game mode first.");
     return;

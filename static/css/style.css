@@ -594,6 +594,7 @@ button:hover {
 }
 
 .chip {
+  position: relative;
   background: rgba(255, 255, 255, 0.09);
   border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 999px;
@@ -601,6 +602,21 @@ button:hover {
   display: flex;
   align-items: center;
   gap: 0.45rem;
+}
+
+.chip-busy {
+  opacity: 0.72;
+}
+
+.chip-busy,
+.chip input:disabled {
+  cursor: not-allowed;
+}
+
+.chip-busy-sticker {
+  left: auto;
+  right: -0.45rem;
+  background: #7b828c;
 }
 
 .order-list li {

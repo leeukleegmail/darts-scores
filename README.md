@@ -1,13 +1,13 @@
 # Darts Scores (Flask)
 
-Local single-user Flask app for darts scoring with:
+Local Flask app for darts scoring with:
 
 - Persistent player roster
 - Drag-and-drop turn order before game start
 - Live turn entry and scoreboard
 - Persisted completed-game history
 
-This project is designed for local play on one machine (session-based login, no multiplayer networking).
+This project is designed for local play on one machine with session-based login. Multiple signed-in users can use the app at the same time, each with their own active game and game history view.
 
 ## Table of contents
 
@@ -68,6 +68,14 @@ Then open:
 
 <http://127.0.0.1:5000>
 
+To expose the app to other devices on your local network when running directly on your machine:
+
+```bash
+APP_HOST=0.0.0.0 APP_PORT=5000 python app.py
+```
+
+Then open `http://<your-machine-ip>:5000` from another device on the same network.
+
 ## Run with Docker Compose
 
 From the project root:
@@ -80,25 +88,35 @@ Then open:
 
 <http://127.0.0.1:5010>
 
+Docker Compose already publishes the app on all network interfaces through host port `5010`, so other devices can use:
+
+`http://<your-machine-ip>:5010`
+
 Log in with the default admin credentials (`admin` / `admin`) and change the password via the User Administration panel.
 
 ### Configuration via environment variables
 
-The easiest way to override defaults is to create or edit `.env` in the project root **before** running Compose (it is git-ignored and never committed):
+The app can load settings from a project-root `.env` file for both `python app.py` and Docker Compose. Use `.env.example` as the template, then create or edit your local `.env` (it is git-ignored and never committed):
 
 ```dotenv
 APP_SECRET_KEY=replace-with-a-long-random-string
 APP_ADMIN_USERNAME=myadmin
 APP_ADMIN_PASSWORD=my-strong-password
+APP_HOST=127.0.0.1
+APP_PORT=5000
 ```
 
-Docker Compose picks up `.env` automatically. The three variables are:
+`python app.py` reads this file via `python-dotenv`, and Docker Compose picks it up automatically.
+
+The supported variables are:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `APP_SECRET_KEY` | `change-me-before-going-live` | Flask session signing key — **must be changed** for any non-local deployment |
 | `APP_ADMIN_USERNAME` | `admin` | Bootstrap admin username (used only when no admin account exists yet) |
 | `APP_ADMIN_PASSWORD` | `admin` | Bootstrap admin password |
+| `APP_HOST` | `127.0.0.1` | Host interface used by `python app.py`; set to `0.0.0.0` to expose the app on your LAN |
+| `APP_PORT` | `5000` | Port used by `python app.py` |
 
 Notes:
 
@@ -114,6 +132,7 @@ Notes:
 2. Install dependencies.
 3. Start Flask via `python app.py`.
 4. Keep the terminal open while playing.
+5. Optional: set `APP_HOST` and `APP_PORT` in `.env` if you want to change the bind address or port without typing them each time.
 
 To stop the app, press `Ctrl+C` in the terminal.
 
@@ -151,7 +170,7 @@ After logging in as admin, the **User Administration** panel is visible in the t
 
 Admins can also clear finished game history from the **Recent Games** panel.
 
-Sessions expire after 30 minutes of inactivity. Logging out during an active game shows a confirmation prompt and abandons that game if confirmed.
+Sessions expire after 30 minutes of inactivity. Logging out during an active game shows a confirmation prompt and abandons that user's active game if confirmed.
 
 ## How to play in the UI
 
@@ -170,7 +189,8 @@ Sessions expire after 30 minutes of inactivity. Logging out during an active gam
 
 Notes:
 
-- Only one active game is allowed at a time.
+- Each signed-in user can have one active game at a time.
+- Different users can run games concurrently in separate sessions.
 - Player deletion is blocked if that player is in the active game.
 
 ## Scoring rules
@@ -259,12 +279,12 @@ Main routes exposed by the Flask app:
 - `POST /api/players` -> create player
 - `PUT /api/players/<player_id>` -> rename player
 - `DELETE /api/players/<player_id>` -> delete player (if not in active game)
-- `GET /api/games/active` -> active game state
+- `GET /api/games/active` -> current user's active game state
 - `POST /api/games` -> create game from ordered player ids (supports `game_type`, `team_mode`, `team_assignments`, `team_names`, `starting_batting_team`, `x01_starting_score`)
 - `POST /api/games/<game_id>/turn` -> submit one turn total value
 - `DELETE /api/games/<game_id>/turn` -> undo the most recent turn
 - `GET /api/games/<game_id>/state` -> full game state
-- `GET /api/games/history` -> list finished games
+- `GET /api/games/history` -> list finished games visible to the current user
 - `DELETE /api/games/history` -> delete all finished game history (admin only)
 - `GET /api/games/<game_id>/history` -> details of a finished/current game
 
@@ -333,6 +353,7 @@ The current test suite verifies:
 - Player roster persists across restarts
 - Completed game history persists across restarts
 - App user accounts persist across restarts
+- Game ownership persists across restarts, so each user's active/finished games remain scoped to that account
 
 To reset all local data (including user accounts):
 
@@ -376,6 +397,32 @@ python -m flask --app app run --port 5001
 
 Then open <http://127.0.0.1:5001>
 
+### Expose the app on your local network
+
+Run the app with a public bind address:
+
+```bash
+APP_HOST=0.0.0.0 APP_PORT=5000 python app.py
+```
+
+Then find your machine's LAN IP, for example on macOS:
+
+```bash
+ipconfig getifaddr en0
+```
+
+or, if you are on Ethernet:
+
+```bash
+ipconfig getifaddr en1
+```
+
+Other devices on the same network can then connect to:
+
+`http://<your-machine-ip>:5000`
+
+If macOS firewall prompts you, allow incoming connections for Python.
+
 ### Drag and drop not updating order
 
 - Ensure players are selected first.
@@ -384,7 +431,7 @@ Then open <http://127.0.0.1:5001>
 
 ### Cannot start a new game
 
-The app permits only one active game at a time. Finish the active game first.
+Each signed-in user can have only one active game at a time. Finish or quit your current game first.
 
 ## License
 
