@@ -10,6 +10,7 @@ import pytest
 from selenium import webdriver
 from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.support.ui import WebDriverWait
 from werkzeug.serving import make_server
@@ -107,7 +108,20 @@ def _wait(browser, timeout=8):
     return WebDriverWait(browser, timeout)
 
 
+def open_player_manager(browser):
+    trigger = _wait(browser).until(ec.element_to_be_clickable((By.ID, "player-manager-open")))
+    trigger.click()
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "player-manager-overlay")))
+
+
+def close_player_manager(browser):
+    close_button = _wait(browser).until(ec.element_to_be_clickable((By.ID, "player-manager-close")))
+    close_button.click()
+    _wait(browser).until(ec.invisibility_of_element_located((By.ID, "player-manager-overlay")))
+
+
 def add_player(browser, name: str):
+    open_player_manager(browser)
     name_input = _wait(browser).until(ec.presence_of_element_located((By.ID, "player-name")))
     name_input.clear()
     name_input.send_keys(name)
@@ -115,6 +129,7 @@ def add_player(browser, name: str):
     _wait(browser).until(
         ec.text_to_be_present_in_element((By.ID, "players-list"), name)
     )
+    close_player_manager(browser)
 
 
 def start_single_player_game(browser, player_name: str):
@@ -498,7 +513,7 @@ def test_non_admin_user_does_not_see_clear_history_button(live_server, browser):
     browser.find_element(By.CSS_SELECTOR, "input[name='password']").send_keys("viewerpass")
     browser.find_element(By.CSS_SELECTOR, ".login-form button[type='submit']").click()
 
-    _wait(browser).until(ec.visibility_of_element_located((By.ID, "players-panel")))
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "setup-panel")))
     clear_history_button = browser.find_element(By.ID, "clear-history")
     assert not clear_history_button.is_displayed()
     assert "hidden" in clear_history_button.get_attribute("class")
@@ -583,7 +598,7 @@ def test_admin_can_expand_account_row_and_update_password(live_server, browser):
     browser.find_element(By.CSS_SELECTOR, "input[name='password']").send_keys("newviewerpass")
     browser.find_element(By.CSS_SELECTOR, ".login-form button[type='submit']").click()
 
-    _wait(browser).until(ec.visibility_of_element_located((By.ID, "players-panel")))
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "setup-panel")))
     assert "passworduser" in browser.find_element(By.ID, "current-user").text
 
 
@@ -595,6 +610,7 @@ def test_admin_created_user_adds_player_and_account_survives_player_delete(live_
     browser.find_element(By.CSS_SELECTOR, "#create-user-form button[type='submit']").click()
 
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "user-accounts-list"), "pairedviewer"))
+    open_player_manager(browser)
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "players-list"), "pairedviewer"))
 
     delete_button = _wait(browser).until(
@@ -608,6 +624,7 @@ def test_admin_created_user_adds_player_and_account_survives_player_delete(live_
     delete_button.click()
 
     _wait(browser).until_not(ec.text_to_be_present_in_element((By.ID, "players-list"), "pairedviewer"))
+    close_player_manager(browser)
     assert "pairedviewer" in browser.find_element(By.ID, "user-accounts-list").text
 
     browser.find_element(By.CSS_SELECTOR, ".logout-form button[type='submit']").click()
@@ -617,9 +634,145 @@ def test_admin_created_user_adds_player_and_account_survives_player_delete(live_
     browser.find_element(By.CSS_SELECTOR, "input[name='password']").send_keys("viewerpass")
     browser.find_element(By.CSS_SELECTOR, ".login-form button[type='submit']").click()
 
-    _wait(browser).until(ec.visibility_of_element_located((By.ID, "players-panel")))
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "setup-panel")))
     clear_history_button = browser.find_element(By.ID, "clear-history")
     assert not clear_history_button.is_displayed()
+
+
+def test_non_admin_does_not_see_player_delete_button(live_server, browser):
+    browser.get(live_server)
+
+    browser.find_element(By.ID, "new-username").send_keys("nodeleteuser")
+    browser.find_element(By.ID, "new-password").send_keys("viewerpass")
+    browser.find_element(By.CSS_SELECTOR, "#create-user-form button[type='submit']").click()
+
+    browser.find_element(By.CSS_SELECTOR, ".logout-form button[type='submit']").click()
+    _wait(browser).until(ec.visibility_of_element_located((By.CSS_SELECTOR, ".login-form")))
+
+    browser.find_element(By.CSS_SELECTOR, "input[name='username']").send_keys("nodeleteuser")
+    browser.find_element(By.CSS_SELECTOR, "input[name='password']").send_keys("viewerpass")
+    browser.find_element(By.CSS_SELECTOR, ".login-form button[type='submit']").click()
+
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "setup-panel")))
+    open_player_manager(browser)
+    assert browser.find_elements(By.CSS_SELECTOR, "#players-list [data-delete-id]") == []
+    close_player_manager(browser)
+
+
+def test_busy_badge_updates_while_setup_screen_stays_open(live_server, browser):
+    browser.get(live_server)
+    add_player(browser, "Dynamic Busy")
+
+    dynamic_checkbox = _wait(browser).until(
+        ec.presence_of_element_located(
+            (
+                By.XPATH,
+                "//div[@id='selectable-players']//label[.//span[normalize-space()='Dynamic Busy']]//input",
+            )
+        )
+    )
+    assert dynamic_checkbox.get_attribute("disabled") is None
+
+    app_module = sys.modules["app"]
+    client = app_module.app.test_client()
+    players = client.get("/api/players")
+    dynamic_player_id = next(
+        player["id"]
+        for player in players.get_json()
+        if player["name"] == "Dynamic Busy"
+    )
+
+    started = client.post("/api/games", json={"ordered_player_ids": [dynamic_player_id]})
+    assert started.status_code == 201
+    game_id = started.get_json()["game"]["id"]
+
+    disabled_checkbox = _wait(browser, timeout=10).until(
+        ec.presence_of_element_located(
+            (
+                By.XPATH,
+                "//div[@id='selectable-players']//label[contains(@class, 'chip-busy')][.//span[normalize-space()='Dynamic Busy']]//input[@disabled]",
+            )
+        )
+    )
+    assert disabled_checkbox.get_attribute("disabled") is not None
+    assert browser.find_element(
+        By.XPATH,
+        "//div[@id='selectable-players']//label[.//span[normalize-space()='Dynamic Busy']]//span[contains(@class, 'chip-busy-sticker') and normalize-space()='Busy']",
+    ).is_displayed()
+
+    ended = client.delete(f"/api/games/{game_id}")
+    assert ended.status_code == 200
+
+    _wait(browser, timeout=10).until(
+        lambda d: d.find_element(
+            By.XPATH,
+            "//div[@id='selectable-players']//label[.//span[normalize-space()='Dynamic Busy']]//input",
+        ).get_attribute("disabled") is None
+    )
+    assert not browser.find_elements(
+        By.XPATH,
+        "//div[@id='selectable-players']//label[.//span[normalize-space()='Dynamic Busy']]//span[contains(@class, 'chip-busy-sticker') and normalize-space()='Busy']",
+    )
+
+
+def test_player_selection_panel_supports_search(live_server, browser):
+    browser.get(live_server)
+
+    for name in ("Charlie", "Alpha", "Bravo"):
+        add_player(browser, name)
+
+    _wait(browser).until(
+        lambda d: len(d.find_elements(By.CSS_SELECTOR, "#selectable-players label > span:first-of-type")) == 3
+    )
+
+
+def test_player_manager_supports_search_and_stats_overlay_stacks_above(live_server, browser):
+    browser.get(live_server)
+
+    for name in ("Charlie", "Alpha", "Bravo"):
+        add_player(browser, name)
+
+    open_player_manager(browser)
+
+    manager_search = _wait(browser).until(ec.presence_of_element_located((By.ID, "player-manager-search")))
+    manager_search.clear()
+    manager_search.send_keys("br")
+
+    _wait(browser).until(
+        lambda d: [
+            element.text for element in d.find_elements(By.CSS_SELECTOR, "#players-list .player-name-btn")
+        ] == ["Bravo"]
+    )
+
+    browser.find_element(By.CSS_SELECTOR, "#players-list .player-name-btn").click()
+
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "player-stats-overlay")))
+    assert browser.find_element(By.ID, "player-stats-title").text.strip() == "Bravo's Stats"
+
+    stats_z_index, manager_z_index = browser.execute_script(
+        """
+        const stats = window.getComputedStyle(document.getElementById('player-stats-overlay')).zIndex;
+        const manager = window.getComputedStyle(document.getElementById('player-manager-overlay')).zIndex;
+        return [Number(stats), Number(manager)];
+        """
+    )
+    assert stats_z_index > manager_z_index
+
+    search_input = browser.find_element(By.ID, "player-selection-search")
+    search_input.clear()
+    search_input.send_keys("br")
+
+    _wait(browser).until(
+        lambda d: [
+            element.text for element in d.find_elements(By.CSS_SELECTOR, "#selectable-players label > span:first-of-type")
+        ] == ["Bravo"]
+    )
+
+    search_input.send_keys(Keys.COMMAND, "a")
+    search_input.send_keys(Keys.DELETE)
+    _wait(browser).until(
+        lambda d: len(d.find_elements(By.CSS_SELECTOR, "#selectable-players label > span:first-of-type")) == 3
+    )
 
 
 def test_55_by_5_individual_game_can_complete_end_to_end(live_server, browser):
@@ -980,7 +1133,7 @@ def test_quit_requires_confirmation(live_server, browser):
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "hero-title"), "Set Up Your Darts Game"))
     assert "Pick your players" in browser.find_element(By.ID, "hero-subtitle").text
     assert browser.find_element(By.ID, "selected-game-label").text.strip() == ""
-    assert browser.find_element(By.ID, "players-panel").is_displayed()
+    assert browser.find_element(By.ID, "setup-panel").is_displayed()
 
 
 def test_bust_shows_red_banner_for_three_seconds(live_server, browser):
@@ -1170,7 +1323,7 @@ def test_noughts_individual_quit_returns_to_setup(live_server, browser):
 
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "message"), "Game quit."))
     _wait(browser).until(lambda d: not d.find_element(By.ID, "live-panel").is_displayed())
-    assert browser.find_element(By.ID, "players-panel").is_displayed()
+    assert browser.find_element(By.ID, "setup-panel").is_displayed()
 
 
 # ---------------------------------------------------------------------------
@@ -1273,4 +1426,4 @@ def test_noughts_team_quit_returns_to_setup(live_server, browser):
 
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "message"), "Game quit."))
     _wait(browser).until(lambda d: not d.find_element(By.ID, "live-panel").is_displayed())
-    assert browser.find_element(By.ID, "players-panel").is_displayed()
+    assert browser.find_element(By.ID, "setup-panel").is_displayed()

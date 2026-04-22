@@ -555,6 +555,37 @@ def test_deleting_player_does_not_delete_matching_user_account(auth_client):
     assert any(item["username"] == "paired-user" for item in users.get_json())
 
 
+def test_non_admin_cannot_delete_players(auth_client):
+    login = auth_client.post(
+        "/login",
+        data={"username": "admin", "password": "admin"},
+        follow_redirects=False,
+    )
+    assert login.status_code == 302
+
+    created = auth_client.post(
+        "/api/auth/users",
+        json={"username": "viewer", "password": "viewerpass", "is_admin": False},
+    )
+    assert created.status_code == 201
+
+    players = auth_client.get("/api/players")
+    assert players.status_code == 200
+    player = next(item for item in players.get_json() if item["name"] == "viewer")
+
+    auth_client.post("/logout", follow_redirects=False)
+    viewer_login = auth_client.post(
+        "/login",
+        data={"username": "viewer", "password": "viewerpass"},
+        follow_redirects=False,
+    )
+    assert viewer_login.status_code == 302
+
+    deleted = auth_client.delete(f"/api/players/{player['id']}")
+    assert deleted.status_code == 403
+    assert deleted.get_json()["error"] == "Admin access required."
+
+
 def test_create_user_reuses_existing_player_with_same_name(auth_client):
     login = auth_client.post(
         "/login",

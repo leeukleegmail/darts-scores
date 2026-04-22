@@ -1,5 +1,8 @@
 const state = {
   players: [],
+  currentUser: null,
+  playerSelectionSearch: "",
+  playerManagerSearch: "",
   selectedPlayerIds: new Set(),
   orderedPlayerIds: [],
   game: null,
@@ -20,14 +23,18 @@ const state = {
 const appShellEl = document.querySelector(".app-shell");
 const heroTitleEl = document.getElementById("hero-title");
 const heroSubtitleEl = document.getElementById("hero-subtitle");
-const playersPanelEl = document.getElementById("players-panel");
 const gameSelectionPanelEl = document.getElementById("game-selection-panel");
 const setupPanelEl = document.getElementById("setup-panel");
 const livePanelEl = document.getElementById("live-panel");
 const messageEl = document.getElementById("message");
 const playersListEl = document.getElementById("players-list");
+const playerManagerOverlayEl = document.getElementById("player-manager-overlay");
+const playerManagerOpenEl = document.getElementById("player-manager-open");
+const playerManagerCloseEl = document.getElementById("player-manager-close");
 const playerStatsOverlayEl = document.getElementById("player-stats-overlay");
 const playerStatsPanelEl = document.getElementById("player-stats-panel");
+const playerSelectionSearchEl = document.getElementById("player-selection-search");
+const playerManagerSearchEl = document.getElementById("player-manager-search");
 const selectablePlayersEl = document.getElementById("selectable-players");
 const orderListEl = document.getElementById("order-list");
 const orderSectionEl = document.getElementById("order-section");
@@ -88,6 +95,7 @@ const helpSectionOrder = helpSections
   .map((section) => section.getAttribute("data-help-section"))
   .filter(Boolean);
 const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+const LOBBY_AVAILABILITY_REFRESH_MS = 2500;
 
 let bustBannerTimeoutId = null;
 let scoreWarningTimeoutId = null;
@@ -95,6 +103,8 @@ let pendingTurnSubmission = Promise.resolve();
 let activeHelpSection = helpSectionOrder[0] || "quick-start";
 let inactivityLogoutTimeoutId = null;
 let idleLogoutInProgress = false;
+let lobbyAvailabilityIntervalId = null;
+let lobbyAvailabilityRefreshInFlight = false;
 
 function showBustBanner(text) {
   if (!bustBannerEl) return;
@@ -402,6 +412,16 @@ function openHelpOverlay(sectionName = activeHelpSection) {
   helpOverlayEl.classList.add("visible");
 }
 
+function openPlayerManager() {
+  if (!playerManagerOverlayEl) return;
+  playerManagerOverlayEl.classList.add("visible");
+}
+
+function closePlayerManager() {
+  if (!playerManagerOverlayEl) return;
+  playerManagerOverlayEl.classList.remove("visible");
+}
+
 function closeHelpOverlay() {
   if (!helpOverlayEl) return;
   helpOverlayEl.classList.remove("visible");
@@ -663,8 +683,35 @@ function renderPlayers() {
   playersListEl.innerHTML = "";
   selectablePlayersEl.innerHTML = "";
   const selectedStatsId = state.playerStats?.player?.id ?? state.loadingPlayerStatsId;
+  const managerSearch = state.playerManagerSearch.trim().toLowerCase();
 
-  for (const player of state.players) {
+  const filteredSelectablePlayers = state.players
+    .filter((player) => {
+      const search = state.playerSelectionSearch.trim().toLowerCase();
+      if (!search) return true;
+      return player.name.toLowerCase().includes(search);
+    })
+    .sort((left, right) => {
+      const leftName = left.name.toLowerCase();
+      const rightName = right.name.toLowerCase();
+      if (left.is_busy !== right.is_busy) {
+        return Number(left.is_busy) - Number(right.is_busy);
+      }
+      return leftName.localeCompare(rightName);
+    });
+
+  const showDeleteButton = Boolean(state.currentUser?.is_admin);
+
+  const filteredManagerPlayers = state.players.filter((player) => {
+    if (!managerSearch) return true;
+    return player.name.toLowerCase().includes(managerSearch);
+  });
+
+  if (!filteredManagerPlayers.length) {
+    playersListEl.innerHTML = '<li class="hint">No players match the current search.</li>';
+  }
+
+  for (const player of filteredManagerPlayers) {
     const li = document.createElement("li");
     if (selectedStatsId === player.id) {
       li.classList.add("player-selected");
@@ -673,10 +720,17 @@ function renderPlayers() {
       <div class="player-row-main">
         <button type="button" class="player-name-btn" data-stats-id="${player.id}" aria-label="Show stats for ${player.name}">${player.name}</button>
       </div>
-      <button type="button" data-delete-id="${player.id}" aria-label="Delete ${player.name}">Delete</button>
+      ${showDeleteButton ? `<button type="button" data-delete-id="${player.id}" aria-label="Delete ${player.name}">Delete</button>` : ""}
     `;
     playersListEl.appendChild(li);
 
+  }
+
+  if (!filteredSelectablePlayers.length) {
+    selectablePlayersEl.innerHTML = '<p class="hint selectable-players-empty">No players match the current search.</p>';
+  }
+
+  for (const player of filteredSelectablePlayers) {
     const chip = document.createElement("label");
     chip.className = `chip${player.is_busy ? " chip-busy" : ""}`;
     chip.innerHTML = `
@@ -1767,13 +1821,13 @@ function applyLayoutMode(game) {
   updateHeroCopy(game);
 
   if (activeMode) {
+    closePlayerManager();
     closeCricketStartOverlay();
     closeX01StartOverlay();
     closeNoughtsMarkOverlay();
     if (gameSelectionPanelEl) {
       gameSelectionPanelEl.classList.add("hidden");
     }
-    playersPanelEl.classList.add("hidden");
     setupPanelEl.classList.add("hidden");
     historyPanelEl.classList.add("hidden");
     livePanelEl.classList.remove("hidden");
@@ -1785,7 +1839,6 @@ function applyLayoutMode(game) {
   if (gameSelectionPanelEl) {
     gameSelectionPanelEl.classList.remove("hidden");
   }
-  playersPanelEl.classList.remove("hidden");
   setupPanelEl.classList.remove("hidden");
   historyPanelEl.classList.remove("hidden");
   livePanelEl.classList.add("hidden");
@@ -1945,6 +1998,34 @@ async function loadPlayers() {
   rebuildOrder();
 }
 
+function shouldRefreshLobbyAvailability() {
+  return document.visibilityState === "visible" && (!state.game || state.game.status !== "active");
+}
+
+async function refreshLobbyAvailability() {
+  if (!shouldRefreshLobbyAvailability() || lobbyAvailabilityRefreshInFlight) {
+    return;
+  }
+
+  lobbyAvailabilityRefreshInFlight = true;
+  try {
+    await loadPlayers();
+  } catch (_err) {
+    // Ignore background refresh failures; foreground actions still surface errors.
+  } finally {
+    lobbyAvailabilityRefreshInFlight = false;
+  }
+}
+
+function startLobbyAvailabilityPolling() {
+  if (lobbyAvailabilityIntervalId) {
+    window.clearInterval(lobbyAvailabilityIntervalId);
+  }
+  lobbyAvailabilityIntervalId = window.setInterval(() => {
+    void refreshLobbyAvailability();
+  }, LOBBY_AVAILABILITY_REFRESH_MS);
+}
+
 async function loadActiveGame() {
   const response = await api("/api/games/active");
   state.game = response.game;
@@ -1980,6 +2061,7 @@ async function loadHistory() {
 
 async function loadAuthUser() {
   const user = await api("/api/auth/me");
+  state.currentUser = user;
   if (currentUserEl) {
     currentUserEl.textContent = `${user.username}${user.is_admin ? " (Admin)" : ""}`;
   }
@@ -2197,11 +2279,49 @@ async function init() {
     });
   }
 
+  if (playerManagerOpenEl) {
+    playerManagerOpenEl.addEventListener("click", () => {
+      openPlayerManager();
+    });
+  }
+
+  if (playerManagerCloseEl) {
+    playerManagerCloseEl.addEventListener("click", () => {
+      closePlayerManager();
+    });
+  }
+
+  if (playerManagerOverlayEl) {
+    playerManagerOverlayEl.addEventListener("click", (event) => {
+      if (event.target === playerManagerOverlayEl) {
+        closePlayerManager();
+      }
+    });
+  }
+
+  if (playerSelectionSearchEl) {
+    playerSelectionSearchEl.addEventListener("input", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement)) return;
+      state.playerSelectionSearch = target.value;
+      renderPlayers();
+    });
+  }
+
   if (playerStatsOverlayEl) {
     playerStatsOverlayEl.addEventListener("click", (event) => {
       if (event.target === playerStatsOverlayEl) {
         closePlayerStats();
       }
+    });
+  }
+
+  if (playerManagerSearchEl) {
+    playerManagerSearchEl.addEventListener("input", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement)) return;
+      state.playerManagerSearch = target.value;
+      renderPlayers();
     });
   }
 
@@ -2215,6 +2335,10 @@ async function init() {
       closePlayerStats();
       return;
     }
+    if (playerManagerOverlayEl?.classList.contains("visible")) {
+      closePlayerManager();
+      return;
+    }
     if (cricketStartOverlayEl?.classList.contains("visible")) {
       closeCricketStartOverlay();
       return;
@@ -2226,6 +2350,14 @@ async function init() {
     if (noughtsMarkOverlayEl?.classList.contains("visible")) {
       closeNoughtsMarkOverlay();
     }
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    void refreshLobbyAvailability();
+  });
+
+  window.addEventListener("focus", () => {
+    void refreshLobbyAvailability();
   });
 
   document.querySelectorAll('input[name="x01-starting-score"]').forEach((input) => {
@@ -2605,6 +2737,7 @@ async function init() {
   await loadPlayers();
   await loadActiveGame();
   await loadHistory();
+  startLobbyAvailabilityPolling();
 }
 
 init().catch((err) => showMessage(err.message, true));

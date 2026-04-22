@@ -46,18 +46,11 @@
         </div>
       </section>
 
-      <section class="panel" id="players-panel">
-        <h2>All Players</h2>
-        <form id="player-form" class="inline-form">
-          <input id="player-name" type="text" maxlength="80" placeholder="Add player" required />
-          <button type="submit">Add</button>
-        </form>
-        <p class="hint">Click a player name to view their stats.</p>
-        <ul id="players-list" class="list"></ul>
-      </section>
-
       <section class="panel" id="setup-panel">
-        <h2>Select Players</h2>
+        <div class="panel-header panel-header-inline-actions">
+          <h2>Select Players</h2>
+          <button type="button" id="player-manager-open" class="btn-ghost player-manager-open-btn" aria-haspopup="dialog" aria-controls="player-manager-overlay" aria-label="Open player manager">+</button>
+        </div>
         <p id="selected-game-label" class="hint"></p>
         <div class="inline-form">
           <label class="chip">
@@ -70,6 +63,15 @@
           </label>
         </div>
         <p class="hint">Select Players/Teams and arrange order.</p>
+        <div class="player-selection-toolbar">
+          <input
+            id="player-selection-search"
+            type="text"
+            maxlength="80"
+            placeholder="Search players"
+            aria-label="Search selectable players"
+          />
+        </div>
         <div id="selectable-players" class="chips"></div>
         <div id="team-assignment" class="hidden">
           <h3>Team Assignment (Drag Players)</h3>
@@ -92,7 +94,9 @@
       </section>
 
       <section class="panel" id="game-selection-panel">
-        <h2>Select Game</h2>
+        <div class="panel-header">
+          <h2>Select Game</h2>
+        </div>
         <p class="hint">When your players and teams are ready, choose a game below to begin.</p>
         <div class="mode-buttons">
           <button type="button" id="choose-x01" class="mode-btn mode-btn--new">
@@ -190,6 +194,32 @@
       </div>
     </div>
 
+    <div id="player-manager-overlay" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="player-manager-title">
+      <div class="modal-card player-manager-modal-card">
+        <div id="player-manager-panel" class="player-manager-card">
+          <div class="panel-header">
+            <h3 id="player-manager-title">All Players</h3>
+            <button id="player-manager-close" type="button" class="btn-ghost">Close</button>
+          </div>
+          <form id="player-form" class="inline-form player-manager-form">
+            <input id="player-name" type="text" maxlength="80" placeholder="Add player" required />
+            <button type="submit">Add</button>
+          </form>
+          <div class="player-manager-toolbar">
+            <input
+              id="player-manager-search"
+              type="text"
+              maxlength="80"
+              placeholder="Search all players"
+              aria-label="Search all players"
+            />
+          </div>
+          <p class="hint">Click a player name to view their stats.</p>
+          <ul id="players-list" class="list"></ul>
+        </div>
+      </div>
+    </div>
+
     <div id="help-overlay" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="help-title">
       <div class="modal-card help-card">
         <div class="panel-header">
@@ -212,7 +242,7 @@
             <section class="help-section active" data-help-section="quick-start">
               <h4>Quick Start</h4>
               <ol class="help-steps">
-                <li>Add names in <strong>All Players</strong>.</li>
+                <li>Use the <strong>+</strong> button in <strong>Select Players</strong> to manage the player list.</li>
                 <li>Select who is playing and drag them into order.</li>
                 <li>Choose <strong>Singles</strong> or <strong>Teams</strong>.</li>
                 <li>Pick a game from <strong>Select Game</strong> (the green <strong>New</strong> sticker marks Noughts and Crosses).</li>

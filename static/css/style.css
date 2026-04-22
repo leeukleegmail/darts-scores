@@ -33,6 +33,22 @@ body {
   grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
 }
 
+@media (min-width: 960px) {
+  .app-shell {
+    width: min(1280px, 94vw);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #setup-panel {
+    grid-column: 1;
+  }
+
+  #game-selection-panel {
+    grid-column: 2;
+    align-self: start;
+  }
+}
+
 .hero {
   grid-column: 1 / -1;
   display: grid;
@@ -105,6 +121,10 @@ body {
   margin-bottom: 0.25rem;
 }
 
+.panel-header-inline-actions {
+  gap: 0.75rem;
+}
+
 .panel-header h2 {
   margin: 0;
 }
@@ -122,6 +142,18 @@ body {
 
 .btn-ghost:hover {
   opacity: 1;
+}
+
+.player-manager-open-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.25rem;
+  min-height: 2.25rem;
+  padding: 0.15rem;
+  font-size: 1.3rem;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .admin-form {
@@ -439,6 +471,39 @@ button:hover {
   overflow: hidden;
 }
 
+#player-stats-overlay {
+  z-index: 110;
+}
+
+.player-manager-modal-card {
+  width: min(720px, 94vw);
+  max-height: min(42rem, calc(100vh - 3rem));
+  padding: 0;
+  overflow: hidden;
+}
+
+#player-manager-overlay {
+  z-index: 105;
+}
+
+.player-manager-card {
+  display: grid;
+  gap: 0.75rem;
+  max-height: inherit;
+  padding: 0.9rem;
+}
+
+.player-manager-form {
+  margin-top: 0.2rem;
+}
+
+.player-manager-card #players-list {
+  min-height: 0;
+  max-height: min(26rem, calc(100vh - 14rem));
+  overflow-y: auto;
+  padding-right: 0.2rem;
+}
+
 .player-stats-card {
   display: grid;
   gap: 0.75rem;
@@ -591,6 +656,31 @@ button:hover {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
+}
+
+.player-selection-toolbar {
+  display: flex;
+  margin-bottom: 0.75rem;
+}
+
+.player-selection-toolbar input {
+  width: 50%;
+  min-width: 12rem;
+  max-width: 100%;
+}
+
+.player-manager-toolbar {
+  display: flex;
+}
+
+.player-manager-toolbar input {
+  width: 100%;
+}
+
+.selectable-players-empty {
+  width: 100%;
+  margin: 0;
+  padding: 0.45rem 0;
 }
 
 .chip {
@@ -1370,6 +1460,10 @@ td {
 @media (max-width: 600px) {
   .app-shell {
     width: 95vw;
+  }
+
+  .player-selection-toolbar input {
+    width: 100%;
   }
 
   .mode-buttons,
