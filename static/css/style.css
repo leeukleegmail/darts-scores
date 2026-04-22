@@ -497,6 +497,16 @@ button:hover {
   margin-top: 0.2rem;
 }
 
+.player-manager-toolbar input {
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.player-manager-toolbar {
+  display: flex;
+}
+
 .player-manager-card #players-list {
   min-height: 0;
   max-height: min(26rem, calc(100vh - 14rem));
@@ -674,7 +684,9 @@ button:hover {
 }
 
 .player-manager-toolbar input {
-  width: 100%;
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .selectable-players-empty {

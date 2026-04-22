@@ -174,7 +174,7 @@ Sessions expire after 30 minutes of inactivity. Logging out during an active gam
 
 ## How to play in the UI
 
-1. Add players in the Players panel.
+1. Use the `+` button in **Select Players** to open the player manager and add players.
 2. Check the players who will play in **Select Players**.
 3. Drag players in Selected Players to set the sequence.
 4. Choose `Singles` or `Teams` mode.
