@@ -916,6 +916,18 @@ function resetTeamNames() {
   setTeamNames({});
 }
 
+function normalizeEditingTeamName(teamKey, rawValue) {
+  const defaultName = teamKey === "team_b" ? "Team B" : "Team A";
+  const currentName = normalizeTeamNames(state.teamNames)[teamKey];
+  let nextValue = rawValue.slice(0, 40);
+
+  if (currentName === defaultName && nextValue.startsWith(defaultName) && nextValue.length > defaultName.length) {
+    nextValue = nextValue.slice(defaultName.length).trimStart();
+  }
+
+  return nextValue;
+}
+
 function syncStateFromGame(game) {
   state.game = game;
   state.pendingNoughtsCellIndex = null;
@@ -2534,9 +2546,13 @@ async function init() {
   for (const [inputEl, teamKey] of [[teamANameInputEl, "team_a"], [teamBNameInputEl, "team_b"]]) {
     if (!(inputEl instanceof HTMLInputElement)) continue;
     inputEl.addEventListener("input", () => {
+      const nextValue = normalizeEditingTeamName(teamKey, inputEl.value);
+      if (inputEl.value !== nextValue) {
+        inputEl.value = nextValue;
+      }
       state.teamNames = {
-        ...normalizeTeamNames(state.teamNames),
-        [teamKey]: inputEl.value.trim().slice(0, 40) || teamDisplayName(teamKey),
+        ...state.teamNames,
+        [teamKey]: nextValue,
       };
       renderCricketRoleSelection();
     });
@@ -2746,11 +2762,14 @@ async function init() {
   const winnerContinueBtn = document.getElementById("winner-continue");
   if (winnerContinueBtn && winnerOverlayEl) {
     winnerContinueBtn.addEventListener("click", async () => {
+      const previousGame = state.game;
       if (stopFireworks) { stopFireworks(); stopFireworks = null; }
       winnerOverlayEl.classList.remove("visible");
       state.game = null;
       state.gameType = null;
       renderGame();
+      restoreLobbyStateFromGame(previousGame);
+      await loadPlayers();
       await loadHistory();
     });
   }

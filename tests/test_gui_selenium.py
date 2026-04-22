@@ -481,8 +481,8 @@ def test_team_assignment_can_rename_teams(live_server, browser):
     browser.find_element(By.ID, "quit-game").click()
 
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "team-a-name")))
-    assert browser.find_element(By.ID, "team-a-name").get_attribute("value") == "Team A"
-    assert browser.find_element(By.ID, "team-b-name").get_attribute("value") == "Team B"
+    assert browser.find_element(By.ID, "team-a-name").get_attribute("value") == "Red Arrows"
+    assert browser.find_element(By.ID, "team-b-name").get_attribute("value") == "Blue Rockets"
 
 
 def test_start_without_players_shows_bust_style_error(live_server, browser):
@@ -795,6 +795,15 @@ def test_55_by_5_individual_game_can_complete_end_to_end(live_server, browser):
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "hero-title"), "Set Up Your Darts Game"))
     assert "Pick your players" in browser.find_element(By.ID, "hero-subtitle").text
     assert browser.find_element(By.ID, "selected-game-label").text.strip() == ""
+    finn_checkbox = browser.find_element(
+        By.XPATH,
+        "//div[@id='selectable-players']//label[.//span[normalize-space()='Finn']]//input",
+    )
+    assert finn_checkbox.is_selected()
+    selected_names = [
+        item.text.strip() for item in browser.find_elements(By.CSS_SELECTOR, "#order-list li .sortable-player-name")
+    ]
+    assert selected_names == ["Finn"]
 
 
 
@@ -819,6 +828,12 @@ def test_55_by_5_team_game_can_complete_end_to_end(live_server, browser):
         team_mode.click()
 
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "team-assignment")))
+    team_a_name = browser.find_element(By.ID, "team-a-name")
+    team_b_name = browser.find_element(By.ID, "team-b-name")
+    team_a_name.clear()
+    team_a_name.send_keys("Red Arrows")
+    team_b_name.clear()
+    team_b_name.send_keys("Blue Rockets")
     _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-55by5"))).click()
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
 
@@ -840,8 +855,33 @@ def test_55_by_5_team_game_can_complete_end_to_end(live_server, browser):
 
     winner_overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
     assert winner_overlay.is_displayed()
-    assert browser.find_element(By.ID, "winner-name").text.strip() == "Team A"
-    assert "Winner Team A" in browser.find_element(By.ID, "history-list").text
+    assert browser.find_element(By.ID, "winner-name").text.strip() == "Red Arrows"
+    assert "Winner Red Arrows" in browser.find_element(By.ID, "history-list").text
+
+    browser.find_element(By.ID, "winner-continue").click()
+    _wait(browser).until(lambda d: not d.find_element(By.ID, "winner-overlay").is_displayed())
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "team-a-name")))
+
+    team_mode = browser.find_element(By.ID, "team-mode-teams")
+    assert team_mode.is_selected()
+    assert browser.find_element(By.ID, "team-a-name").get_attribute("value") == "Red Arrows"
+    assert browser.find_element(By.ID, "team-b-name").get_attribute("value") == "Blue Rockets"
+
+    for player_name in ("Aria", "Bryn"):
+        checkbox = browser.find_element(
+            By.XPATH,
+            f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
+        )
+        assert checkbox.is_selected()
+
+    team_a_players = [
+        item.text.strip() for item in browser.find_elements(By.CSS_SELECTOR, "#team-a-list li .sortable-player-name")
+    ]
+    team_b_players = [
+        item.text.strip() for item in browser.find_elements(By.CSS_SELECTOR, "#team-b-list li .sortable-player-name")
+    ]
+    assert team_a_players == ["Aria"]
+    assert team_b_players == ["Bryn"]
 
 
 def test_english_cricket_shows_starting_roles_popup_before_game_start(live_server, browser):
