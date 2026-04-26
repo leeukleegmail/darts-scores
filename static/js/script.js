@@ -1110,8 +1110,11 @@ function updateHeroCopy(game) {
 
   const activeGameType = game && game.status === "active" ? game.game_type : null;
   if (activeGameType === "x01") {
-    heroTitleEl.textContent = "X01";
-    heroSubtitleEl.textContent = "Count down to exactly zero and avoid busts from overshooting or leaving 1.";
+    const startingScore = Number(game?.x01_state?.starting_score);
+    heroTitleEl.textContent = Number.isFinite(startingScore) && startingScore > 0
+      ? String(startingScore)
+      : "X01";
+    heroSubtitleEl.textContent = "";
     return;
   }
 
