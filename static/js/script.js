@@ -380,12 +380,15 @@ function updateMuteButtonLabel() {
 
 function primeSpeechSynthesisIfNeeded() {
   // iOS (Safari and Chrome/WKWebView) blocks speechSynthesis.speak() from async
-  // callbacks unless the context has been unlocked by a synchronous user-gesture
-  // call. Speaking a silent utterance inside a touch/click handler primes it.
+  // callbacks unless the context has been unlocked by a call within a user-gesture
+  // handler. A non-empty, nearly-inaudible utterance is used because iPhone
+  // (unlike iPad) discards volume=0 / empty-string utterances without actually
+  // claiming the audio session, so the subsequent async speak() stays silent.
   if (speechContextUnlocked || typeof window.speechSynthesis === "undefined") return;
   try {
-    const primer = new SpeechSynthesisUtterance("");
-    primer.volume = 0;
+    const primer = new SpeechSynthesisUtterance("a");
+    primer.volume = 0.001; // nearly inaudible but non-zero — required on iPhone
+    primer.rate = 10;      // spoken in microseconds
     window.speechSynthesis.speak(primer);
     speechContextUnlocked = true;
   } catch (_err) {
@@ -2777,6 +2780,13 @@ async function init() {
 
   document.addEventListener("visibilitychange", () => {
     void refreshLobbyAvailability();
+    // When returning from background / lock screen on iOS the speech synthesis
+    // audio session is suspended and speechContextUnlocked is stale. Reset it
+    // so the next user gesture re-primes the session before the next speak().
+    if (document.visibilityState === "visible" && typeof window.speechSynthesis !== "undefined") {
+      speechContextUnlocked = false;
+      window.speechSynthesis.resume();
+    }
   });
 
   window.addEventListener("focus", () => {
@@ -2791,9 +2801,11 @@ async function init() {
     // iOS Chrome (WKWebView) sometimes doesn't fire voiceschanged and doesn't
     // unlock the synthesis context via click alone. Primer on first touchstart
     // ensures the context is unlocked before the first async speak() attempt.
+    // No { once: true } — speechContextUnlocked may be reset on visibilitychange
+    // (e.g. returning from lock screen), so subsequent touches must re-prime.
     document.addEventListener("touchstart", () => {
       primeSpeechSynthesisIfNeeded();
-    }, { once: true, passive: true });
+    }, { passive: true });
   }
 
   document.querySelectorAll('input[name="x01-starting-score"]').forEach((input) => {
