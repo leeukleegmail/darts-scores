@@ -490,7 +490,7 @@ async function undoLastTurn() {
     const response = await api(`/api/games/${state.game.id}/turn`, { method: "DELETE" });
     syncStateFromGame(response.game);
     renderGame();
-    await loadHistory();
+    // Undo cannot finish a game; history is unchanged, no need to refresh.
     showMessage("Last turn undone.");
   } catch (err) {
     showMessage(err.message, true);
@@ -789,7 +789,11 @@ async function submitScore(totalPoints) {
       }
 
       renderGame();
-      await loadHistory();
+      // History only lists finished games; skip the round-trip while the game is
+      // still active and only refresh it once the game ends.
+      if (response.game.status === "finished") {
+        await loadHistory();
+      }
 
       if (response.game.status === "finished") {
         const winnerName = winnerDisplayName(response.game, "Tie");
@@ -871,7 +875,9 @@ async function submitNoughtsMove(cellIndex, marker) {
       closeNoughtsMarkOverlay();
       syncStateFromGame(response.game);
       renderGame();
-      await loadHistory();
+      if (response.game.status === "finished") {
+        await loadHistory();
+      }
 
       if (response.game.status === "finished") {
         const winnerName = winnerDisplayName(response.game, "Tie");
