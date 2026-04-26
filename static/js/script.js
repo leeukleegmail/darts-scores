@@ -112,6 +112,7 @@ let idleLogoutInProgress = false;
 let lobbyAvailabilityIntervalId = null;
 let lobbyAvailabilityRefreshInFlight = false;
 let preferredSpeechVoice = null;
+let speechContextUnlocked = false;
 let sfxAudioContext = null;
 const BUST_SOUND_FILE_URL = "/static/assets/sfx/bust.mp3";
 const BUST_POST_SOUND_DELAY_MS = 150;
@@ -377,8 +378,26 @@ function updateMuteButtonLabel() {
   muteButtonEl.setAttribute("aria-pressed", muted ? "true" : "false");
 }
 
+function primeSpeechSynthesisIfNeeded() {
+  // iOS (Safari and Chrome/WKWebView) blocks speechSynthesis.speak() from async
+  // callbacks unless the context has been unlocked by a synchronous user-gesture
+  // call. Speaking a silent utterance inside a touch/click handler primes it.
+  if (speechContextUnlocked || typeof window.speechSynthesis === "undefined") return;
+  try {
+    const primer = new SpeechSynthesisUtterance("");
+    primer.volume = 0;
+    window.speechSynthesis.speak(primer);
+    speechContextUnlocked = true;
+  } catch (_err) {
+    // Ignore — best-effort unlock only.
+  }
+}
+
 function applyAudioMuted(muted) {
   state.audioMuted = Boolean(muted);
+  if (!state.audioMuted) {
+    primeSpeechSynthesisIfNeeded();
+  }
   if (state.audioMuted) {
     if (typeof window.speechSynthesis !== "undefined") {
       window.speechSynthesis.cancel();
@@ -517,6 +536,7 @@ function setupScoreKeypad() {
         input.value = "0";
       }
       refreshScorepadSubmitDisabled(keypad, input);
+      primeSpeechSynthesisIfNeeded();
       await submitScore(0);
       return;
     }
@@ -527,6 +547,7 @@ function setupScoreKeypad() {
         return;
       }
       const total = Number(input instanceof HTMLInputElement ? input.value : 0);
+      primeSpeechSynthesisIfNeeded();
       await submitScore(total);
     }
   });
@@ -1329,6 +1350,12 @@ function speakText(text, { interrupt = true } = {}) {
   if (!text || state.audioMuted || typeof window.speechSynthesis === "undefined") return;
 
   try {
+    // On iOS (Safari and Chrome/WKWebView) the synthesis engine can silently
+    // pause after the tab loses focus or after cancel(). Always call resume()
+    // before speak() to unblock it.
+    window.speechSynthesis.resume();
+    // Retry voice selection if getVoices() was empty at init time (common on
+    // iOS Chrome where voiceschanged fires late or not at all).
     const voice = ensurePreferredSpeechVoice();
     const utterance = new SpeechSynthesisUtterance(text);
     if (voice) {
@@ -1342,6 +1369,8 @@ function speakText(text, { interrupt = true } = {}) {
     utterance.volume = 1;
     if (interrupt) {
       window.speechSynthesis.cancel();
+      // After cancel(), iOS needs another resume() before speak() will fire.
+      window.speechSynthesis.resume();
     }
     window.speechSynthesis.speak(utterance);
   } catch (_err) {
@@ -2113,6 +2142,7 @@ function renderCricketDashboard(game) {
         showMessage("A bowling throw can score at most 6 wicket marks.", true);
         return;
       }
+      primeSpeechSynthesisIfNeeded();
       await submitScore(state.cricketPendingMarks || 0);
     });
   }
@@ -2758,6 +2788,12 @@ async function init() {
     window.speechSynthesis.addEventListener("voiceschanged", () => {
       preferredSpeechVoice = choosePreferredSpeechVoice();
     });
+    // iOS Chrome (WKWebView) sometimes doesn't fire voiceschanged and doesn't
+    // unlock the synthesis context via click alone. Primer on first touchstart
+    // ensures the context is unlocked before the first async speak() attempt.
+    document.addEventListener("touchstart", () => {
+      primeSpeechSynthesisIfNeeded();
+    }, { once: true, passive: true });
   }
 
   document.querySelectorAll('input[name="x01-starting-score"]').forEach((input) => {
