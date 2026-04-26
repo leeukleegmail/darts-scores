@@ -11,6 +11,9 @@
       <header class="hero">
         <h1 id="hero-title">Set Up Your Darts Game</h1>
         <div class="user-bar">
+          <button type="button" id="mute-button" class="btn-ghost header-mute-button" aria-pressed="true" aria-label="Toggle sound">
+            Unmute
+          </button>
           <button type="button" id="help-button" class="btn-ghost header-help-button" aria-haspopup="dialog" aria-controls="help-overlay">
             Help
           </button>
@@ -131,19 +134,11 @@
 
         <div id="turn-input" class="turn-input hidden">
           <div id="standard-turn-controls" class="standard-turn-layout">
+            <div id="turn-player-panel" class="turn-player-panel hidden" aria-live="polite">
+              <span>To Throw</span>
+              <strong id="turn-player-name">-</strong>
+            </div>
             <div class="standard-entry-panel">
-              <div id="x01-turn-panel" class="x01-turn-panel hidden">
-                <div class="x01-turn-summary">
-                  <div class="x01-turn-pill">
-                    <span>Remaining</span>
-                    <strong id="x01-active-remaining">501</strong>
-                  </div>
-                  <div class="x01-turn-pill">
-                    <span>Checkout</span>
-                    <strong id="x01-checkout-hint">-</strong>
-                  </div>
-                </div>
-              </div>
               <div class="darts-row">
                 <input id="turn-total" type="number" inputmode="none" min="0" max="180" value="" aria-label="Turn total" readonly />
               </div>
@@ -154,6 +149,18 @@
                 aria-label="Standard score keypad"
               ></div>
               <button id="bull-hit" type="button" class="hidden">Bull</button>
+            </div>
+            <div id="x01-turn-panel" class="x01-turn-panel hidden">
+              <div class="x01-turn-summary">
+                <div class="x01-turn-pill x01-turn-pill--remaining">
+                  <span>Remaining</span>
+                  <strong id="x01-active-remaining">501</strong>
+                </div>
+                <div class="x01-turn-pill x01-turn-pill--checkout">
+                  <span>Checkout</span>
+                  <strong id="x01-checkout-hint">-</strong>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -258,6 +265,7 @@
                 <li>Enter one total score for each turn using the keypad.</li>
                 <li>To win, finish on exactly zero. The player decides that their entry is valid before submitting the turn.</li>
                 <li>Overshooting or leaving <strong>1</strong> is a bust and the turn scores nothing.</li>
+                <li>A <strong>checkout suggestion</strong> is shown when your remaining score has a known finish — coverage runs from <strong>170</strong> down to <strong>2</strong> (all reachable doubles).</li>
               </ul>
             </section>
 

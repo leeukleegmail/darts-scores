@@ -18,6 +18,8 @@ const state = {
   playerStats: null,
   loadingPlayerStatsId: null,
   expandedAdminUserIds: new Set(),
+  x01CheckoutAnnouncementKey: null,
+  audioMuted: true,
 };
 
 const appShellEl = document.querySelector(".app-shell");
@@ -61,6 +63,8 @@ const x01StartCancelEl = document.getElementById("x01-start-cancel");
 const x01TurnPanelEl = document.getElementById("x01-turn-panel");
 const x01ActiveRemainingEl = document.getElementById("x01-active-remaining");
 const x01CheckoutHintEl = document.getElementById("x01-checkout-hint");
+const turnPlayerPanelEl = document.getElementById("turn-player-panel");
+const turnPlayerNameEl = document.getElementById("turn-player-name");
 const teamAListEl = document.getElementById("team-a-list");
 const teamBListEl = document.getElementById("team-b-list");
 const teamANameInputEl = document.getElementById("team-a-name");
@@ -84,6 +88,7 @@ const logoutFormEl = document.querySelector(".logout-form");
 const adminPanelEl = document.getElementById("admin-panel");
 const clearHistoryEl = document.getElementById("clear-history");
 const userAccountsListEl = document.getElementById("user-accounts-list");
+const muteButtonEl = document.getElementById("mute-button");
 const helpButtonEl = document.getElementById("help-button");
 const helpOverlayEl = document.getElementById("help-overlay");
 const helpCloseEl = document.getElementById("help-close");
@@ -96,6 +101,7 @@ const helpSectionOrder = helpSections
   .filter(Boolean);
 const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const LOBBY_AVAILABILITY_REFRESH_MS = 2500;
+const MAX_SCOREPAD_TOTAL = 180;
 
 let bustBannerTimeoutId = null;
 let scoreWarningTimeoutId = null;
@@ -105,6 +111,31 @@ let inactivityLogoutTimeoutId = null;
 let idleLogoutInProgress = false;
 let lobbyAvailabilityIntervalId = null;
 let lobbyAvailabilityRefreshInFlight = false;
+let preferredSpeechVoice = null;
+let sfxAudioContext = null;
+const BUST_SOUND_FILE_URL = "/static/assets/sfx/bust.mp3";
+const BUST_POST_SOUND_DELAY_MS = 150;
+let bustSoundFilePlayable = null;
+let bustSoundFileChecked = false;
+
+const SPEECH_PREFERRED_UK_PATTERNS = [
+  /yorkshire/i,
+  /uk english/i,
+  /google uk english/i,
+  /en-gb/i,
+];
+
+const SPEECH_PREFERRED_MALE_PATTERNS = [
+  /male/i,
+  /man/i,
+  /daniel/i,
+  /arthur/i,
+  /thomas/i,
+  /george/i,
+  /fred/i,
+  /gordon/i,
+  /lee/i,
+];
 
 function showBustBanner(text) {
   if (!bustBannerEl) return;
@@ -128,6 +159,127 @@ function showScoreWarningBanner(text) {
   scoreWarningTimeoutId = window.setTimeout(() => {
     scoreWarningBannerEl.classList.remove("visible");
   }, 3000);
+}
+
+function playGeneratedBustSound() {
+  const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextCtor) return 0;
+
+  try {
+    if (!sfxAudioContext) {
+      sfxAudioContext = new AudioContextCtor();
+    }
+    if (sfxAudioContext.state === "suspended") {
+      sfxAudioContext.resume();
+    }
+
+    const now = sfxAudioContext.currentTime + 0.01;
+    const notes = [230, 185, 145];
+    notes.forEach((freq, index) => {
+      const start = now + (index * 0.13);
+      const end = start + 0.16;
+      const osc = sfxAudioContext.createOscillator();
+      const gain = sfxAudioContext.createGain();
+
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(freq, start);
+      osc.frequency.exponentialRampToValueAtTime(Math.max(95, freq * 0.7), end);
+
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.18, start + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, end);
+
+      osc.connect(gain);
+      gain.connect(sfxAudioContext.destination);
+      osc.start(start);
+      osc.stop(end + 0.01);
+    });
+    return 460;
+  } catch (_err) {
+    // Ignore audio errors and continue without SFX.
+    return 0;
+  }
+}
+
+function ensureBustSoundFile() {
+  if (bustSoundFileChecked) {
+    return bustSoundFilePlayable;
+  }
+
+  bustSoundFileChecked = true;
+  try {
+    const candidate = new Audio(BUST_SOUND_FILE_URL);
+    candidate.preload = "auto";
+    const canPlay = candidate.canPlayType("audio/wav") || candidate.canPlayType("audio/mpeg") || candidate.canPlayType("audio/ogg");
+    if (canPlay) {
+      bustSoundFilePlayable = candidate;
+    }
+  } catch (_err) {
+    bustSoundFilePlayable = null;
+  }
+
+  return bustSoundFilePlayable;
+}
+
+function playBustSound() {
+  if (state.audioMuted) {
+    return Promise.resolve();
+  }
+
+  const audio = ensureBustSoundFile();
+  if (audio) {
+    return new Promise((resolve) => {
+      let finished = false;
+      const resolveOnce = () => {
+        if (finished) return;
+        finished = true;
+        audio.removeEventListener("ended", onEnded);
+        audio.removeEventListener("error", onError);
+        resolve();
+      };
+      const onEnded = () => {
+        resolveOnce();
+      };
+      const onError = () => {
+        const fallbackMs = playGeneratedBustSound();
+        if (fallbackMs > 0) {
+          window.setTimeout(resolveOnce, fallbackMs);
+          return;
+        }
+        resolveOnce();
+      };
+
+      audio.addEventListener("ended", onEnded, { once: true });
+      audio.addEventListener("error", onError, { once: true });
+
+      try {
+        audio.currentTime = 0;
+        const playAttempt = audio.play();
+        if (playAttempt && typeof playAttempt.catch === "function") {
+          playAttempt.catch(() => {
+            onError();
+          });
+        }
+      } catch (_err) {
+        onError();
+      }
+    });
+  }
+
+  const fallbackMs = playGeneratedBustSound();
+  return new Promise((resolve) => {
+    if (fallbackMs > 0) {
+      window.setTimeout(resolve, fallbackMs);
+      return;
+    }
+    resolve();
+  });
+}
+
+function delay(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
 }
 
 function launchFireworks(canvas) {
@@ -218,6 +370,31 @@ function showMessage(text, isError = false) {
   messageEl.className = isError ? "message error" : "message";
 }
 
+function updateMuteButtonLabel() {
+  if (!muteButtonEl) return;
+  const muted = Boolean(state.audioMuted);
+  muteButtonEl.textContent = muted ? "Unmute" : "Mute";
+  muteButtonEl.setAttribute("aria-pressed", muted ? "true" : "false");
+}
+
+function applyAudioMuted(muted) {
+  state.audioMuted = Boolean(muted);
+  if (state.audioMuted) {
+    if (typeof window.speechSynthesis !== "undefined") {
+      window.speechSynthesis.cancel();
+    }
+    if (bustSoundFilePlayable) {
+      try {
+        bustSoundFilePlayable.pause();
+        bustSoundFilePlayable.currentTime = 0;
+      } catch (_err) {
+        // Ignore playback reset errors while muting.
+      }
+    }
+  }
+  updateMuteButtonLabel();
+}
+
 function createScoreKeypadMarkup({
   submitButtonId,
   submitLabel = "Submit Score",
@@ -266,6 +443,25 @@ function appendDigitToScoreInput(input, digit) {
   input.value = `${currentValue}${digit}`.slice(0, 3);
 }
 
+function isOverScorepadLimit(input) {
+  if (!(input instanceof HTMLInputElement)) return false;
+  const raw = input.value.trim();
+  if (!raw) return false;
+  const numeric = Number(raw);
+  return Number.isFinite(numeric) && numeric > MAX_SCOREPAD_TOTAL;
+}
+
+function refreshScorepadSubmitDisabled(keypad, input) {
+  if (!(keypad instanceof HTMLElement)) return;
+  const submitButton = keypad.querySelector('[data-keypad-action="submit"]');
+  if (!(submitButton instanceof HTMLButtonElement)) return;
+  if (submitButton.dataset.baseDisabled === "true") {
+    submitButton.disabled = true;
+    return;
+  }
+  submitButton.disabled = isOverScorepadLimit(input);
+}
+
 async function undoLastTurn() {
   if (!state.game || state.game.status !== "active") return;
   try {
@@ -298,6 +494,7 @@ function setupScoreKeypad() {
 
     if (digit !== null) {
       appendDigitToScoreInput(input, digit);
+      refreshScorepadSubmitDisabled(keypad, input);
       return;
     }
 
@@ -306,6 +503,7 @@ function setupScoreKeypad() {
       if (input instanceof HTMLInputElement) {
         input.value = input.value.slice(0, -1);
       }
+      refreshScorepadSubmitDisabled(keypad, input);
       return;
     }
 
@@ -318,13 +516,34 @@ function setupScoreKeypad() {
       if (input instanceof HTMLInputElement) {
         input.value = "0";
       }
+      refreshScorepadSubmitDisabled(keypad, input);
       await submitScore(0);
       return;
     }
 
     if (action === "submit") {
+      if (isOverScorepadLimit(input)) {
+        refreshScorepadSubmitDisabled(keypad, input);
+        return;
+      }
       const total = Number(input instanceof HTMLInputElement ? input.value : 0);
       await submitScore(total);
+    }
+  });
+
+  document.querySelectorAll(".score-keypad").forEach((keypad) => {
+    if (!(keypad instanceof HTMLElement)) return;
+    const submitButton = keypad.querySelector('[data-keypad-action="submit"]');
+    if (!(submitButton instanceof HTMLButtonElement)) return;
+    submitButton.dataset.baseDisabled = submitButton.disabled ? "true" : "false";
+
+    const targetId = keypad.getAttribute("data-keypad-target");
+    const input = targetId ? document.getElementById(targetId) : null;
+    if (input instanceof HTMLInputElement) {
+      const update = () => refreshScorepadSubmitDisabled(keypad, input);
+      input.addEventListener("input", update);
+      input.addEventListener("change", update);
+      update();
     }
   });
 
@@ -333,6 +552,7 @@ function setupScoreKeypad() {
     turnTotalInput.addEventListener("keydown", async (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
+        if (isOverScorepadLimit(turnTotalInput)) return;
         await submitScore(Number(turnTotalInput.value || 0));
       }
     });
@@ -530,6 +750,19 @@ async function submitScore(totalPoints) {
         state.gameType = null;
         resetTeamNames();
       }
+      const t = response.turn;
+      const is55By5Bust = response.game.game_type === "55by5" && !t.counted && t.total_points % 5 === 0;
+      const isX01Bust = response.game.game_type === "x01"
+        && (t.x01_result === "bust_overshoot" || t.x01_result === "bust_leave_one");
+
+      if (is55By5Bust || isX01Bust) {
+        showBustBanner("Bust");
+        if (isX01Bust) {
+          resetX01TurnFlags();
+        }
+        await playBustSound();
+        await delay(BUST_POST_SOUND_DELAY_MS);
+      }
 
       renderGame();
       await loadHistory();
@@ -540,26 +773,16 @@ async function submitScore(totalPoints) {
         return;
       }
 
-      const t = response.turn;
-      const isBust = response.game.game_type === "55by5" && !t.counted && t.total_points % 5 === 0;
-      if (isBust) {
-        const bustedPlayer = response.game.players.find((p) => p.id === t.player_id)?.name || "Player";
-        showBustBanner(`${bustedPlayer} bust!`);
+      if (is55By5Bust || isX01Bust) {
+        return;
       }
 
       if (response.game.game_type === "x01") {
         const activePlayer = response.game.players.find((player) => player.id === t.player_id);
         const remaining = activePlayer?.x01_remaining ?? activePlayer?.fives ?? 0;
-        if (t.x01_result === "bust_overshoot") {
-          showBustBanner(`${activePlayer?.name || "Player"} bust: score would go below zero.`);
-          showMessage(`Bust: ${t.total_points} would overshoot the finish.`, true);
-          return;
-        }
-        if (t.x01_result === "bust_leave_one") {
-          showBustBanner(`${activePlayer?.name || "Player"} bust: 1 remaining is not allowed.`);
-          showMessage("Bust: leaving 1 does not count.", true);
-          return;
-        }
+        announceX01TurnResult(t, response.game);
+        resetX01TurnFlags();
+        announceX01CheckoutIfNeeded(response.game);
         showMessage(
           t.counted
             ? `Turn saved: ${t.total_points} scored, ${remaining} remaining.`
@@ -931,7 +1154,10 @@ function normalizeEditingTeamName(teamKey, rawValue) {
 function syncStateFromGame(game) {
   state.game = game;
   state.pendingNoughtsCellIndex = null;
-  if (!game) return;
+  if (!game) {
+    resetX01TurnFlags();
+    return;
+  }
 
   state.gameType = game.game_type || "55by5";
   state.teamMode = game.team_mode || "solo";
@@ -1060,6 +1286,111 @@ function closeX01StartOverlay() {
 }
 
 function resetX01TurnFlags() {
+  state.x01CheckoutAnnouncementKey = null;
+}
+
+function choosePreferredSpeechVoice() {
+  if (typeof window.speechSynthesis === "undefined") return null;
+
+  const voices = window.speechSynthesis.getVoices();
+  if (!Array.isArray(voices) || !voices.length) return null;
+
+  const ukVoices = voices.filter((voice) => typeof voice.lang === "string" && voice.lang.toLowerCase().startsWith("en-gb"));
+  const maleUkVoices = ukVoices.filter((voice) => SPEECH_PREFERRED_MALE_PATTERNS.some((pattern) => pattern.test(voice.name)));
+
+  for (const pattern of SPEECH_PREFERRED_UK_PATTERNS) {
+    const matchedMaleUk = maleUkVoices.find((voice) => pattern.test(voice.name) || pattern.test(voice.lang));
+    if (matchedMaleUk) return matchedMaleUk;
+  }
+
+  if (maleUkVoices.length) {
+    return maleUkVoices[0];
+  }
+
+  for (const pattern of SPEECH_PREFERRED_UK_PATTERNS) {
+    const matchedUk = ukVoices.find((voice) => pattern.test(voice.name) || pattern.test(voice.lang));
+    if (matchedUk) return matchedUk;
+  }
+
+  if (ukVoices.length) {
+    return ukVoices[0];
+  }
+
+  return voices.find((voice) => typeof voice.lang === "string" && voice.lang.toLowerCase().startsWith("en")) || voices[0] || null;
+}
+
+function ensurePreferredSpeechVoice() {
+  if (preferredSpeechVoice) return preferredSpeechVoice;
+  preferredSpeechVoice = choosePreferredSpeechVoice();
+  return preferredSpeechVoice;
+}
+
+function speakText(text, { interrupt = true } = {}) {
+  if (!text || state.audioMuted || typeof window.speechSynthesis === "undefined") return;
+
+  try {
+    const voice = ensurePreferredSpeechVoice();
+    const utterance = new SpeechSynthesisUtterance(text);
+    if (voice) {
+      utterance.voice = voice;
+      utterance.lang = voice.lang || "en-GB";
+    } else {
+      utterance.lang = "en-GB";
+    }
+    utterance.rate = 0.94;
+    utterance.pitch = 1;
+    utterance.volume = 1;
+    if (interrupt) {
+      window.speechSynthesis.cancel();
+    }
+    window.speechSynthesis.speak(utterance);
+  } catch (_err) {
+    // Ignore speech synthesis errors; checkout text remains visible in the UI.
+  }
+}
+
+function buildX01CheckoutAnnouncement(game) {
+  if (!game || game.game_type !== "x01" || game.status !== "active") return null;
+
+  const x01State = game.x01_state || {};
+  const checkout = x01State.active_checkout;
+  const remaining = Number(x01State.active_remaining);
+  const activePlayer = game.players.find((player) => player.id === game.active_player_id);
+  const shouldAnnounce = Boolean(checkout) || (Number.isFinite(remaining) && remaining >= 2 && remaining <= 40);
+
+  if (!activePlayer || !shouldAnnounce) {
+    return null;
+  }
+
+  return {
+    key: `${game.id}:${game.turns.length}:${activePlayer.id}:${remaining}`,
+    text: `${activePlayer.name}, you require ${remaining}`,
+  };
+}
+
+function announceX01CheckoutIfNeeded(game) {
+  const announcement = buildX01CheckoutAnnouncement(game);
+  if (!announcement) return;
+  if (announcement.key === state.x01CheckoutAnnouncementKey) return;
+
+  state.x01CheckoutAnnouncementKey = announcement.key;
+  speakText(announcement.text, { interrupt: false });
+}
+
+function announceX01TurnResult(turn, game) {
+  if (!turn || !game || game.game_type !== "x01") return;
+
+  const playerName = game.players.find((player) => player.id === turn.player_id)?.name || "Player";
+  if (turn.x01_result === "bust_overshoot") {
+    speakText(`${playerName} bust. ${turn.total_points} scored does not count.`);
+    return;
+  }
+  if (turn.x01_result === "bust_leave_one") {
+    speakText(`${playerName} bust. Leaving 1 is not allowed.`);
+    return;
+  }
+
+  speakText(String(turn.total_points));
 }
 
 function renderX01StartSelection() {
@@ -1791,6 +2122,7 @@ function renderCricketDashboard(game) {
     battingInput.addEventListener("keydown", async (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
+        if (isOverScorepadLimit(battingInput)) return;
         await submitScore(Number(battingInput.value || 0));
       }
     });
@@ -1908,9 +2240,16 @@ function renderGame() {
     turnInputEl.classList.add("hidden");
     if (standardTurnControlsEl) {
       standardTurnControlsEl.classList.remove("hidden");
+      standardTurnControlsEl.classList.remove("is-x01-layout");
     }
     if (x01TurnPanelEl) {
       x01TurnPanelEl.classList.add("hidden");
+    }
+    if (turnPlayerPanelEl) {
+      turnPlayerPanelEl.classList.add("hidden");
+    }
+    if (turnPlayerNameEl) {
+      turnPlayerNameEl.textContent = "-";
     }
     if (cricketDashboardEl) {
       cricketDashboardEl.classList.add("hidden");
@@ -1927,6 +2266,7 @@ function renderGame() {
   const isCricket = game.game_type === "english_cricket";
   const isX01 = game.game_type === "x01";
   const isNoughts = game.game_type === "noughts_and_crosses";
+  const activePlayer = game.players.find((p) => p.id === game.active_player_id);
   const headers = Array.from(document.querySelectorAll("#scoreboard-table thead th"));
   if (headers.length >= 3) {
     headers[0].textContent = "Player";
@@ -1937,6 +2277,14 @@ function renderGame() {
 
   if (standardTurnControlsEl) {
     standardTurnControlsEl.classList.toggle("hidden", isCricket || isNoughts || game.status !== "active");
+    standardTurnControlsEl.classList.toggle("is-x01-layout", isX01 && game.status === "active");
+  }
+  if (turnPlayerPanelEl) {
+    const showTurnPlayerPanel = isX01 && game.status === "active";
+    turnPlayerPanelEl.classList.toggle("hidden", !showTurnPlayerPanel);
+  }
+  if (turnPlayerNameEl) {
+    turnPlayerNameEl.textContent = activePlayer?.name || "Unknown";
   }
   if (sharedTurnActionsEl) {
     sharedTurnActionsEl.classList.toggle("hidden", game.status !== "active");
@@ -1956,7 +2304,6 @@ function renderGame() {
     scoreboardSectionEl.classList.toggle("hidden", isCricket || isNoughts);
   }
 
-  const activePlayer = game.players.find((p) => p.id === game.active_player_id);
   if (game.status === "finished") {
     closeNoughtsMarkOverlay();
     const winnerName = winnerDisplayName(game, "Tie");
@@ -1967,10 +2314,12 @@ function renderGame() {
     activeGameMetaEl.innerHTML = "<strong>Noughts and Crosses</strong>";
   } else if (isX01) {
     const checkoutText = game.x01_state?.active_checkout ? `<span class="hint">Checkout: ${game.x01_state.active_checkout}</span>` : "";
-    activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong>${checkoutText}`;
+    activeGameMetaEl.innerHTML = checkoutText;
   } else {
     activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong>`;
   }
+
+  announceX01CheckoutIfNeeded(game);
 
   if (isCricket) {
     renderCricketDashboard(game);
@@ -2254,6 +2603,7 @@ async function startRematch() {
 
 async function init() {
   resetTeamNames();
+  applyAudioMuted(true);
   setupScoreKeypad();
   setupDragAndDrop();
   setupTeamDragAndDrop();
@@ -2273,6 +2623,12 @@ async function init() {
   const chooseNoughtsBtn = document.getElementById("choose-noughts-and-crosses");
   const teamModeSoloEl = document.getElementById("team-mode-solo");
   const teamModeTeamsEl = document.getElementById("team-mode-teams");
+
+  if (muteButtonEl) {
+    muteButtonEl.addEventListener("click", () => {
+      applyAudioMuted(!state.audioMuted);
+    });
+  }
 
   if (helpButtonEl) {
     helpButtonEl.addEventListener("click", () => {
@@ -2396,6 +2752,13 @@ async function init() {
   window.addEventListener("focus", () => {
     void refreshLobbyAvailability();
   });
+
+  if (typeof window.speechSynthesis !== "undefined") {
+    ensurePreferredSpeechVoice();
+    window.speechSynthesis.addEventListener("voiceschanged", () => {
+      preferredSpeechVoice = choosePreferredSpeechVoice();
+    });
+  }
 
   document.querySelectorAll('input[name="x01-starting-score"]').forEach((input) => {
     input.addEventListener("change", (event) => {

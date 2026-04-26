@@ -215,7 +215,7 @@ Notes:
 - Winner is the first player or team to reach exactly `0`.
 - If a turn would push below `0`, it is a bust and does not count.
 - If a turn leaves exactly `1`, it is also a bust and does not count.
-- The live view shows the active remaining total and checkout suggestions where available.
+- The live view shows the active remaining total and a checkout suggestion where one exists. Suggestions cover all standard finishes from **170 down to 2** (every reachable double, including single-dart doubles).
 
 ### English Cricket
 

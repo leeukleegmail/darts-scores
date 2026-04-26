@@ -314,6 +314,20 @@ def submit_cricket_score_with_keypad(browser, value: int):
     keypad.find_element(By.CSS_SELECTOR, "[data-keypad-action='submit']").click()
 
 
+def enter_value_with_keypad(browser, keypad_id: str, display_id: str, value: int):
+    keypad = _wait(browser).until(ec.visibility_of_element_located((By.ID, keypad_id)))
+    display = browser.find_element(By.ID, display_id)
+
+    existing_value = display.get_attribute("value") or ""
+    for _ in existing_value:
+        keypad.find_element(By.CSS_SELECTOR, "[data-keypad-action='backspace']").click()
+
+    for digit in str(value):
+        keypad.find_element(By.CSS_SELECTOR, f"[data-keypad-value='{digit}']").click()
+
+    return keypad.find_element(By.CSS_SELECTOR, "[data-keypad-action='submit']")
+
+
 def test_start_game_shows_live_view(live_server, browser):
     browser.get(live_server)
     start_single_player_game(browser, "Alice")
@@ -350,6 +364,21 @@ def test_55_by_5_onscreen_keypad_can_submit_a_score(live_server, browser):
     assert "15" in browser.find_element(By.ID, "scoreboard").text
 
 
+def test_standard_keypad_disables_submit_when_score_exceeds_180(live_server, browser):
+    browser.get(live_server)
+    start_single_player_game(browser, "Piper")
+
+    submit_button = enter_value_with_keypad(browser, "standard-score-keypad", "turn-total", 181)
+    assert submit_button.get_attribute("disabled") is not None
+
+    # Bring value back within limit and verify submission is re-enabled.
+    submit_button = enter_value_with_keypad(browser, "standard-score-keypad", "turn-total", 180)
+    assert submit_button.get_attribute("disabled") is None
+
+    submit_button.click()
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#1 Piper: total 180"))
+
+
 def test_english_cricket_batting_panel_shows_onscreen_keypad(live_server, browser):
     browser.get(live_server)
     start_cricket_game(browser, "Ivy", "Jules")
@@ -363,6 +392,24 @@ def test_english_cricket_batting_panel_shows_onscreen_keypad(live_server, browse
     assert keypad.find_element(By.CSS_SELECTOR, "[data-keypad-action='no-score']").text.strip() == "No Score"
     assert batting_input.get_attribute("readonly") is not None
     assert batting_input.get_attribute("inputmode") == "none"
+
+
+def test_cricket_batting_keypad_disables_submit_when_score_exceeds_180(live_server, browser):
+    browser.get(live_server)
+    start_cricket_game(browser, "Ivy", "Jules")
+
+    # Cricket opens on a bowling turn; submit one bowling turn so batting becomes active.
+    bowling_submit = _wait(browser).until(ec.element_to_be_clickable((By.ID, "cricket-submit-bowling")))
+    bowling_submit.click()
+    _wait(browser).until(
+        lambda d: d.find_element(By.CSS_SELECTOR, "#cricket-batting-keypad [data-keypad-action='submit']").get_attribute("disabled") is None
+    )
+
+    submit_button = enter_value_with_keypad(browser, "cricket-batting-keypad", "cricket-batting-total", 181)
+    assert submit_button.get_attribute("disabled") is not None
+
+    submit_button = enter_value_with_keypad(browser, "cricket-batting-keypad", "cricket-batting-total", 180)
+    assert submit_button.get_attribute("disabled") is None
 
 
 def test_noughts_and_crosses_board_allows_marking_x_and_o(live_server, browser):
@@ -415,6 +462,70 @@ def test_help_button_opens_user_manual_in_header(live_server, browser):
         lambda d: "active" in d.find_element(By.CSS_SELECTOR, ".help-section[data-help-section='cricket']").get_attribute("class")
     )
     assert "Starting Roles" in browser.find_element(By.CSS_SELECTOR, ".help-section[data-help-section='cricket']").text
+
+
+def test_mute_button_defaults_to_muted_and_toggles_state(live_server, browser):
+        browser.get(live_server)
+
+        user_bar = _wait(browser).until(ec.visibility_of_element_located((By.CSS_SELECTOR, ".user-bar")))
+        action_buttons = user_bar.find_elements(By.CSS_SELECTOR, "button")
+        assert [button.get_attribute("id") for button in action_buttons[:2]] == ["mute-button", "help-button"]
+
+        mute_button = browser.find_element(By.ID, "mute-button")
+        assert mute_button.text.strip() == "Unmute"
+        assert mute_button.get_attribute("aria-pressed") == "true"
+
+        mute_button.click()
+        _wait(browser).until(lambda d: d.find_element(By.ID, "mute-button").text.strip() == "Mute")
+        assert browser.find_element(By.ID, "mute-button").get_attribute("aria-pressed") == "false"
+
+        browser.find_element(By.ID, "mute-button").click()
+        _wait(browser).until(lambda d: d.find_element(By.ID, "mute-button").text.strip() == "Unmute")
+        assert browser.find_element(By.ID, "mute-button").get_attribute("aria-pressed") == "true"
+
+
+def test_muted_mode_suppresses_x01_speech_until_unmuted(live_server, browser):
+        browser.get(live_server)
+        browser.execute_script(
+                """
+                window.__speechCalls = { speak: 0, cancel: 0, lastText: null };
+                if (!window.speechSynthesis) {
+                    window.speechSynthesis = {
+                        speak: function () {},
+                        cancel: function () {},
+                        getVoices: function () { return []; },
+                        onvoiceschanged: null,
+                    };
+                }
+                window.__origSpeak = window.speechSynthesis.speak;
+                window.__origCancel = window.speechSynthesis.cancel;
+                window.speechSynthesis.speak = function (utterance) {
+                    window.__speechCalls.speak += 1;
+                    window.__speechCalls.lastText = utterance && utterance.text ? utterance.text : null;
+                };
+                window.speechSynthesis.cancel = function () {
+                    window.__speechCalls.cancel += 1;
+                };
+                """
+        )
+
+        start_x01_game(browser, ["Muted Announcer"], starting_score="101")
+
+        submit_standard_score_with_keypad(browser, 60)
+        _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "scoreboard"), "41"))
+
+        speech_count_muted = browser.execute_script("return window.__speechCalls.speak;")
+        assert speech_count_muted == 0
+
+        browser.find_element(By.ID, "mute-button").click()
+        _wait(browser).until(lambda d: d.find_element(By.ID, "mute-button").text.strip() == "Mute")
+
+        submit_standard_score_with_keypad(browser, 0)
+        _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#2 Muted Announcer: total 0"))
+
+        _wait(browser).until(lambda d: d.execute_script("return window.__speechCalls.speak;") >= 1)
+        spoken_text = browser.execute_script("return window.__speechCalls.lastText;")
+        assert "Muted Announcer" in (spoken_text or "")
 
 
 def test_team_assignment_can_be_configured_before_choosing_game(live_server, browser):
@@ -962,11 +1073,11 @@ def test_x01_team_game_can_complete_end_to_end(live_server, browser):
 
     submit_standard_score_with_keypad(browser, 60)
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "scoreboard"), "41"))
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "Bryn to Throw"))
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turn-player-name"), "Bryn"))
 
     submit_standard_score_with_keypad(browser, 0)
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#2 Bryn: total 0"))
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "Aria to Throw"))
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turn-player-name"), "Aria"))
 
     submit_standard_score_with_keypad(browser, 41)
 
@@ -1218,13 +1329,15 @@ def test_bust_shows_red_banner_for_three_seconds(live_server, browser):
     browser.get(live_server)
     start_single_player_game(browser, "Dana")
 
-    turn_values = [75, 75, 75, 15, 15, 15, 15]
+    turn_values = [75, 75, 75, 15, 15, 15]
 
     for turn_number, value in enumerate(turn_values, start=1):
         submit_standard_score_with_keypad(browser, value)
         _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), f"#{turn_number} Dana: total {value}"))
 
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "bust-banner"), "Dana bust!"))
+    # Final 15 causes bust; assert the banner immediately rather than after score refresh.
+    submit_standard_score_with_keypad(browser, 15)
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "bust-banner"), "Bust"))
     _wait(browser).until(lambda d: "visible" in d.find_element(By.ID, "bust-banner").get_attribute("class"))
     WebDriverWait(browser, 5).until(
         lambda d: "visible" not in d.find_element(By.ID, "bust-banner").get_attribute("class")

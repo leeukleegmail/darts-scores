@@ -910,6 +910,69 @@ def test_turn_submission_validation_paths(client):
     assert not_found_game.status_code == 404
 
 
+def test_turn_submission_rejects_scores_above_180_for_all_game_modes(client):
+    p1 = add_player(client, "Limit A")
+    p2 = add_player(client, "Limit B")
+
+    game_payloads = [
+        {"ordered_player_ids": [p1], "game_type": "55by5"},
+        {
+            "ordered_player_ids": [p1],
+            "game_type": "x01",
+            "x01_starting_score": 501,
+        },
+        {"ordered_player_ids": [p1, p2], "game_type": "english_cricket"},
+        {"ordered_player_ids": [p1, p2], "game_type": "noughts_and_crosses"},
+    ]
+
+    for payload in game_payloads:
+        created = client.post("/api/games", json=payload)
+        assert created.status_code == 201
+        game = created.get_json()["game"]
+        active_player_id = game["active_player_id"]
+
+        rejected = client.post(
+            f"/api/games/{game['id']}/turn",
+            json={"player_id": active_player_id, "total_points": 181},
+        )
+        assert rejected.status_code == 400
+        assert "between 0 and 180" in rejected.get_json()["error"]
+
+        quit_res = client.delete(f"/api/games/{game['id']}")
+        assert quit_res.status_code == 200
+
+
+def test_turn_submission_accepts_score_of_180_at_boundary(client):
+    p1 = add_player(client, "Boundary")
+
+    game_payloads = [
+        {"ordered_player_ids": [p1], "game_type": "55by5"},
+        {
+            "ordered_player_ids": [p1],
+            "game_type": "x01",
+            "x01_starting_score": 301,
+        },
+    ]
+
+    for payload in game_payloads:
+        created = client.post("/api/games", json=payload)
+        assert created.status_code == 201
+        game = created.get_json()["game"]
+        active_player_id = game["active_player_id"]
+
+        accepted = client.post(
+            f"/api/games/{game['id']}/turn",
+            json={"player_id": active_player_id, "total_points": 180},
+        )
+        assert accepted.status_code == 200
+        assert accepted.get_json()["turn"]["total_points"] == 180
+
+        quit_res = client.delete(f"/api/games/{game['id']}")
+        # x01 may finish immediately in some configs; quitting an active game is optional.
+        if quit_res.status_code != 200:
+            assert quit_res.status_code == 400
+
+
 def test_undo_and_quit_invalid_states(client):
     p1 = add_player(client, "Undoer")
     game = client.post("/api/games", json={"ordered_player_ids": [p1]}).get_json()["game"]
@@ -1133,6 +1196,36 @@ def test_create_x01_game_with_config(client):
     assert game["x01_state"]["starting_score"] == 301
     assert game["players"][0]["x01_remaining"] == 301
     assert game["active_player_id"] == p1
+
+
+def test_x01_payload_includes_active_checkout_and_keeps_it_on_bust(client):
+    p1 = add_player(client, "Checkout Snapshot")
+
+    game = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1],
+            "game_type": "x01",
+            "x01_starting_score": 101,
+        },
+    ).get_json()["game"]
+
+    assert game["x01_state"]["active_entity_key"] == str(p1)
+    assert game["x01_state"]["active_remaining"] == 101
+    assert game["x01_state"]["active_checkout"] == "T17 10 D20"
+
+    scored = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 60})
+    assert scored.status_code == 200
+    scored_payload = scored.get_json()
+    assert scored_payload["game"]["x01_state"]["active_remaining"] == 41
+    assert scored_payload["game"]["x01_state"]["active_checkout"] == "9 D16"
+
+    bust = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 40})
+    assert bust.status_code == 200
+    bust_payload = bust.get_json()
+    assert bust_payload["turn"]["x01_result"] == "bust_leave_one"
+    assert bust_payload["game"]["x01_state"]["active_remaining"] == 41
+    assert bust_payload["game"]["x01_state"]["active_checkout"] == "9 D16"
 
 
 def test_create_noughts_and_crosses_solo_mode(client):
