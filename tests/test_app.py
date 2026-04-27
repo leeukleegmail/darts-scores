@@ -1577,3 +1577,410 @@ def test_55by5_team_mode_winner(client):
     finished = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
     assert finished["status"] == "finished"
     assert finished["winner_team"] == "team_a"
+
+
+# ---------------------------------------------------------------------------
+# Winner naming: winner_team_name / winner_player_id across all game types
+# ---------------------------------------------------------------------------
+
+
+def _finish_55by5_solo(client, player_id, game_id):
+    """Score 55 fives (11 x 25 points) for a single player."""
+    for _ in range(11):
+        r = client.post(f"/api/games/{game_id}/turn", json={"player_id": player_id, "total_points": 25})
+        assert r.status_code == 200
+        if r.get_json()["game"]["status"] == "finished":
+            break
+
+
+def test_winner_name_55by5_solo(client):
+    p1 = add_player(client, "Solo Winner")
+    game = client.post("/api/games", json={"ordered_player_ids": [p1]}).get_json()["game"]
+    _finish_55by5_solo(client, p1, game["id"])
+
+    state = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+    assert state["status"] == "finished"
+    assert state["winner_player_id"] == p1
+    assert state["winner_team_name"] is None
+
+
+def test_winner_name_55by5_teams_default(client):
+    p1 = add_player(client, "Team1-A")
+    p2 = add_player(client, "Team1-B")
+    game = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2],
+            "game_type": "55by5",
+            "team_mode": "teams",
+            "team_assignments": {str(p1): "team_a", str(p2): "team_b"},
+        },
+    ).get_json()["game"]
+    for _ in range(11):
+        r = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 25})
+        assert r.status_code == 200
+        if r.get_json()["game"]["status"] == "finished":
+            break
+        client.post(f"/api/games/{game['id']}/turn", json={"player_id": p2, "total_points": 0})
+
+    state = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+    assert state["status"] == "finished"
+    assert state["winner_team"] == "team_a"
+    assert state["winner_team_name"] == "Team A"
+    assert state["winner_player_id"] is None
+
+
+def test_winner_name_55by5_teams_custom(client):
+    p1 = add_player(client, "Red-A")
+    p2 = add_player(client, "Blue-A")
+    game = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2],
+            "game_type": "55by5",
+            "team_mode": "teams",
+            "team_assignments": {str(p1): "team_a", str(p2): "team_b"},
+            "team_names": {"team_a": "Red Dragons", "team_b": "Blue Phoenix"},
+        },
+    ).get_json()["game"]
+    for _ in range(11):
+        r = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 25})
+        assert r.status_code == 200
+        if r.get_json()["game"]["status"] == "finished":
+            break
+        client.post(f"/api/games/{game['id']}/turn", json={"player_id": p2, "total_points": 0})
+
+    state = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+    assert state["status"] == "finished"
+    assert state["winner_team"] == "team_a"
+    assert state["winner_team_name"] == "Red Dragons"
+    assert state["winner_player_id"] is None
+
+
+def test_winner_name_x01_solo(client):
+    p1 = add_player(client, "X01 Solo")
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1], "game_type": "x01", "x01_starting_score": 101},
+    ).get_json()["game"]
+
+    # Reach 101 via two turns: 60 + 41
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 60})
+    r = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 41})
+    assert r.get_json()["game"]["status"] == "finished"
+
+    state = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+    assert state["winner_player_id"] == p1
+    assert state["winner_team_name"] is None
+
+
+def test_winner_name_x01_teams_default(client):
+    p1 = add_player(client, "X01 TA")
+    p2 = add_player(client, "X01 TB")
+    game = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2],
+            "game_type": "x01",
+            "team_mode": "teams",
+            "team_assignments": {str(p1): "team_a", str(p2): "team_b"},
+            "x01_starting_score": 101,
+        },
+    ).get_json()["game"]
+
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 60})
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p2, "total_points": 0})
+    r = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 41})
+    assert r.get_json()["game"]["status"] == "finished"
+
+    state = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+    assert state["winner_team"] == "team_a"
+    assert state["winner_team_name"] == "Team A"
+    assert state["winner_player_id"] is None
+
+
+def test_winner_name_x01_teams_custom(client):
+    p1 = add_player(client, "X01 Custom-A")
+    p2 = add_player(client, "X01 Custom-B")
+    game = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2],
+            "game_type": "x01",
+            "team_mode": "teams",
+            "team_assignments": {str(p1): "team_a", str(p2): "team_b"},
+            "x01_starting_score": 101,
+            "team_names": {"team_a": "Arrows", "team_b": "Bulls"},
+        },
+    ).get_json()["game"]
+
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 60})
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p2, "total_points": 0})
+    r = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 41})
+    assert r.get_json()["game"]["status"] == "finished"
+
+    state = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+    assert state["winner_team"] == "team_a"
+    assert state["winner_team_name"] == "Arrows"
+    assert state["winner_player_id"] is None
+
+
+def test_winner_name_cricket_solo(client):
+    """Cricket solo: winner determined by team key; winner_team_name uses default 'Team A'/'Team B'."""
+    p1 = add_player(client, "Cricket Solo A")
+    p2 = add_player(client, "Cricket Solo B")
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1, p2], "game_type": "english_cricket", "team_mode": "solo"},
+    ).get_json()["game"]
+
+    # Inning 1 (team_a bats, team_b bowls): p1 scores 50 runs, p2 takes a wicket
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p2, "total_points": 0})
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 50})
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p2, "total_points": 10})
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 0})
+    # Inning 2: p2 (team_b) chases and exceeds
+    r = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p2, "total_points": 51})
+    assert r.get_json()["game"]["status"] == "finished"
+
+    state = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+    assert state["winner_team"] == "team_b"
+    assert state["winner_team_name"] == "Team B"
+    assert state["winner_player_id"] is None
+
+
+def test_winner_name_cricket_teams_custom(client):
+    p1 = add_player(client, "Cricket TA-1")
+    p2 = add_player(client, "Cricket TB-1")
+    game = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2],
+            "game_type": "english_cricket",
+            "team_mode": "teams",
+            "team_assignments": {str(p1): "team_a", str(p2): "team_b"},
+            "team_names": {"team_a": "Strikers", "team_b": "Fielders"},
+        },
+    ).get_json()["game"]
+
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p2, "total_points": 0})
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 50})
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p2, "total_points": 10})
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 0})
+    r = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p2, "total_points": 51})
+    assert r.get_json()["game"]["status"] == "finished"
+
+    state = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+    assert state["winner_team"] == "team_b"
+    assert state["winner_team_name"] == "Fielders"
+    assert state["winner_player_id"] is None
+
+
+def test_winner_name_noughts_solo(client):
+    p1 = add_player(client, "Noughts X Solo")
+    p2 = add_player(client, "Noughts O Solo")
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1, p2], "game_type": "noughts_and_crosses", "team_mode": "solo"},
+    ).get_json()["game"]
+
+    # X wins top row
+    for cell, marker, pid in [(0, "X", p1), (3, "O", p2), (1, "X", p1), (4, "O", p2), (2, "X", p1)]:
+        r = client.post(f"/api/games/{game['id']}/turn", json={"player_id": pid, "total_points": cell, "noughts_marker": marker})
+        assert r.status_code == 200
+
+    state = r.get_json()["game"]
+    assert state["status"] == "finished"
+    assert state["winner_player_id"] == p1
+    assert state["winner_team_name"] is None
+
+
+def test_winner_name_noughts_teams_default(client):
+    p1 = add_player(client, "Noughts TA")
+    p2 = add_player(client, "Noughts TB")
+    game = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2],
+            "game_type": "noughts_and_crosses",
+            "team_mode": "teams",
+            "team_assignments": {str(p1): "team_a", str(p2): "team_b"},
+        },
+    ).get_json()["game"]
+
+    for cell, marker, pid in [(0, "X", p1), (3, "O", p2), (1, "X", p1), (4, "O", p2), (2, "X", p1)]:
+        r = client.post(f"/api/games/{game['id']}/turn", json={"player_id": pid, "total_points": cell, "noughts_marker": marker})
+        assert r.status_code == 200
+
+    state = r.get_json()["game"]
+    assert state["status"] == "finished"
+    assert state["winner_team"] == "team_a"
+    assert state["winner_team_name"] == "Team A"
+    assert state["winner_player_id"] is None
+
+
+# ---------------------------------------------------------------------------
+# Game start state: active player, team assignments, validation
+# ---------------------------------------------------------------------------
+
+
+def test_game_start_active_player_55by5_solo(client):
+    p1 = add_player(client, "Start Solo 1")
+    p2 = add_player(client, "Start Solo 2")
+    game = client.post("/api/games", json={"ordered_player_ids": [p1, p2]}).get_json()["game"]
+    assert game["status"] == "active"
+    assert game["active_player_id"] == p1
+
+
+def test_game_start_active_player_55by5_teams(client):
+    p1 = add_player(client, "TA Start")
+    p2 = add_player(client, "TB Start")
+    game = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2],
+            "team_mode": "teams",
+            "team_assignments": {str(p1): "team_a", str(p2): "team_b"},
+        },
+    ).get_json()["game"]
+    assert game["status"] == "active"
+    assert game["active_player_id"] == p1
+
+
+def test_game_start_active_player_x01_solo(client):
+    p1 = add_player(client, "X01 Start 1")
+    p2 = add_player(client, "X01 Start 2")
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1, p2], "game_type": "x01", "x01_starting_score": 501},
+    ).get_json()["game"]
+    assert game["status"] == "active"
+    assert game["active_player_id"] == p1
+
+
+def test_game_start_active_player_x01_teams(client):
+    p1 = add_player(client, "X01 TA Start")
+    p2 = add_player(client, "X01 TB Start")
+    game = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2],
+            "game_type": "x01",
+            "team_mode": "teams",
+            "team_assignments": {str(p1): "team_a", str(p2): "team_b"},
+            "x01_starting_score": 301,
+        },
+    ).get_json()["game"]
+    assert game["status"] == "active"
+    assert game["active_player_id"] == p1
+
+
+def test_game_start_active_player_noughts(client):
+    p1 = add_player(client, "Noughts Start X")
+    p2 = add_player(client, "Noughts Start O")
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1, p2], "game_type": "noughts_and_crosses"},
+    ).get_json()["game"]
+    assert game["status"] == "active"
+    assert game["active_player_id"] == p1
+
+
+def test_game_start_cricket_default_batting_team(client):
+    """Default cricket: team_a bats, team_b bowls → first player on bowling (team_b) goes first."""
+    p1 = add_player(client, "Cricket Default A")
+    p2 = add_player(client, "Cricket Default B")
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1, p2], "game_type": "english_cricket"},
+    ).get_json()["game"]
+    assert game["cricket_state"]["batting_team"] == "team_a"
+    assert game["cricket_state"]["bowling_team"] == "team_b"
+    # p2 is auto-assigned team_b (bowler) so goes first
+    assert game["active_player_id"] == p2
+
+
+def test_game_start_player_team_fields_in_response(client):
+    """players[i].team reflects team assignment for every game type in teams mode."""
+    p1 = add_player(client, "PTeam A")
+    p2 = add_player(client, "PTeam B")
+    for game_type in ("55by5", "x01", "english_cricket"):
+        payload = {
+            "ordered_player_ids": [p1, p2],
+            "game_type": game_type,
+            "team_mode": "teams",
+            "team_assignments": {str(p1): "team_a", str(p2): "team_b"},
+        }
+        if game_type == "x01":
+            payload["x01_starting_score"] = 101
+        game = client.post("/api/games", json=payload).get_json()["game"]
+        assert game["status"] == "active", f"failed for {game_type}"
+        by_id = {p["id"]: p for p in game["players"]}
+        assert by_id[p1]["team"] == "team_a", f"p1 team wrong for {game_type}"
+        assert by_id[p2]["team"] == "team_b", f"p2 team wrong for {game_type}"
+        client.delete(f"/api/games/{game['id']}")
+
+
+def test_game_start_noughts_solo_auto_assigns_teams(client):
+    """Noughts solo: p1 auto-assigned team_a (X), p2 auto-assigned team_b (O)."""
+    p1 = add_player(client, "NX Auto")
+    p2 = add_player(client, "NO Auto")
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1, p2], "game_type": "noughts_and_crosses"},
+    ).get_json()["game"]
+    by_id = {p["id"]: p for p in game["players"]}
+    assert by_id[p1]["team"] == "team_a"
+    assert by_id[p2]["team"] == "team_b"
+
+
+def test_create_game_teams_validation_missing_assignment(client):
+    """Returns 400 when team_mode=teams but not every player has an assignment."""
+    p1 = add_player(client, "MissAssign A")
+    p2 = add_player(client, "MissAssign B")
+    res = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2],
+            "team_mode": "teams",
+            "team_assignments": {str(p1): "team_a"},  # p2 missing
+        },
+    )
+    assert res.status_code == 400
+    assert "every selected player" in res.get_json()["error"].lower()
+
+
+def test_create_game_teams_validation_one_team_only(client):
+    """Returns 400 when both players are assigned to the same team."""
+    p1 = add_player(client, "OneTeam A")
+    p2 = add_player(client, "OneTeam B")
+    res = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2],
+            "team_mode": "teams",
+            "team_assignments": {str(p1): "team_a", str(p2): "team_a"},
+        },
+    )
+    assert res.status_code == 400
+    assert "both team a and team b" in res.get_json()["error"].lower()
+
+
+def test_create_game_cricket_solo_requires_two_players(client):
+    p1 = add_player(client, "Cricket Solo One")
+    res = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1], "game_type": "english_cricket", "team_mode": "solo"},
+    )
+    assert res.status_code == 400
+    assert "two players" in res.get_json()["error"].lower()
+
+
+def test_create_game_noughts_solo_requires_two_players(client):
+    p1 = add_player(client, "Noughts Solo One")
+    res = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1], "game_type": "noughts_and_crosses", "team_mode": "solo"},
+    )
+    assert res.status_code == 400
+    assert "two players" in res.get_json()["error"].lower()
