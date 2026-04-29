@@ -320,6 +320,38 @@ def test_admin_can_delete_history(client):
     assert after.get_json() == []
 
 
+def test_clear_history_does_not_change_player_stats(client):
+    p1 = add_player(client, "Stats Persist A")
+    p2 = add_player(client, "Stats Persist B")
+
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1, p2], "game_type": "noughts_and_crosses"},
+    ).get_json()["game"]
+    for cell, marker, pid in [(0, "X", p1), (3, "O", p2), (1, "X", p1), (4, "O", p2), (2, "X", p1)]:
+        r = client.post(
+            f"/api/games/{game['id']}/turn",
+            json={"player_id": pid, "total_points": cell, "noughts_marker": marker},
+        )
+    assert r.get_json()["game"]["status"] == "finished"
+
+    stats_before = client.get(f"/api/players/{p1}/stats").get_json()["stats"]
+    assert stats_before["games_played"] == 1
+    assert stats_before["games_won"] == 1
+    assert stats_before["games_lost"] == 0
+
+    cleared = client.delete("/api/games/history")
+    assert cleared.status_code == 200
+    assert cleared.get_json()["deleted_games"] == 1
+
+    stats_after = client.get(f"/api/players/{p1}/stats").get_json()["stats"]
+    assert stats_after == stats_before
+
+    history = client.get("/api/games/history?limit=10")
+    assert history.status_code == 200
+    assert history.get_json() == []
+
+
 def test_api_requires_auth_when_not_testing(auth_client):
     res = auth_client.get("/api/players")
     assert res.status_code == 401
@@ -359,7 +391,7 @@ def test_logout_quits_active_game(auth_client):
         assert stored_game.finished_at is not None
 
 
-def test_inactivity_timeout_quits_active_game_and_logs_user_out(auth_client):
+def test_inactivity_timeout_logs_user_out_without_quitting_active_game(auth_client):
     login = auth_client.post(
         "/login",
         data={"username": "admin", "password": "admin"},
@@ -378,6 +410,33 @@ def test_inactivity_timeout_quits_active_game_and_logs_user_out(auth_client):
     assert expired.get_json()["error"] == "Session expired due to inactivity."
 
     app_module = sys.modules["app"]
+    with app_module.app.app_context():
+        stored_game = app_module.db.session.get(app_module.Game, game["id"])
+        assert stored_game.status == "active"
+        assert stored_game.finished_at is None
+
+
+def test_game_inactivity_timeout_still_quits_stale_active_game(auth_client):
+    login = auth_client.post(
+        "/login",
+        data={"username": "admin", "password": "admin"},
+        follow_redirects=False,
+    )
+    assert login.status_code == 302
+
+    player_id = add_player(auth_client, "Stale Player")
+    game = auth_client.post("/api/games", json={"ordered_player_ids": [player_id]}).get_json()["game"]
+
+    app_module = sys.modules["app"]
+    with app_module.app.app_context():
+        stored_game = app_module.db.session.get(app_module.Game, game["id"])
+        stored_game.started_at = datetime.now(timezone.utc) - timedelta(minutes=31)
+        app_module.db.session.commit()
+
+    active = auth_client.get("/api/games/active")
+    assert active.status_code == 200
+    assert active.get_json()["game"] is None
+
     with app_module.app.app_context():
         stored_game = app_module.db.session.get(app_module.Game, game["id"])
         assert stored_game.status == "abandoned"
@@ -1984,3 +2043,195 @@ def test_create_game_noughts_solo_requires_two_players(client):
     )
     assert res.status_code == 400
     assert "two players" in res.get_json()["error"].lower()
+
+
+# ---------------------------------------------------------------------------
+# History: all game types appear after completion
+# ---------------------------------------------------------------------------
+
+
+def test_history_includes_55by5_game(client):
+    p1 = add_player(client, "Hist 55by5 P1")
+    game = client.post("/api/games", json={"ordered_player_ids": [p1]}).get_json()["game"]
+
+    for _ in range(11):
+        r = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 25})
+        if r.get_json()["game"]["status"] == "finished":
+            break
+
+    assert r.get_json()["game"]["status"] == "finished"
+    history = client.get("/api/games/history?limit=10").get_json()
+    ids = [g["id"] for g in history]
+    assert game["id"] in ids
+    entry = next(g for g in history if g["id"] == game["id"])
+    assert entry["game_type"] == "55by5"
+    assert entry["winner_player_id"] == p1
+
+
+def test_history_includes_x01_game(client):
+    p1 = add_player(client, "Hist X01 P1")
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1], "game_type": "x01", "x01_starting_score": 101},
+    ).get_json()["game"]
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 60})
+    r = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 41})
+    assert r.get_json()["game"]["status"] == "finished"
+
+    history = client.get("/api/games/history?limit=10").get_json()
+    ids = [g["id"] for g in history]
+    assert game["id"] in ids
+    entry = next(g for g in history if g["id"] == game["id"])
+    assert entry["game_type"] == "x01"
+    assert entry["winner_player_id"] == p1
+    assert entry["turn_count"] == 2
+
+
+def test_history_includes_cricket_game(client):
+    p1 = add_player(client, "Hist Cricket A")
+    p2 = add_player(client, "Hist Cricket B")
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1, p2], "game_type": "english_cricket"},
+    ).get_json()["game"]
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p2, "total_points": 0})
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 50})
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p2, "total_points": 10})
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 0})
+    r = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p2, "total_points": 51})
+    assert r.get_json()["game"]["status"] == "finished"
+
+    history = client.get("/api/games/history?limit=10").get_json()
+    ids = [g["id"] for g in history]
+    assert game["id"] in ids
+    entry = next(g for g in history if g["id"] == game["id"])
+    assert entry["game_type"] == "english_cricket"
+    assert entry["winner_team"] == "team_b"
+    assert entry["winner_team_name"] == "Team B"
+
+
+def test_history_includes_noughts_game(client):
+    p1 = add_player(client, "Hist Noughts X")
+    p2 = add_player(client, "Hist Noughts O")
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1, p2], "game_type": "noughts_and_crosses"},
+    ).get_json()["game"]
+    for cell, marker, pid in [(0, "X", p1), (3, "O", p2), (1, "X", p1), (4, "O", p2), (2, "X", p1)]:
+        r = client.post(f"/api/games/{game['id']}/turn", json={"player_id": pid, "total_points": cell, "noughts_marker": marker})
+    assert r.get_json()["game"]["status"] == "finished"
+
+    history = client.get("/api/games/history?limit=10").get_json()
+    ids = [g["id"] for g in history]
+    assert game["id"] in ids
+    entry = next(g for g in history if g["id"] == game["id"])
+    assert entry["game_type"] == "noughts_and_crosses"
+    assert entry["winner_player_id"] == p1
+
+
+def test_history_includes_all_game_types_mixed(client):
+    """All four game types appear together in history when multiple games finish."""
+    p1 = add_player(client, "Mix P1")
+    p2 = add_player(client, "Mix P2")
+
+    # 55by5
+    g55 = client.post("/api/games", json={"ordered_player_ids": [p1]}).get_json()["game"]
+    for _ in range(11):
+        r = client.post(f"/api/games/{g55['id']}/turn", json={"player_id": p1, "total_points": 25})
+        if r.get_json()["game"]["status"] == "finished":
+            break
+
+    # x01
+    gx01 = client.post("/api/games", json={"ordered_player_ids": [p1], "game_type": "x01", "x01_starting_score": 101}).get_json()["game"]
+    client.post(f"/api/games/{gx01['id']}/turn", json={"player_id": p1, "total_points": 60})
+    client.post(f"/api/games/{gx01['id']}/turn", json={"player_id": p1, "total_points": 41})
+
+    # cricket
+    gcricket = client.post("/api/games", json={"ordered_player_ids": [p1, p2], "game_type": "english_cricket"}).get_json()["game"]
+    client.post(f"/api/games/{gcricket['id']}/turn", json={"player_id": p2, "total_points": 0})
+    client.post(f"/api/games/{gcricket['id']}/turn", json={"player_id": p1, "total_points": 50})
+    client.post(f"/api/games/{gcricket['id']}/turn", json={"player_id": p2, "total_points": 10})
+    client.post(f"/api/games/{gcricket['id']}/turn", json={"player_id": p1, "total_points": 0})
+    client.post(f"/api/games/{gcricket['id']}/turn", json={"player_id": p2, "total_points": 51})
+
+    # noughts
+    gnoughts = client.post("/api/games", json={"ordered_player_ids": [p1, p2], "game_type": "noughts_and_crosses"}).get_json()["game"]
+    for cell, marker, pid in [(0, "X", p1), (3, "O", p2), (1, "X", p1), (4, "O", p2), (2, "X", p1)]:
+        client.post(f"/api/games/{gnoughts['id']}/turn", json={"player_id": pid, "total_points": cell, "noughts_marker": marker})
+
+    history = client.get("/api/games/history?limit=10").get_json()
+    game_types_in_history = {g["game_type"] for g in history}
+    assert "55by5" in game_types_in_history
+    assert "x01" in game_types_in_history
+    assert "english_cricket" in game_types_in_history
+    assert "noughts_and_crosses" in game_types_in_history
+
+
+def test_history_abandoned_games_excluded(client):
+    """Quit (abandoned) games do not appear in history."""
+    p1 = add_player(client, "Hist Abandon")
+    game = client.post("/api/games", json={"ordered_player_ids": [p1]}).get_json()["game"]
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 25})
+    client.delete(f"/api/games/{game['id']}")
+
+    history = client.get("/api/games/history?limit=10").get_json()
+    ids = [g["id"] for g in history]
+    assert game["id"] not in ids
+
+
+def test_history_excludes_abandoned_55by5_game(client):
+    p1 = add_player(client, "Hist Abandon 55")
+    game = client.post("/api/games", json={"ordered_player_ids": [p1]}).get_json()["game"]
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 25})
+    client.delete(f"/api/games/{game['id']}")
+
+    history = client.get("/api/games/history?limit=10").get_json()
+    ids = [g["id"] for g in history]
+    assert game["id"] not in ids
+
+
+def test_history_excludes_abandoned_x01_game(client):
+    p1 = add_player(client, "Hist Abandon X01")
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1], "game_type": "x01", "x01_starting_score": 101},
+    ).get_json()["game"]
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 60})
+    client.delete(f"/api/games/{game['id']}")
+
+    history = client.get("/api/games/history?limit=10").get_json()
+    ids = [g["id"] for g in history]
+    assert game["id"] not in ids
+
+
+def test_history_excludes_abandoned_cricket_game(client):
+    p1 = add_player(client, "Hist Abandon Cricket A")
+    p2 = add_player(client, "Hist Abandon Cricket B")
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1, p2], "game_type": "english_cricket"},
+    ).get_json()["game"]
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p2, "total_points": 0})
+    client.delete(f"/api/games/{game['id']}")
+
+    history = client.get("/api/games/history?limit=10").get_json()
+    ids = [g["id"] for g in history]
+    assert game["id"] not in ids
+
+
+def test_history_excludes_abandoned_noughts_game(client):
+    p1 = add_player(client, "Hist Abandon Noughts X")
+    p2 = add_player(client, "Hist Abandon Noughts O")
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1, p2], "game_type": "noughts_and_crosses"},
+    ).get_json()["game"]
+    client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": 0, "noughts_marker": "X"},
+    )
+    client.delete(f"/api/games/{game['id']}")
+
+    history = client.get("/api/games/history?limit=10").get_json()
+    ids = [g["id"] for g in history]
+    assert game["id"] not in ids

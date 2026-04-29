@@ -132,6 +132,7 @@ class Game(db.Model):
     winner_team = db.Column(db.String(20), nullable=True)
     current_turn_position = db.Column(db.Integer, nullable=False, default=0)
     winner_player_id = db.Column(db.Integer, db.ForeignKey("players.id"), nullable=True)
+    history_hidden = db.Column(db.Boolean, nullable=False, default=False)
     started_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     finished_at = db.Column(db.DateTime, nullable=True)
 
@@ -357,7 +358,6 @@ def require_login():
 
         now_ts = current_session_timestamp()
         if last_activity_at is not None and now_ts - last_activity_at >= SESSION_IDLE_TIMEOUT_SECONDS:
-            abandon_active_games(g.current_user)
             session.clear()
             g.current_user = None
             if request.path.startswith("/api/"):
@@ -400,6 +400,8 @@ def ensure_game_schema_columns() -> None:
         statements.append("ALTER TABLE games ADD COLUMN x01_state TEXT")
     if "winner_team" not in existing_columns:
         statements.append("ALTER TABLE games ADD COLUMN winner_team VARCHAR(20)")
+    if "history_hidden" not in existing_columns:
+        statements.append("ALTER TABLE games ADD COLUMN history_hidden BOOLEAN NOT NULL DEFAULT 0")
 
     for statement in statements:
         db.session.execute(text(statement))
@@ -954,7 +956,7 @@ def games_history():
     limit = max(1, min(100, limit))
 
     games = (
-        visible_games_query().filter_by(status="finished")
+        visible_games_query().filter_by(status="finished", history_hidden=False)
         .order_by(Game.finished_at.desc().nullslast(), Game.id.desc())
         .limit(limit)
         .all()
@@ -995,17 +997,15 @@ def delete_games_history():
     if error:
         return error
 
-    game_ids = [row.id for row in Game.query.filter_by(status="finished").all()]
-    if not game_ids:
+    games = Game.query.filter_by(status="finished", history_hidden=False).all()
+    if not games:
         return jsonify({"deleted_games": 0})
 
-    Turn.query.filter(Turn.game_id.in_(game_ids)).delete(synchronize_session=False)
-    GameScore.query.filter(GameScore.game_id.in_(game_ids)).delete(synchronize_session=False)
-    GamePlayerOrder.query.filter(GamePlayerOrder.game_id.in_(game_ids)).delete(synchronize_session=False)
-    Game.query.filter(Game.id.in_(game_ids)).delete(synchronize_session=False)
+    for game in games:
+        game.history_hidden = True
     db.session.commit()
 
-    return jsonify({"deleted_games": len(game_ids)})
+    return jsonify({"deleted_games": len(games)})
 
 
 @app.get("/api/games/<int:game_id>/state")

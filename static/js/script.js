@@ -119,6 +119,12 @@ const BUST_POST_SOUND_DELAY_MS = 150;
 let bustSoundFilePlayable = null;
 let bustSoundFileChecked = false;
 
+if (clearHistoryEl) {
+  clearHistoryEl.classList.add("hidden");
+  clearHistoryEl.disabled = true;
+  clearHistoryEl.setAttribute("aria-hidden", "true");
+}
+
 const SPEECH_PREFERRED_UK_PATTERNS = [
   /yorkshire/i,
   /uk english/i,
@@ -2511,8 +2517,12 @@ async function loadAuthUser() {
   if (clearHistoryEl) {
     if (user.is_admin) {
       clearHistoryEl.classList.remove("hidden");
+      clearHistoryEl.disabled = false;
+      clearHistoryEl.setAttribute("aria-hidden", "false");
     } else {
       clearHistoryEl.classList.add("hidden");
+      clearHistoryEl.disabled = true;
+      clearHistoryEl.setAttribute("aria-hidden", "true");
     }
   }
   if (user.is_admin) {
