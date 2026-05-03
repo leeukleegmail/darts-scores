@@ -290,11 +290,12 @@ def abandon_active_games(user: AppUser | None = None) -> int:
     return abandon_games(games)
 
 
-def abandon_expired_games(timeout_seconds: int = SESSION_IDLE_TIMEOUT_SECONDS, user: AppUser | None = None) -> int:
+def abandon_expired_games(timeout_seconds: int = SESSION_IDLE_TIMEOUT_SECONDS, user: AppUser | None = None, global_scope: bool = False) -> int:
     threshold = normalize_utc_datetime(datetime.now(timezone.utc)) - timedelta(seconds=timeout_seconds)
     stale_games: list[Game] = []
 
-    for game in active_games_query(user).all():
+    games_query = Game.query.filter_by(status="active") if global_scope else active_games_query(user)
+    for game in games_query.all():
         latest_turn = (
             Turn.query.with_entities(Turn.created_at)
             .filter_by(game_id=game.id)
@@ -338,7 +339,7 @@ def require_login():
     g.current_user = get_current_user()
 
     if request.endpoint != "static" and (g.current_user or app.config.get("TESTING")):
-        abandon_expired_games(user=g.current_user)
+        abandon_expired_games(global_scope=True)
 
     if app.config.get("TESTING"):
         return None
@@ -955,15 +956,18 @@ def games_history():
     limit = request.args.get("limit", default=20, type=int)
     limit = max(1, min(100, limit))
 
+    base_query = visible_games_query().filter_by(status="finished", history_hidden=False)
+    total = base_query.count()
+
     games = (
-        visible_games_query().filter_by(status="finished", history_hidden=False)
+        base_query
         .order_by(Game.finished_at.desc().nullslast(), Game.id.desc())
         .limit(limit)
         .all()
     )
 
     result = []
-    for game in games:
+    for index, game in enumerate(games):
         winner_name = None
         if game.winner_player_id:
             winner = db.session.get(Player, game.winner_player_id)
@@ -975,6 +979,7 @@ def games_history():
         result.append(
             {
                 "id": game.id,
+                "sequence_number": total - index,
                 "game_type": game.game_type,
                 "team_mode": game.team_mode,
                 "winner_team": game.winner_team,

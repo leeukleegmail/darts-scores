@@ -484,6 +484,22 @@ def test_mute_button_defaults_to_muted_and_toggles_state(live_server, browser):
         assert browser.find_element(By.ID, "mute-button").get_attribute("aria-pressed") == "true"
 
 
+def test_unmuted_preference_survives_page_reload(live_server, browser):
+        browser.get(live_server)
+
+        mute_button = _wait(browser).until(ec.element_to_be_clickable((By.ID, "mute-button")))
+        assert mute_button.text.strip() == "Unmute"
+
+        mute_button.click()
+        _wait(browser).until(lambda d: d.find_element(By.ID, "mute-button").text.strip() == "Mute")
+        assert browser.find_element(By.ID, "mute-button").get_attribute("aria-pressed") == "false"
+
+        browser.refresh()
+
+        _wait(browser).until(lambda d: d.find_element(By.ID, "mute-button").text.strip() == "Mute")
+        assert browser.find_element(By.ID, "mute-button").get_attribute("aria-pressed") == "false"
+
+
 def test_muted_mode_suppresses_x01_speech_until_unmuted(live_server, browser):
         browser.get(live_server)
         browser.execute_script(
