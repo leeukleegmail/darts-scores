@@ -19,7 +19,6 @@ const state = {
   loadingPlayerStatsId: null,
   expandedAdminUserIds: new Set(),
   x01CheckoutAnnouncementKey: null,
-  audioMuted: true,
 };
 
 const appShellEl = document.querySelector(".app-shell");
@@ -88,7 +87,6 @@ const logoutFormEl = document.querySelector(".logout-form");
 const adminPanelEl = document.getElementById("admin-panel");
 const clearHistoryEl = document.getElementById("clear-history");
 const userAccountsListEl = document.getElementById("user-accounts-list");
-const muteButtonEl = document.getElementById("mute-button");
 const helpButtonEl = document.getElementById("help-button");
 const helpOverlayEl = document.getElementById("help-overlay");
 const helpCloseEl = document.getElementById("help-close");
@@ -102,8 +100,6 @@ const helpSectionOrder = helpSections
 const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const LOBBY_AVAILABILITY_REFRESH_MS = 2500;
 const MAX_SCOREPAD_TOTAL = 180;
-const AUDIO_DEBUG_ENABLED = new URLSearchParams(window.location.search).get("audioDebug") === "1";
-const AUDIO_MUTED_STORAGE_KEY = "audioMuted";
 
 let bustBannerTimeoutId = null;
 let scoreWarningTimeoutId = null;
@@ -123,14 +119,6 @@ const BUST_SOUND_FILE_URL = "/static/assets/sfx/bust.mp3";
 const BUST_POST_SOUND_DELAY_MS = 150;
 let bustSoundFilePlayable = null;
 let bustSoundFileChecked = false;
-const audioDebug = {
-  enabled: AUDIO_DEBUG_ENABLED,
-  hooksInstalled: false,
-  panelEl: null,
-  statusEl: null,
-  logEl: null,
-  entryCount: 0,
-};
 
 if (clearHistoryEl) {
   clearHistoryEl.classList.add("hidden");
@@ -157,205 +145,11 @@ const SPEECH_PREFERRED_MALE_PATTERNS = [
   /lee/i,
 ];
 
-function formatAudioDebugValue(value) {
-  if (value == null) return String(value);
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (Array.isArray(value)) return value.join(", ");
-  try {
-    return JSON.stringify(value);
-  } catch (_err) {
-    return "[unserializable]";
-  }
-}
-
-function readStoredAudioMuted() {
-  try {
-    const storedValue = window.localStorage.getItem(AUDIO_MUTED_STORAGE_KEY);
-    if (storedValue == null) return true;
-    return storedValue !== "false";
-  } catch (_err) {
-    return true;
-  }
-}
-
-function persistAudioMuted(muted) {
-  try {
-    window.localStorage.setItem(AUDIO_MUTED_STORAGE_KEY, String(Boolean(muted)));
-  } catch (_err) {
-    // Ignore storage failures and keep the in-memory setting.
-  }
-}
-
-function getSpeechDebugSnapshot() {
-  const synth = typeof window.speechSynthesis === "undefined" ? null : window.speechSynthesis;
-  const voices = synth && typeof synth.getVoices === "function" ? synth.getVoices() : [];
-  return {
-    muted: state.audioMuted,
-    unlocked: speechContextUnlocked,
-    primerPending: speechPrimerPending,
-    visibility: document.visibilityState,
-    speechAvailable: Boolean(synth),
-    speaking: synth ? Boolean(synth.speaking) : false,
-    pending: synth ? Boolean(synth.pending) : false,
-    paused: synth ? Boolean(synth.paused) : false,
-    voiceCount: voices.length,
-    preferredVoice: preferredSpeechVoice ? `${preferredSpeechVoice.name} (${preferredSpeechVoice.lang || "unknown"})` : "none",
-    audioContextState: sfxAudioContext ? sfxAudioContext.state : "not-created",
-  };
-}
-
-function updateAudioDebugStatus() {
-  if (!audioDebug.enabled || !audioDebug.statusEl) return;
-  const snapshot = getSpeechDebugSnapshot();
-  audioDebug.statusEl.textContent = [
-    `muted=${snapshot.muted}`,
-    `unlocked=${snapshot.unlocked}`,
-    `primerPending=${snapshot.primerPending}`,
-    `speech=${snapshot.speechAvailable}`,
-    `speaking=${snapshot.speaking}`,
-    `pending=${snapshot.pending}`,
-    `paused=${snapshot.paused}`,
-    `voices=${snapshot.voiceCount}`,
-    `voice=${snapshot.preferredVoice}`,
-    `visibility=${snapshot.visibility}`,
-    `audioCtx=${snapshot.audioContextState}`,
-  ].join(" | ");
-}
-
-function logAudioDebug(label, details = null) {
-  if (!audioDebug.enabled || !audioDebug.logEl) return;
-  audioDebug.entryCount += 1;
-  const entry = document.createElement("div");
-  entry.style.borderTop = "1px solid rgba(255,255,255,0.12)";
-  entry.style.paddingTop = "0.3rem";
-  entry.style.marginTop = "0.3rem";
-  const timestamp = new Date().toISOString().slice(11, 19);
-  entry.textContent = `${audioDebug.entryCount}. ${timestamp} ${label}${details ? ` | ${formatAudioDebugValue(details)}` : ""}`;
-  audioDebug.logEl.prepend(entry);
-  while (audioDebug.logEl.childElementCount > 24) {
-    audioDebug.logEl.removeChild(audioDebug.logEl.lastElementChild);
-  }
-  updateAudioDebugStatus();
-}
-
 function flushPendingSpeechRequest() {
-  if (!pendingSpeechRequest || state.audioMuted) return;
+  if (!pendingSpeechRequest) return;
   const queued = pendingSpeechRequest;
   pendingSpeechRequest = null;
-  logAudioDebug("flushing queued speech", { text: queued.text });
   speakText(queued.text, { interrupt: queued.interrupt });
-}
-
-function createAudioDebugPanel() {
-  if (!audioDebug.enabled || audioDebug.panelEl) return;
-
-  const panel = document.createElement("aside");
-  panel.setAttribute("aria-live", "polite");
-  panel.style.position = "fixed";
-  panel.style.right = "0.75rem";
-  panel.style.bottom = "0.75rem";
-  panel.style.zIndex = "9999";
-  panel.style.width = "min(92vw, 26rem)";
-  panel.style.maxHeight = "48vh";
-  panel.style.overflow = "hidden";
-  panel.style.border = "1px solid rgba(255,255,255,0.24)";
-  panel.style.borderRadius = "12px";
-  panel.style.background = "rgba(10, 12, 16, 0.94)";
-  panel.style.color = "#f2efe6";
-  panel.style.boxShadow = "0 16px 32px rgba(0,0,0,0.45)";
-  panel.style.fontSize = "0.78rem";
-  panel.style.lineHeight = "1.35";
-
-  const header = document.createElement("div");
-  header.style.display = "flex";
-  header.style.justifyContent = "space-between";
-  header.style.alignItems = "center";
-  header.style.gap = "0.5rem";
-  header.style.padding = "0.55rem 0.7rem";
-  header.style.background = "rgba(212,58,58,0.18)";
-  header.style.borderBottom = "1px solid rgba(255,255,255,0.12)";
-
-  const title = document.createElement("strong");
-  title.textContent = "Audio Debug";
-  header.appendChild(title);
-
-  const controls = document.createElement("div");
-  controls.style.display = "flex";
-  controls.style.gap = "0.35rem";
-
-  const testButton = document.createElement("button");
-  testButton.type = "button";
-  testButton.textContent = "Test Speech";
-  testButton.className = "btn-ghost";
-  testButton.addEventListener("click", () => {
-    logAudioDebug("manual speech test requested");
-    speakText("Audio debug speech test", { interrupt: true });
-  });
-  controls.appendChild(testButton);
-
-  const clearButton = document.createElement("button");
-  clearButton.type = "button";
-  clearButton.textContent = "Clear";
-  clearButton.className = "btn-ghost";
-  clearButton.addEventListener("click", () => {
-    audioDebug.logEl.textContent = "";
-    audioDebug.entryCount = 0;
-    logAudioDebug("log cleared");
-  });
-  controls.appendChild(clearButton);
-
-  header.appendChild(controls);
-  panel.appendChild(header);
-
-  const status = document.createElement("div");
-  status.style.padding = "0.55rem 0.7rem";
-  status.style.borderBottom = "1px solid rgba(255,255,255,0.12)";
-  status.style.whiteSpace = "normal";
-  panel.appendChild(status);
-
-  const log = document.createElement("div");
-  log.style.padding = "0.45rem 0.7rem 0.7rem";
-  log.style.maxHeight = "30vh";
-  log.style.overflowY = "auto";
-  panel.appendChild(log);
-
-  audioDebug.panelEl = panel;
-  audioDebug.statusEl = status;
-  audioDebug.logEl = log;
-  document.body.appendChild(panel);
-  updateAudioDebugStatus();
-  logAudioDebug("panel ready", { hint: "append ?audioDebug=1 to the URL" });
-}
-
-function installAudioDebugHooks() {
-  if (!audioDebug.enabled || audioDebug.hooksInstalled || typeof window.speechSynthesis === "undefined") return;
-  const synth = window.speechSynthesis;
-  const originalSpeak = synth.speak.bind(synth);
-  const originalCancel = synth.cancel.bind(synth);
-  const originalResume = typeof synth.resume === "function" ? synth.resume.bind(synth) : null;
-
-  synth.speak = (utterance) => {
-    logAudioDebug("speechSynthesis.speak", {
-      text: utterance?.text || null,
-      lang: utterance?.lang || null,
-      voice: utterance?.voice?.name || null,
-    });
-    return originalSpeak(utterance);
-  };
-  synth.cancel = () => {
-    logAudioDebug("speechSynthesis.cancel");
-    return originalCancel();
-  };
-  if (originalResume) {
-    synth.resume = () => {
-      logAudioDebug("speechSynthesis.resume");
-      return originalResume();
-    };
-  }
-
-  audioDebug.hooksInstalled = true;
-  logAudioDebug("speech hooks installed");
 }
 
 function showBustBanner(text) {
@@ -393,7 +187,6 @@ function playGeneratedBustSound() {
     if (sfxAudioContext.state === "suspended") {
       sfxAudioContext.resume();
     }
-    updateAudioDebugStatus();
 
     const now = sfxAudioContext.currentTime + 0.01;
     const notes = [230, 185, 145];
@@ -419,7 +212,6 @@ function playGeneratedBustSound() {
     return 460;
   } catch (_err) {
     // Ignore audio errors and continue without SFX.
-    logAudioDebug("generated bust sound failed");
     return 0;
   }
 }
@@ -445,14 +237,8 @@ function ensureBustSoundFile() {
 }
 
 function playBustSound() {
-  if (state.audioMuted) {
-    logAudioDebug("bust sound skipped while muted");
-    return Promise.resolve();
-  }
-
   const audio = ensureBustSoundFile();
   if (audio) {
-    logAudioDebug("bust sound via file", { src: audio.currentSrc || BUST_SOUND_FILE_URL });
     return new Promise((resolve) => {
       let finished = false;
       const resolveOnce = () => {
@@ -466,7 +252,6 @@ function playBustSound() {
         resolveOnce();
       };
       const onError = () => {
-        logAudioDebug("bust sound file error; falling back to generated sound");
         const fallbackMs = playGeneratedBustSound();
         if (fallbackMs > 0) {
           window.setTimeout(resolveOnce, fallbackMs);
@@ -492,7 +277,6 @@ function playBustSound() {
     });
   }
 
-  logAudioDebug("bust sound via generated fallback");
   const fallbackMs = playGeneratedBustSound();
   return new Promise((resolve) => {
     if (fallbackMs > 0) {
@@ -597,13 +381,6 @@ function showMessage(text, isError = false) {
   messageEl.className = isError ? "message error" : "message";
 }
 
-function updateMuteButtonLabel() {
-  if (!muteButtonEl) return;
-  const muted = Boolean(state.audioMuted);
-  muteButtonEl.textContent = muted ? "Unmute" : "Mute";
-  muteButtonEl.setAttribute("aria-pressed", muted ? "true" : "false");
-}
-
 function primeSpeechSynthesisIfNeeded() {
   // iOS (Safari and Chrome/WKWebView) blocks speechSynthesis.speak() from async
   // callbacks unless the context has been unlocked by a call within a user-gesture
@@ -622,8 +399,6 @@ function primeSpeechSynthesisIfNeeded() {
         window.clearTimeout(speechPrimerTimeoutId);
         speechPrimerTimeoutId = null;
       }
-      logAudioDebug("speech primer started");
-      updateAudioDebugStatus();
       flushPendingSpeechRequest();
     };
     primer.onend = () => {
@@ -635,22 +410,17 @@ function primeSpeechSynthesisIfNeeded() {
         window.clearTimeout(speechPrimerTimeoutId);
         speechPrimerTimeoutId = null;
       }
-      logAudioDebug("speech primer ended");
-      updateAudioDebugStatus();
       flushPendingSpeechRequest();
     };
-    primer.onerror = (event) => {
+    primer.onerror = () => {
       speechContextUnlocked = false;
       speechPrimerPending = false;
       if (speechPrimerTimeoutId) {
         window.clearTimeout(speechPrimerTimeoutId);
         speechPrimerTimeoutId = null;
       }
-      logAudioDebug("speech primer error", { error: event?.error || "unknown" });
-      updateAudioDebugStatus();
     };
     speechPrimerPending = true;
-    logAudioDebug("speech primer speak requested");
     window.speechSynthesis.speak(primer);
     if (speechPrimerTimeoutId) {
       window.clearTimeout(speechPrimerTimeoutId);
@@ -662,12 +432,9 @@ function primeSpeechSynthesisIfNeeded() {
         // iOS can ignore primer events while still allowing a follow-up speak()
         // on the next interaction. Fall back to best-effort unlock and flush.
         speechContextUnlocked = true;
-        logAudioDebug("speech primer timed out");
-        updateAudioDebugStatus();
         flushPendingSpeechRequest();
       }
     }, 1500);
-    updateAudioDebugStatus();
   } catch (_err) {
     // Ignore — best-effort unlock only.
     speechPrimerPending = false;
@@ -675,34 +442,7 @@ function primeSpeechSynthesisIfNeeded() {
       window.clearTimeout(speechPrimerTimeoutId);
       speechPrimerTimeoutId = null;
     }
-    logAudioDebug("speech primer failed");
   }
-}
-
-function applyAudioMuted(muted) {
-  state.audioMuted = Boolean(muted);
-  persistAudioMuted(state.audioMuted);
-  logAudioDebug("mute toggled", { muted: state.audioMuted });
-  if (!state.audioMuted) {
-    primeSpeechSynthesisIfNeeded();
-    flushPendingSpeechRequest();
-  }
-  if (state.audioMuted) {
-    pendingSpeechRequest = null;
-    if (typeof window.speechSynthesis !== "undefined") {
-      window.speechSynthesis.cancel();
-    }
-    if (bustSoundFilePlayable) {
-      try {
-        bustSoundFilePlayable.pause();
-        bustSoundFilePlayable.currentTime = 0;
-      } catch (_err) {
-        // Ignore playback reset errors while muting.
-      }
-    }
-  }
-  updateMuteButtonLabel();
-  updateAudioDebugStatus();
 }
 
 function createScoreKeypadMarkup({
@@ -1648,21 +1388,14 @@ function ensurePreferredSpeechVoice() {
 
 function speakText(text, { interrupt = true } = {}) {
   if (!text) {
-    logAudioDebug("speech skipped: empty text");
-    return;
-  }
-  if (state.audioMuted) {
-    logAudioDebug("speech skipped: muted", { text });
     return;
   }
   if (typeof window.speechSynthesis === "undefined") {
-    logAudioDebug("speech skipped: speechSynthesis unavailable", { text });
     return;
   }
 
   if (!speechContextUnlocked) {
     pendingSpeechRequest = { text, interrupt };
-    logAudioDebug("speech queued until primer unlock", { text, interrupt });
     primeSpeechSynthesisIfNeeded();
     return;
   }
@@ -1676,18 +1409,6 @@ function speakText(text, { interrupt = true } = {}) {
     // iOS Chrome where voiceschanged fires late or not at all).
     const voice = ensurePreferredSpeechVoice();
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.onstart = () => {
-      logAudioDebug("utterance start", { text });
-      updateAudioDebugStatus();
-    };
-    utterance.onend = () => {
-      logAudioDebug("utterance end", { text });
-      updateAudioDebugStatus();
-    };
-    utterance.onerror = (event) => {
-      logAudioDebug("utterance error", { text, error: event?.error || "unknown" });
-      updateAudioDebugStatus();
-    };
     if (voice) {
       utterance.voice = voice;
       utterance.lang = voice.lang || "en-GB";
@@ -1697,12 +1418,6 @@ function speakText(text, { interrupt = true } = {}) {
     utterance.rate = 0.94;
     utterance.pitch = 1;
     utterance.volume = 1;
-    logAudioDebug("speech requested", {
-      text,
-      interrupt,
-      lang: utterance.lang,
-      voice: voice ? voice.name : null,
-    });
     if (interrupt) {
       window.speechSynthesis.cancel();
       // After cancel(), iOS needs another resume() before speak() will fire.
@@ -1711,7 +1426,6 @@ function speakText(text, { interrupt = true } = {}) {
     window.speechSynthesis.speak(utterance);
   } catch (_err) {
     // Ignore speech synthesis errors; checkout text remains visible in the UI.
-    logAudioDebug("speech exception", { text });
   }
 }
 
@@ -2974,9 +2688,6 @@ async function startRematch() {
 
 async function init() {
   resetTeamNames();
-  createAudioDebugPanel();
-  installAudioDebugHooks();
-  applyAudioMuted(readStoredAudioMuted());
   setupScoreKeypad();
   setupDragAndDrop();
   setupTeamDragAndDrop();
@@ -2996,12 +2707,6 @@ async function init() {
   const chooseNoughtsBtn = document.getElementById("choose-noughts-and-crosses");
   const teamModeSoloEl = document.getElementById("team-mode-solo");
   const teamModeTeamsEl = document.getElementById("team-mode-teams");
-
-  if (muteButtonEl) {
-    muteButtonEl.addEventListener("click", () => {
-      applyAudioMuted(!state.audioMuted);
-    });
-  }
 
   if (helpButtonEl) {
     helpButtonEl.addEventListener("click", () => {
@@ -3132,24 +2837,16 @@ async function init() {
       }
       window.speechSynthesis.resume();
     }
-    logAudioDebug("visibilitychange", { visibility: document.visibilityState });
-    updateAudioDebugStatus();
   });
 
   window.addEventListener("focus", () => {
     void refreshLobbyAvailability();
-    logAudioDebug("window focus");
-    updateAudioDebugStatus();
   });
 
   if (typeof window.speechSynthesis !== "undefined") {
     ensurePreferredSpeechVoice();
     window.speechSynthesis.addEventListener("voiceschanged", () => {
       preferredSpeechVoice = choosePreferredSpeechVoice();
-      logAudioDebug("voiceschanged", {
-        voices: window.speechSynthesis.getVoices().map((voice) => `${voice.name} (${voice.lang || "unknown"})`).slice(0, 8),
-      });
-      updateAudioDebugStatus();
     });
     // iOS Chrome (WKWebView) sometimes doesn't fire voiceschanged and doesn't
     // unlock the synthesis context via click alone. Primer on first touchstart
@@ -3158,11 +2855,8 @@ async function init() {
     // (e.g. returning from lock screen), so subsequent touches must re-prime.
     document.addEventListener("touchstart", () => {
       primeSpeechSynthesisIfNeeded();
-      updateAudioDebugStatus();
     }, { passive: true });
   }
-
-  updateAudioDebugStatus();
 
   document.querySelectorAll('input[name="x01-starting-score"]').forEach((input) => {
     input.addEventListener("change", (event) => {

@@ -102,7 +102,6 @@ body {
   gap: 0.45rem;
 }
 
-.header-mute-button,
 .header-help-button,
 .logout-form button {
   min-width: 0;
