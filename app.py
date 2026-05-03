@@ -966,12 +966,16 @@ def games_history():
         .all()
     )
 
+    # Pre-fetch all winner names in one query to avoid an N+1 per game.
+    winner_player_ids = {g.winner_player_id for g in games if g.winner_player_id}
+    winner_names: dict[int, str] = {}
+    if winner_player_ids:
+        for player in Player.query.filter(Player.id.in_(winner_player_ids)).all():
+            winner_names[player.id] = player.name
+
     result = []
     for index, game in enumerate(games):
-        winner_name = None
-        if game.winner_player_id:
-            winner = db.session.get(Player, game.winner_player_id)
-            winner_name = winner.name if winner else None
+        winner_name = winner_names.get(game.winner_player_id) if game.winner_player_id else None
 
         participants = game_ordered_players(game.id)
         turn_count = Turn.query.filter_by(game_id=game.id).count()

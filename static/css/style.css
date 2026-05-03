@@ -90,7 +90,7 @@ body {
   justify-content: center;
   min-height: 2.25rem;
   padding: 0.45rem 0.9rem;
-  border-radius: 999px;
+  border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.22);
   background: rgba(255, 255, 255, 0.08);
   font-size: 0.9rem;
@@ -133,7 +133,7 @@ body {
   background: none;
   border: 1px solid var(--line);
   color: var(--ink);
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 0.2rem 0.65rem;
   font-size: 0.8rem;
   cursor: pointer;

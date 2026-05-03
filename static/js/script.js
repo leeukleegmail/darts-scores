@@ -114,6 +114,7 @@ let speechContextUnlocked = false;
 let speechPrimerPending = false;
 let speechPrimerTimeoutId = null;
 let pendingSpeechRequest = null;
+let pendingSpeechRequestSeq = 0;
 let speechBridgeRunning = false;
 let speechBridgeTimeoutId = null;
 let sfxAudioContext = null;
@@ -574,6 +575,10 @@ async function undoLastTurn() {
   try {
     const response = await api(`/api/games/${state.game.id}/turn`, { method: "DELETE" });
     syncStateFromGame(response.game);
+    // Clear any in-progress cricket mark selection so the board doesn't show
+    // stale marks after the undo.
+    state.cricketSelectedMarks = [];
+    state.cricketPendingMarks = 0;
     renderGame();
     // Undo cannot finish a game; history is unchanged, no need to refresh.
     showMessage("Last turn undone.");
@@ -1463,7 +1468,8 @@ function speakText(text, { interrupt = true } = {}) {
   // api(...)). Store the request so the next touchstart gesture can flush it
   // if iOS rejected the speak() below. The onstart callback clears it if iOS
   // accepted the call, preventing a double-announce on the next touchstart.
-  pendingSpeechRequest = { text, interrupt };
+  const seq = ++pendingSpeechRequestSeq;
+  pendingSpeechRequest = { text, interrupt, seq };
 
   try {
     // On iOS (Safari and Chrome/WKWebView) the synthesis engine can silently
@@ -1477,7 +1483,7 @@ function speakText(text, { interrupt = true } = {}) {
     utterance.onstart = () => {
       // iOS accepted the speak() — clear the pending fallback so touchstart
       // doesn't repeat the same announcement.
-      if (pendingSpeechRequest?.text === text) {
+      if (pendingSpeechRequest?.seq === seq) {
         pendingSpeechRequest = null;
       }
     };

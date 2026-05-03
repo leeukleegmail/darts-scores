@@ -2235,3 +2235,101 @@ def test_history_excludes_abandoned_noughts_game(client):
     history = client.get("/api/games/history?limit=10").get_json()
     ids = [g["id"] for g in history]
     assert game["id"] not in ids
+
+
+def test_game_history_detail_endpoint(client):
+    """GET /api/games/<id>/history returns the full game state for any game."""
+    p1 = add_player(client, "Detail P1")
+
+    # Active game is accessible.
+    active = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1], "game_type": "x01", "x01_starting_score": 101},
+    ).get_json()["game"]
+    r = client.get(f"/api/games/{active['id']}/history")
+    assert r.status_code == 200
+    data = r.get_json()
+    assert "game" in data
+    assert data["game"]["id"] == active["id"]
+    assert data["game"]["status"] == "active"
+
+    # Finished game is also accessible and contains turn data.
+    client.post(f"/api/games/{active['id']}/turn", json={"player_id": p1, "total_points": 60})
+    client.post(f"/api/games/{active['id']}/turn", json={"player_id": p1, "total_points": 41})
+    r2 = client.get(f"/api/games/{active['id']}/history")
+    assert r2.status_code == 200
+    data2 = r2.get_json()
+    assert data2["game"]["status"] == "finished"
+    assert len(data2["game"]["turns"]) == 2
+
+    # Non-existent game returns 404.
+    r3 = client.get("/api/games/999999/history")
+    assert r3.status_code == 404
+    assert "error" in r3.get_json()
+
+
+def test_history_limit_clamping(client):
+    """History limit is clamped to [1, 100]; values outside that range still return valid data."""
+    p1 = add_player(client, "Clamp P1")
+    # Finish one game so history is non-empty.
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1], "game_type": "x01", "x01_starting_score": 101},
+    ).get_json()["game"]
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 60})
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 41})
+
+    # limit=0 is clamped to 1 — should still return the one finished game.
+    r0 = client.get("/api/games/history?limit=0")
+    assert r0.status_code == 200
+    assert len(r0.get_json()) == 1
+
+    # limit=200 is clamped to 100 — with only 1 game, still returns 1 entry.
+    r200 = client.get("/api/games/history?limit=200")
+    assert r200.status_code == 200
+    assert len(r200.get_json()) == 1
+
+    # limit=-5 is clamped to 1.
+    rneg = client.get("/api/games/history?limit=-5")
+    assert rneg.status_code == 200
+    assert len(rneg.get_json()) == 1
+
+
+def test_history_winner_fields_mutually_exclusive(client):
+    """Solo games set winner_player_id and leave winner_team None; team games do the opposite."""
+    p1 = add_player(client, "ME Solo P1")
+    p2 = add_player(client, "ME Teams P1")
+    p3 = add_player(client, "ME Teams P2")
+
+    # Solo x01: winner_player_id set, winner_team is None.
+    solo_game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1], "game_type": "x01", "x01_starting_score": 101},
+    ).get_json()["game"]
+    client.post(f"/api/games/{solo_game['id']}/turn", json={"player_id": p1, "total_points": 60})
+    client.post(f"/api/games/{solo_game['id']}/turn", json={"player_id": p1, "total_points": 41})
+
+    history = client.get("/api/games/history?limit=1").get_json()
+    solo_entry = next(g for g in history if g["id"] == solo_game["id"])
+    assert solo_entry["winner_player_id"] == p1
+    assert solo_entry["winner_team"] is None
+
+    # Teams x01: winner_team set, winner_player_id is None.
+    teams_game = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p2, p3],
+            "game_type": "x01",
+            "team_mode": "teams",
+            "team_assignments": {str(p2): "team_a", str(p3): "team_b"},
+            "x01_starting_score": 101,
+        },
+    ).get_json()["game"]
+    client.post(f"/api/games/{teams_game['id']}/turn", json={"player_id": p2, "total_points": 60})
+    client.post(f"/api/games/{teams_game['id']}/turn", json={"player_id": p3, "total_points": 0})
+    client.post(f"/api/games/{teams_game['id']}/turn", json={"player_id": p2, "total_points": 41})
+
+    history2 = client.get("/api/games/history?limit=1").get_json()
+    teams_entry = next(g for g in history2 if g["id"] == teams_game["id"])
+    assert teams_entry["winner_team"] == "team_a"
+    assert teams_entry["winner_player_id"] is None
