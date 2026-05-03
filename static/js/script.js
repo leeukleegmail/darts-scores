@@ -114,6 +114,8 @@ let speechContextUnlocked = false;
 let speechPrimerPending = false;
 let speechPrimerTimeoutId = null;
 let pendingSpeechRequest = null;
+let speechBridgeRunning = false;
+let speechBridgeTimeoutId = null;
 let sfxAudioContext = null;
 const BUST_SOUND_FILE_URL = "/static/assets/sfx/bust.mp3";
 const BUST_POST_SOUND_DELAY_MS = 150;
@@ -381,6 +383,61 @@ function showMessage(text, isError = false) {
   messageEl.className = isError ? "message error" : "message";
 }
 
+// Keeps a speech-event context alive across the async API call so that the
+// real announcement can be delivered from an onend callback (which iOS treats
+// as a valid speech context, unlike async callbacks after await).
+function startSpeechBridge() {
+  if (typeof window.speechSynthesis === "undefined") return;
+  if (!speechContextUnlocked) return; // not yet primed; primer path handles it
+  if (speechBridgeRunning) return; // already bridging
+  speechBridgeRunning = true;
+  if (speechBridgeTimeoutId) {
+    window.clearTimeout(speechBridgeTimeoutId);
+  }
+  // Safety auto-stop: any reasonable API response arrives well under 4s.
+  speechBridgeTimeoutId = window.setTimeout(() => {
+    speechBridgeRunning = false;
+    speechBridgeTimeoutId = null;
+    flushPendingSpeechRequest();
+  }, 4000);
+  runBridgeTick();
+}
+
+function runBridgeTick() {
+  if (!speechBridgeRunning) return;
+  if (pendingSpeechRequest) {
+    // The async callback has set the text we need to announce; deliver it now
+    // from this speech-event context, which iOS accepts.
+    speechBridgeRunning = false;
+    if (speechBridgeTimeoutId) {
+      window.clearTimeout(speechBridgeTimeoutId);
+      speechBridgeTimeoutId = null;
+    }
+    flushPendingSpeechRequest();
+    return;
+  }
+  try {
+    const tick = new SpeechSynthesisUtterance("hmm");
+    tick.volume = 0.001; // near-inaudible; must be non-zero/non-empty for iPhone
+    tick.rate = 1;
+    tick.onend = runBridgeTick;
+    tick.onerror = () => {
+      speechBridgeRunning = false;
+      if (speechBridgeTimeoutId) {
+        window.clearTimeout(speechBridgeTimeoutId);
+        speechBridgeTimeoutId = null;
+      }
+    };
+    window.speechSynthesis.speak(tick);
+  } catch (_err) {
+    speechBridgeRunning = false;
+    if (speechBridgeTimeoutId) {
+      window.clearTimeout(speechBridgeTimeoutId);
+      speechBridgeTimeoutId = null;
+    }
+  }
+}
+
 function primeSpeechSynthesisIfNeeded() {
   // iOS (Safari and Chrome/WKWebView) blocks speechSynthesis.speak() from async
   // callbacks unless the context has been unlocked by a call within a user-gesture
@@ -568,6 +625,7 @@ function setupScoreKeypad() {
       }
       refreshScorepadSubmitDisabled(keypad, input);
       primeSpeechSynthesisIfNeeded();
+      startSpeechBridge();
       await submitScore(0);
       return;
     }
@@ -579,6 +637,7 @@ function setupScoreKeypad() {
       }
       const total = Number(input instanceof HTMLInputElement ? input.value : 0);
       primeSpeechSynthesisIfNeeded();
+      startSpeechBridge();
       await submitScore(total);
     }
   });
@@ -1400,6 +1459,12 @@ function speakText(text, { interrupt = true } = {}) {
     return;
   }
 
+  // iOS silently drops speak() called from async callbacks (e.g. after await
+  // api(...)). Store the request so the next touchstart gesture can flush it
+  // if iOS rejected the speak() below. The onstart callback clears it if iOS
+  // accepted the call, preventing a double-announce on the next touchstart.
+  pendingSpeechRequest = { text, interrupt };
+
   try {
     // On iOS (Safari and Chrome/WKWebView) the synthesis engine can silently
     // pause after the tab loses focus or after cancel(). Always call resume()
@@ -1409,6 +1474,13 @@ function speakText(text, { interrupt = true } = {}) {
     // iOS Chrome where voiceschanged fires late or not at all).
     const voice = ensurePreferredSpeechVoice();
     const utterance = new SpeechSynthesisUtterance(text);
+    utterance.onstart = () => {
+      // iOS accepted the speak() — clear the pending fallback so touchstart
+      // doesn't repeat the same announcement.
+      if (pendingSpeechRequest?.text === text) {
+        pendingSpeechRequest = null;
+      }
+    };
     if (voice) {
       utterance.voice = voice;
       utterance.lang = voice.lang || "en-GB";
@@ -2194,6 +2266,7 @@ function renderCricketDashboard(game) {
         return;
       }
       primeSpeechSynthesisIfNeeded();
+      startSpeechBridge();
       await submitScore(state.cricketPendingMarks || 0);
     });
   }
@@ -2610,6 +2683,13 @@ async function startConfiguredGame() {
     renderGame();
     await loadHistory();
     showMessage("Game started.");
+    if (response.game.game_type === "x01") {
+      const firstPlayer = response.game.players && response.game.players[0];
+      if (firstPlayer) {
+        primeSpeechSynthesisIfNeeded();
+        speakText(`${firstPlayer.name} to throw first, game on`, { interrupt: false });
+      }
+    }
   } catch (err) {
     showBustBanner(err.message || "Unable to start game.");
     showMessage(err.message || "Unable to start game.", true);
@@ -2831,9 +2911,14 @@ async function init() {
     if (document.visibilityState === "visible" && typeof window.speechSynthesis !== "undefined") {
       speechContextUnlocked = false;
       speechPrimerPending = false;
+      speechBridgeRunning = false;
       if (speechPrimerTimeoutId) {
         window.clearTimeout(speechPrimerTimeoutId);
         speechPrimerTimeoutId = null;
+      }
+      if (speechBridgeTimeoutId) {
+        window.clearTimeout(speechBridgeTimeoutId);
+        speechBridgeTimeoutId = null;
       }
       window.speechSynthesis.resume();
     }
@@ -2854,7 +2939,15 @@ async function init() {
     // No { once: true } — speechContextUnlocked may be reset on visibilitychange
     // (e.g. returning from lock screen), so subsequent touches must re-prime.
     document.addEventListener("touchstart", () => {
-      primeSpeechSynthesisIfNeeded();
+      if (speechContextUnlocked) {
+        // Context already primed — flush any speech that was queued from an
+        // async callback (iOS drops speak() outside user-gesture/speech-event
+        // chains; this touchstart handler re-delivers it from a gesture).
+        flushPendingSpeechRequest();
+      } else {
+        // Not yet primed — primer's onstart/onend will flush when ready.
+        primeSpeechSynthesisIfNeeded();
+      }
     }, { passive: true });
   }
 
