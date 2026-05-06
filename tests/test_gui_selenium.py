@@ -1,403 +1,30 @@
-import importlib
-import socket
 import sys
-import tempfile
-import threading
-import time
-from contextlib import suppress
-from urllib.request import urlopen
-
-import pytest
-from selenium import webdriver
-from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException, WebDriverException
+from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.support.ui import Select, WebDriverWait
-from werkzeug.serving import make_server
-
-
-def free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
-
-
-def wait_http_ready(base_url: str, timeout: float = 10.0) -> None:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            with urlopen(base_url, timeout=1):  # noqa: S310
-                return
-        except Exception:
-            time.sleep(0.15)
-    raise RuntimeError(f"Timed out waiting for server at {base_url}")
-
-
-@pytest.fixture()
-def live_server(monkeypatch):
-    with tempfile.TemporaryDirectory(prefix="darts-selenium-") as db_dir:
-        db_path = f"{db_dir}/selenium.db"
-
-        monkeypatch.setenv("FLASK_ENV", "testing")
-        monkeypatch.setenv("SQLALCHEMY_DATABASE_URI", f"sqlite:///{db_path}")
-
-        sys.modules.pop("app", None)
-        app_module = importlib.import_module("app")
-        app, db = app_module.app, app_module.db
-
-        app.config.update(
-            {
-                "TESTING": True,
-                "SQLALCHEMY_TRACK_MODIFICATIONS": False,
-            }
-        )
-
-        with app.app_context():
-            db.drop_all()
-            db.create_all()
-
-        port = free_port()
-        server = make_server("127.0.0.1", port, app)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-
-        base_url = f"http://127.0.0.1:{port}"
-        wait_http_ready(base_url)
-        yield base_url
-
-        server.shutdown()
-        thread.join(timeout=3)
-
-
-def _build_chrome_driver():
-    options = webdriver.ChromeOptions()
-    options.add_argument("--headless=new")
-    options.add_argument("--window-size=1400,1000")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
-    return webdriver.Chrome(options=options)
-
-
-def _build_firefox_driver():
-    options = webdriver.FirefoxOptions()
-    options.add_argument("-headless")
-    return webdriver.Firefox(options=options)
-
-
-@pytest.fixture()
-def browser():
-    driver = None
-    builders = (_build_chrome_driver, _build_firefox_driver)
-    for build in builders:
-        try:
-            driver = build()
-            break
-        except WebDriverException:
-            continue
-
-    if driver is None:
-        pytest.skip("No compatible WebDriver/browser found for Selenium GUI tests.")
-
-    try:
-        yield driver
-    finally:
-        _safe_quit_driver(driver)
-
-
-def _safe_quit_driver(driver) -> None:
-    if driver is None:
-        return
-
-    # Close extra windows first; this helps prevent quit() hangs in CI/headless runs.
-    with suppress(Exception):
-        for handle in list(driver.window_handles):
-            with suppress(Exception):
-                driver.switch_to.window(handle)
-                driver.close()
-
-    for _ in range(3):
-        try:
-            driver.quit()
-            break
-        except Exception:
-            time.sleep(0.2)
-
-    service = getattr(driver, "service", None)
-    if service is None:
-        return
-
-    with suppress(Exception):
-        service.stop()
-
-    # Last-resort cleanup if WebDriver process is still alive.
-    process = getattr(service, "process", None)
-    if process is None:
-        return
-
-    with suppress(Exception):
-        if process.poll() is None:
-            process.terminate()
-            process.wait(timeout=2)
-
-    with suppress(Exception):
-        if process.poll() is None:
-            process.kill()
-
-
-
-def _wait(browser, timeout=8):
-    return WebDriverWait(browser, timeout)
-
-
-def open_player_manager(browser):
-    trigger = _wait(browser).until(ec.element_to_be_clickable((By.ID, "player-manager-open")))
-    trigger.click()
-    _wait(browser).until(ec.visibility_of_element_located((By.ID, "player-manager-overlay")))
-
-
-def close_player_manager(browser):
-    close_button = _wait(browser).until(ec.element_to_be_clickable((By.ID, "player-manager-close")))
-    close_button.click()
-    _wait(browser).until(ec.invisibility_of_element_located((By.ID, "player-manager-overlay")))
-
-
-def add_player(browser, name: str):
-    open_player_manager(browser)
-    name_input = _wait(browser).until(ec.presence_of_element_located((By.ID, "player-name")))
-    name_input.clear()
-    name_input.send_keys(name)
-    browser.find_element(By.CSS_SELECTOR, "#player-form button[type='submit']").click()
-    _wait(browser).until(
-        ec.text_to_be_present_in_element((By.ID, "players-list"), name)
-    )
-    close_player_manager(browser)
-
-
-def start_single_player_game(browser, player_name: str):
-    _wait(browser).until(ec.visibility_of_element_located((By.ID, "setup-panel")))
-    add_player(browser, player_name)
-    player_checkbox = _wait(browser).until(
-        ec.presence_of_element_located(
-            (
-                By.XPATH,
-                f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
-            )
-        )
-    )
-    if not player_checkbox.is_selected():
-        player_checkbox.click()
-    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-55by5"))).click()
-    _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
-    _wait(browser).until(ec.visibility_of_element_located((By.CSS_SELECTOR, "#active-game-meta .current-player")))
-
-
-def start_cricket_game(browser, first_player: str, second_player: str, starting_batting_team=None):
-    _wait(browser).until(ec.visibility_of_element_located((By.ID, "setup-panel")))
-
-    for player_name in (first_player, second_player):
-        add_player(browser, player_name)
-        player_checkbox = _wait(browser).until(
-            ec.presence_of_element_located(
-                (
-                    By.XPATH,
-                    f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
-                )
-            )
-        )
-        if not player_checkbox.is_selected():
-            player_checkbox.click()
-
-    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-english-cricket"))).click()
-    popup = _wait(browser).until(ec.visibility_of_element_located((By.ID, "cricket-start-overlay")))
-
-    if starting_batting_team == "team_b":
-        role_radio = popup.find_element(By.CSS_SELECTOR, "input[name='cricket-start-choice'][value='bowl']")
-        if not role_radio.is_selected():
-            role_radio.click()
-
-    browser.find_element(By.ID, "cricket-start-game").click()
-    _wait(browser).until(ec.invisibility_of_element_located((By.ID, "cricket-start-overlay")))
-    _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
-    _wait(browser).until(ec.visibility_of_element_located((By.ID, "cricket-dashboard")))
-
-
-def start_noughts_game(browser, first_player: str, second_player: str):
-    _wait(browser).until(ec.visibility_of_element_located((By.ID, "setup-panel")))
-
-    for player_name in (first_player, second_player):
-        add_player(browser, player_name)
-        player_checkbox = _wait(browser).until(
-            ec.presence_of_element_located(
-                (
-                    By.XPATH,
-                    f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
-                )
-            )
-        )
-        if not player_checkbox.is_selected():
-            player_checkbox.click()
-
-    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-noughts-and-crosses"))).click()
-    _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
-    _wait(browser).until(ec.visibility_of_element_located((By.ID, "noughts-dashboard")))
-
-
-def start_x01_game(
+from tests.selenium_helpers import (
+    _wait,
+    add_player,
     browser,
-    player_names,
-    starting_score="501",
-    team_mode="solo",
-    match_type="best_of",
-    legs_value=1,
-    starting_entity=None,
-):
-    _wait(browser).until(ec.visibility_of_element_located((By.ID, "setup-panel")))
-
-    for player_name in player_names:
-        add_player(browser, player_name)
-        player_checkbox = _wait(browser).until(
-            ec.presence_of_element_located(
-                (
-                    By.XPATH,
-                    f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
-                )
-            )
-        )
-        if not player_checkbox.is_selected():
-            player_checkbox.click()
-
-    if team_mode == "teams":
-        team_mode_toggle = _wait(browser).until(ec.element_to_be_clickable((By.ID, "team-mode-teams")))
-        if not team_mode_toggle.is_selected():
-            team_mode_toggle.click()
-        _wait(browser).until(ec.visibility_of_element_located((By.ID, "team-assignment")))
-        _wait(browser).until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "#team-a-list li")) > 0)
-        _wait(browser).until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "#team-b-list li")) > 0)
-
-    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-x01"))).click()
-    popup = _wait(browser).until(ec.visibility_of_element_located((By.ID, "x01-start-overlay")))
-
-    popup.find_element(By.CSS_SELECTOR, f"input[name='x01-starting-score'][value='{starting_score}']").click()
-
-    Select(popup.find_element(By.ID, "x01-match-type")).select_by_value(match_type)
-
-    slider = popup.find_element(By.ID, "x01-legs-value")
-    browser.execute_script(
-        """
-        const slider = arguments[0];
-        const value = String(arguments[1]);
-        slider.value = value;
-        slider.dispatchEvent(new Event('input', { bubbles: true }));
-        slider.dispatchEvent(new Event('change', { bubbles: true }));
-        """,
-        slider,
-        int(legs_value),
-    )
-
-    if starting_entity is not None:
-        selector = Select(popup.find_element(By.ID, "x01-starting-entity"))
-        selector.select_by_value(str(starting_entity))
-
-    browser.find_element(By.ID, "x01-start-game").click()
-    _wait(browser).until(ec.invisibility_of_element_located((By.ID, "x01-start-overlay")))
-    _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
-
-
-def start_noughts_team_game(browser, team_a_players: list, team_b_players: list):
-    """Start a Noughts and Crosses game in teams mode.
-
-    Players are added in the order team_a_players + team_b_players.
-    syncTeamAssignments() auto-balances them alternately into Team A / Team B,
-    so the calling convention determines which players end up on which team:
-      add order [a0, a1, b0, b1] → Team A: a0, b0; Team B: a1, b1
-    We let the auto-balance handle placement rather than using the swap UI,
-    which avoids relying on fragile drag/swap interaction details.
-    """
-    _wait(browser).until(ec.visibility_of_element_located((By.ID, "setup-panel")))
-
-    all_players = team_a_players + team_b_players
-    for player_name in all_players:
-        add_player(browser, player_name)
-        player_checkbox = _wait(browser).until(
-            ec.presence_of_element_located(
-                (
-                    By.XPATH,
-                    f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
-                )
-            )
-        )
-        if not player_checkbox.is_selected():
-            player_checkbox.click()
-
-    team_mode = _wait(browser).until(ec.element_to_be_clickable((By.ID, "team-mode-teams")))
-    if not team_mode.is_selected():
-        team_mode.click()
-    _wait(browser).until(ec.visibility_of_element_located((By.ID, "team-assignment")))
-    # Wait for auto-balance to populate both lists
-    _wait(browser).until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "#team-a-list li")) > 0)
-    _wait(browser).until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "#team-b-list li")) > 0)
-
-    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-noughts-and-crosses"))).click()
-    _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
-    _wait(browser).until(ec.visibility_of_element_located((By.ID, "noughts-dashboard")))
-
-
-def noughts_click_cell(browser, cell_index: int, mark: str) -> None:
-    """Click a Noughts board cell and confirm the mark in the overlay."""
-    board = _wait(browser).until(ec.visibility_of_element_located((By.ID, "noughts-dashboard")))
-    cell = board.find_element(By.CSS_SELECTOR, f"[data-board-index='{cell_index}']")
-    cell.click()
-    chooser = _wait(browser).until(ec.visibility_of_element_located((By.ID, "noughts-mark-overlay")))
-    chooser.find_element(By.CSS_SELECTOR, f"[data-noughts-mark='{mark}']").click()
-    _wait(browser).until(
-        lambda d: d.find_elements(By.CSS_SELECTOR, f"[data-board-index='{cell_index}'].is-marked")
-    )
-
-
-def submit_standard_score_with_keypad(browser, value: int):
-    keypad = _wait(browser).until(ec.visibility_of_element_located((By.ID, "standard-score-keypad")))
-    display = browser.find_element(By.ID, "turn-total")
-
-    existing_value = display.get_attribute("value") or ""
-    for _ in existing_value:
-        keypad.find_element(By.CSS_SELECTOR, "[data-keypad-action='backspace']").click()
-
-    for digit in str(value):
-        keypad.find_element(By.CSS_SELECTOR, f"[data-keypad-value='{digit}']").click()
-
-    keypad.find_element(By.CSS_SELECTOR, "[data-keypad-action='submit']").click()
-
-
-def submit_cricket_score_with_keypad(browser, value: int):
-    keypad = _wait(browser).until(ec.visibility_of_element_located((By.ID, "cricket-batting-keypad")))
-    display = browser.find_element(By.ID, "cricket-batting-total")
-
-    existing_value = display.get_attribute("value") or ""
-    for _ in existing_value:
-        keypad.find_element(By.CSS_SELECTOR, "[data-keypad-action='backspace']").click()
-
-    for digit in str(value):
-        keypad.find_element(By.CSS_SELECTOR, f"[data-keypad-value='{digit}']").click()
-
-    keypad.find_element(By.CSS_SELECTOR, "[data-keypad-action='submit']").click()
-
-
-def enter_value_with_keypad(browser, keypad_id: str, display_id: str, value: int):
-    keypad = _wait(browser).until(ec.visibility_of_element_located((By.ID, keypad_id)))
-    display = browser.find_element(By.ID, display_id)
-
-    existing_value = display.get_attribute("value") or ""
-    for _ in existing_value:
-        keypad.find_element(By.CSS_SELECTOR, "[data-keypad-action='backspace']").click()
-
-    for digit in str(value):
-        keypad.find_element(By.CSS_SELECTOR, f"[data-keypad-value='{digit}']").click()
-
-    return keypad.find_element(By.CSS_SELECTOR, "[data-keypad-action='submit']")
+    close_player_manager,
+    enter_value_with_keypad,
+    live_server,
+    noughts_click_cell,
+    open_player_manager,
+    start_cricket_game,
+    start_noughts_game,
+    start_noughts_team_game,
+    start_single_player_game,
+    start_x01_game,
+    submit_cricket_score_with_keypad,
+    submit_standard_score_with_keypad,
+)
 
 
 def test_start_game_shows_live_view(live_server, browser):
+    """Starting a 55 by 5 game switches the UI into the live game view."""
     browser.get(live_server)
     start_single_player_game(browser, "Alice")
 
@@ -408,6 +35,7 @@ def test_start_game_shows_live_view(live_server, browser):
 
 
 def test_active_game_hides_select_game_panel_and_change_game_button(live_server, browser):
+    """An active game hides the setup game picker and change-game control."""
     browser.get(live_server)
     start_single_player_game(browser, "Owen")
 
@@ -416,6 +44,7 @@ def test_active_game_hides_select_game_panel_and_change_game_button(live_server,
 
 
 def test_55_by_5_onscreen_keypad_can_submit_a_score(live_server, browser):
+    """The 55 by 5 keypad can enter, edit, and submit a turn total."""
     browser.get(live_server)
     start_single_player_game(browser, "Piper")
 
@@ -434,6 +63,7 @@ def test_55_by_5_onscreen_keypad_can_submit_a_score(live_server, browser):
 
 
 def test_standard_keypad_disables_submit_when_score_exceeds_180(live_server, browser):
+    """The standard keypad disables submit for totals above the 180 limit."""
     browser.get(live_server)
     start_single_player_game(browser, "Piper")
 
@@ -449,6 +79,7 @@ def test_standard_keypad_disables_submit_when_score_exceeds_180(live_server, bro
 
 
 def test_english_cricket_batting_panel_shows_onscreen_keypad(live_server, browser):
+    """English Cricket batting uses the read-only on-screen keypad flow."""
     browser.get(live_server)
     start_cricket_game(browser, "Ivy", "Jules")
 
@@ -464,6 +95,7 @@ def test_english_cricket_batting_panel_shows_onscreen_keypad(live_server, browse
 
 
 def test_cricket_batting_keypad_disables_submit_when_score_exceeds_180(live_server, browser):
+    """The Cricket batting keypad enforces the same 180 maximum score cap."""
     browser.get(live_server)
     start_cricket_game(browser, "Ivy", "Jules")
 
@@ -488,6 +120,7 @@ def test_cricket_batting_keypad_disables_submit_when_score_exceeds_180(live_serv
 
 
 def test_noughts_and_crosses_board_allows_marking_x_and_o(live_server, browser):
+    """The Noughts board allows players to mark cells with either X or O."""
     browser.get(live_server)
     start_noughts_game(browser, "Nina", "Otis")
 
@@ -509,6 +142,7 @@ def test_noughts_and_crosses_board_allows_marking_x_and_o(live_server, browser):
 
 
 def test_logout_during_active_game_prompts_for_confirmation(live_server, browser):
+    """Logging out mid-game prompts before abandoning the active match."""
     browser.get(live_server)
     start_single_player_game(browser, "Nora")
 
@@ -523,6 +157,7 @@ def test_logout_during_active_game_prompts_for_confirmation(live_server, browser
 
 
 def test_help_button_opens_user_manual_in_header(live_server, browser):
+    """The header help button opens the manual and supports section navigation."""
     browser.get(live_server)
 
     help_button = _wait(browser).until(ec.element_to_be_clickable((By.ID, "help-button")))
@@ -540,6 +175,7 @@ def test_help_button_opens_user_manual_in_header(live_server, browser):
 
 
 def test_team_assignment_can_be_configured_before_choosing_game(live_server, browser):
+    """Team mode exposes team assignment inputs before a game type is selected."""
     browser.get(live_server)
 
     for player_name in ("Alpha", "Bravo"):
@@ -565,6 +201,7 @@ def test_team_assignment_can_be_configured_before_choosing_game(live_server, bro
 
 
 def test_team_assignment_can_rename_teams(live_server, browser):
+    """Custom team names persist through start, quit, and return to setup."""
     browser.get(live_server)
 
     for player_name in ("Rhea", "Skye"):
@@ -608,6 +245,7 @@ def test_team_assignment_can_rename_teams(live_server, browser):
 
 
 def test_start_without_players_shows_bust_style_error(live_server, browser):
+    """Starting 55 by 5 without players shows the visible setup error banner."""
     browser.get(live_server)
 
     _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-55by5"))).click()
@@ -619,6 +257,7 @@ def test_start_without_players_shows_bust_style_error(live_server, browser):
 
 
 def test_non_admin_user_does_not_see_clear_history_button(live_server, browser):
+    """Non-admin users keep the clear-history admin control hidden after login."""
     browser.get(live_server)
 
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "clear-history")))
@@ -642,6 +281,7 @@ def test_non_admin_user_does_not_see_clear_history_button(live_server, browser):
 
 
 def test_current_accounts_rows_start_collapsed_and_expand_on_click(live_server, browser):
+    """Admin account rows start collapsed and expand to reveal edit controls."""
     browser.get(live_server)
 
     browser.find_element(By.ID, "new-username").send_keys("collapseduser")
@@ -681,6 +321,7 @@ def test_current_accounts_rows_start_collapsed_and_expand_on_click(live_server, 
 
 
 def test_admin_can_expand_account_row_and_update_password(live_server, browser):
+    """An admin can expand a user row, change its password, and log in with it."""
     browser.get(live_server)
 
     browser.find_element(By.ID, "new-username").send_keys("passworduser")
@@ -725,6 +366,7 @@ def test_admin_can_expand_account_row_and_update_password(live_server, browser):
 
 
 def test_admin_created_user_adds_player_and_account_survives_player_delete(live_server, browser):
+    """Deleting a same-named player leaves the separately created user account intact."""
     browser.get(live_server)
 
     browser.find_element(By.ID, "new-username").send_keys("pairedviewer")
@@ -762,6 +404,7 @@ def test_admin_created_user_adds_player_and_account_survives_player_delete(live_
 
 
 def test_non_admin_does_not_see_player_delete_button(live_server, browser):
+    """Non-admin users cannot see player deletion controls in the player manager."""
     browser.get(live_server)
 
     browser.find_element(By.ID, "new-username").send_keys("nodeleteuser")
@@ -782,6 +425,7 @@ def test_non_admin_does_not_see_player_delete_button(live_server, browser):
 
 
 def test_busy_badge_updates_while_setup_screen_stays_open(live_server, browser):
+    """The setup player list refreshes busy badges while the screen stays open."""
     browser.get(live_server)
     add_player(browser, "Dynamic Busy")
 
@@ -838,6 +482,7 @@ def test_busy_badge_updates_while_setup_screen_stays_open(live_server, browser):
 
 
 def test_player_selection_panel_supports_search(live_server, browser):
+    """The setup player selection panel refreshes correctly after players are added."""
     browser.get(live_server)
 
     for name in ("Charlie", "Alpha", "Bravo"):
@@ -849,6 +494,7 @@ def test_player_selection_panel_supports_search(live_server, browser):
 
 
 def test_player_manager_supports_search_and_stats_overlay_stacks_above(live_server, browser):
+    """Player manager search filters names and keeps stats overlay above the modal."""
     browser.get(live_server)
 
     for name in ("Charlie", "Alpha", "Bravo"):
@@ -898,6 +544,7 @@ def test_player_manager_supports_search_and_stats_overlay_stacks_above(live_serv
 
 
 def test_55_by_5_individual_game_can_complete_end_to_end(live_server, browser):
+    """A solo 55 by 5 game can finish cleanly and return to setup state."""
     browser.get(live_server)
     start_single_player_game(browser, "Finn")
 
@@ -930,6 +577,7 @@ def test_55_by_5_individual_game_can_complete_end_to_end(live_server, browser):
 
 
 def test_55_by_5_team_game_can_complete_end_to_end(live_server, browser):
+    """A team 55 by 5 game can finish with custom team names preserved afterward."""
     browser.get(live_server)
 
     for player_name in ("Aria", "Bryn"):
@@ -1007,6 +655,7 @@ def test_55_by_5_team_game_can_complete_end_to_end(live_server, browser):
 
 
 def test_english_cricket_shows_starting_roles_popup_before_game_start(live_server, browser):
+    """English Cricket shows the starting-role chooser before entering live play."""
     browser.get(live_server)
 
     for player_name in ("Ivy", "Jules"):
@@ -1031,6 +680,7 @@ def test_english_cricket_shows_starting_roles_popup_before_game_start(live_serve
 
 
 def test_x01_shows_start_popup_with_defaults(live_server, browser):
+    """The X01 start dialog exposes the default score, match, and starter settings."""
     browser.get(live_server)
 
     add_player(browser, "X01 Starter")
@@ -1070,6 +720,7 @@ def test_x01_shows_start_popup_with_defaults(live_server, browser):
 
 
 def test_x01_singles_game_can_complete_end_to_end(live_server, browser):
+    """A solo X01 game can play through checkout and show the winner overlay."""
     browser.get(live_server)
     start_x01_game(browser, ["Ava"], starting_score="101")
 
@@ -1086,6 +737,7 @@ def test_x01_singles_game_can_complete_end_to_end(live_server, browser):
 
 
 def test_x01_first_to_three_requires_three_legs_to_win_end_to_end(live_server, browser):
+    """First-to X01 does not finish until the configured leg target is reached."""
     browser.get(live_server)
     start_x01_game(
         browser,
@@ -1111,6 +763,7 @@ def test_x01_first_to_three_requires_three_legs_to_win_end_to_end(live_server, b
 
 
 def test_x01_scoreboard_legs_and_target_increment_each_new_leg(live_server, browser):
+    """X01 scoreboard leg counts advance while the target stays fixed across legs."""
     browser.get(live_server)
     start_x01_game(
         browser,
@@ -1137,6 +790,7 @@ def test_x01_scoreboard_legs_and_target_increment_each_new_leg(live_server, brow
 
 
 def test_x01_best_of_three_finishes_after_two_legs_end_to_end(live_server, browser):
+    """Best-of-three X01 finishes as soon as one side secures two legs."""
     browser.get(live_server)
     start_x01_game(
         browser,
@@ -1158,6 +812,7 @@ def test_x01_best_of_three_finishes_after_two_legs_end_to_end(live_server, brows
 
 
 def test_x01_team_game_can_complete_end_to_end(live_server, browser):
+    """A team X01 game can complete end to end with shared team scoring."""
     browser.get(live_server)
     start_x01_game(browser, ["Aria", "Bryn"], starting_score="101", team_mode="teams")
 
@@ -1181,6 +836,7 @@ def test_x01_team_game_can_complete_end_to_end(live_server, browser):
 
 
 def test_x01_team_mode_can_choose_team_b_to_throw_first(live_server, browser):
+    """Team X01 can be configured so Team B throws the opening turn."""
     browser.get(live_server)
     start_x01_game(
         browser,
@@ -1194,6 +850,7 @@ def test_x01_team_mode_can_choose_team_b_to_throw_first(live_server, browser):
 
 
 def test_english_cricket_rejects_more_than_two_individual_players(live_server, browser):
+    """English Cricket blocks solo starts unless exactly two players are selected."""
     browser.get(live_server)
 
     for player_name in ("Ivy", "Jules", "Kai"):
@@ -1217,6 +874,7 @@ def test_english_cricket_rejects_more_than_two_individual_players(live_server, b
 
 
 def test_noughts_and_crosses_team_mode_can_start(live_server, browser):
+    """Noughts and Crosses can start in team mode once both teams are assigned."""
     browser.get(live_server)
 
     for player_name in ("Nora", "Omar", "Pia", "Quin"):
@@ -1246,6 +904,7 @@ def test_noughts_and_crosses_team_mode_can_start(live_server, browser):
 
 
 def test_noughts_and_crosses_rejects_more_than_two_individual_players(live_server, browser):
+    """Solo Noughts rejects starts with more than two selected players."""
     browser.get(live_server)
 
     for player_name in ("Rae", "Seth", "Tia"):
@@ -1269,6 +928,7 @@ def test_noughts_and_crosses_rejects_more_than_two_individual_players(live_serve
 
 
 def test_submit_turn_updates_score_and_clears_input(live_server, browser):
+    """Submitting a 55 by 5 turn updates the board and clears the keypad display."""
     browser.get(live_server)
     start_single_player_game(browser, "Bob")
 
@@ -1286,6 +946,7 @@ def test_submit_turn_updates_score_and_clears_input(live_server, browser):
 
 
 def test_english_cricket_live_view_uses_two_panels(live_server, browser):
+    """English Cricket live play shows separate bowling and batting control panels."""
     browser.get(live_server)
     start_cricket_game(browser, "Ivy", "Jules")
 
@@ -1328,6 +989,7 @@ def test_english_cricket_live_view_uses_two_panels(live_server, browser):
 
 
 def test_english_cricket_shows_target_and_remaining_runs_in_second_innings(live_server, browser):
+    """Second-innings Cricket batting shows the chase target and remaining runs."""
     browser.get(live_server)
     start_cricket_game(browser, "Ivy", "Jules")
 
@@ -1356,6 +1018,7 @@ def test_english_cricket_shows_target_and_remaining_runs_in_second_innings(live_
 
 
 def test_english_cricket_shows_message_only_when_more_than_six_marks_selected(live_server, browser):
+    """Cricket warns only after submitting more than six selected wicket marks."""
     browser.get(live_server)
     start_cricket_game(browser, "Kai", "Lena")
 
@@ -1374,6 +1037,7 @@ def test_english_cricket_shows_message_only_when_more_than_six_marks_selected(li
 
 
 def test_quit_requires_confirmation(live_server, browser):
+    """Quitting a live game respects cancel first and only exits after confirmation."""
     browser.get(live_server)
     start_single_player_game(browser, "Charlie")
 
@@ -1395,6 +1059,7 @@ def test_quit_requires_confirmation(live_server, browser):
 
 
 def test_quit_restores_selected_players_in_setup(live_server, browser):
+    """Quitting a game returns to setup with the prior player selection restored."""
     browser.get(live_server)
 
     for player_name in ("Charlie", "Dana"):
@@ -1433,6 +1098,7 @@ def test_quit_restores_selected_players_in_setup(live_server, browser):
 
 
 def test_bust_shows_red_banner_for_three_seconds(live_server, browser):
+    """A bust shows the red banner immediately and then dismisses after a short delay."""
     browser.get(live_server)
     start_single_player_game(browser, "Dana")
 
@@ -1452,6 +1118,7 @@ def test_bust_shows_red_banner_for_three_seconds(live_server, browser):
 
 
 def test_non_divisible_by_five_shows_popup_and_keeps_total(live_server, browser):
+    """Non-divisible scores show a warning while leaving the running total unchanged."""
     browser.get(live_server)
     start_single_player_game(browser, "Eve")
 
