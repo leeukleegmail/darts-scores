@@ -14,11 +14,17 @@ const state = {
   cricketSelectedMarks: [],
   cricketStartingBattingTeam: "team_a",
   x01StartingScore: 501,
+  x01MatchType: "best_of",
+  x01LegsValue: 1,
+  x01StartingEntity: null,
   pendingNoughtsCellIndex: null,
   playerStats: null,
   loadingPlayerStatsId: null,
   expandedAdminUserIds: new Set(),
   x01CheckoutAnnouncementKey: null,
+  x01MatchAnnouncementKey: null,
+  x01TurnAnnouncementKey: null,
+  x01LegStartAnnouncementKey: null,
 };
 
 const appShellEl = document.querySelector(".app-shell");
@@ -59,6 +65,10 @@ const cricketStartCancelEl = document.getElementById("cricket-start-cancel");
 const x01StartOverlayEl = document.getElementById("x01-start-overlay");
 const x01StartGameEl = document.getElementById("x01-start-game");
 const x01StartCancelEl = document.getElementById("x01-start-cancel");
+const x01MatchTypeEl = document.getElementById("x01-match-type");
+const x01LegsValueEl = document.getElementById("x01-legs-value");
+const x01LegsValueLabelEl = document.getElementById("x01-legs-value-label");
+const x01StartingEntityEl = document.getElementById("x01-starting-entity");
 const x01TurnPanelEl = document.getElementById("x01-turn-panel");
 const x01ActiveRemainingEl = document.getElementById("x01-active-remaining");
 const x01CheckoutHintEl = document.getElementById("x01-checkout-hint");
@@ -115,11 +125,14 @@ let speechPrimerPending = false;
 let speechPrimerTimeoutId = null;
 let pendingSpeechRequest = null;
 let pendingSpeechRequestSeq = 0;
+let lastSpeechDedupeKey = null;
+let lastSpeechDedupeAt = 0;
 let speechBridgeRunning = false;
 let speechBridgeTimeoutId = null;
 let sfxAudioContext = null;
 const BUST_SOUND_FILE_URL = "/static/assets/sfx/bust.mp3";
 const BUST_POST_SOUND_DELAY_MS = 150;
+const SPEECH_DEDUPE_WINDOW_MS = 1000;
 let bustSoundFilePlayable = null;
 let bustSoundFileChecked = false;
 
@@ -152,7 +165,7 @@ function flushPendingSpeechRequest() {
   if (!pendingSpeechRequest) return;
   const queued = pendingSpeechRequest;
   pendingSpeechRequest = null;
-  speakText(queued.text, { interrupt: queued.interrupt });
+  speakText(queued.text, { interrupt: queued.interrupt, dedupeKey: queued.dedupeKey });
 }
 
 function showBustBanner(text) {
@@ -447,10 +460,10 @@ function primeSpeechSynthesisIfNeeded() {
   // claiming the audio session, so the subsequent async speak() stays silent.
   if (speechContextUnlocked || speechPrimerPending || typeof window.speechSynthesis === "undefined") return;
   try {
-    const primer = new SpeechSynthesisUtterance("audio ready");
-    primer.volume = 0.001; // nearly inaudible but non-zero — required on iPhone
-    primer.rate = 1;
-    primer.onstart = () => {
+    let primerCompleted = false;
+    const completePrimer = () => {
+      if (primerCompleted) return;
+      primerCompleted = true;
       speechContextUnlocked = true;
       speechPrimerPending = false;
       if (speechPrimerTimeoutId) {
@@ -459,16 +472,15 @@ function primeSpeechSynthesisIfNeeded() {
       }
       flushPendingSpeechRequest();
     };
+
+    const primer = new SpeechSynthesisUtterance("audio ready");
+    primer.volume = 0.001; // nearly inaudible but non-zero — required on iPhone
+    primer.rate = 1;
+    primer.onstart = completePrimer;
     primer.onend = () => {
       // Some iOS builds intermittently miss onstart for near-silent primers.
-      // If onend fires, the utterance ran and the context can be treated as unlocked.
-      speechContextUnlocked = true;
-      speechPrimerPending = false;
-      if (speechPrimerTimeoutId) {
-        window.clearTimeout(speechPrimerTimeoutId);
-        speechPrimerTimeoutId = null;
-      }
-      flushPendingSpeechRequest();
+      // If onend fires first, the utterance ran and the context can be treated as unlocked.
+      completePrimer();
     };
     primer.onerror = () => {
       speechContextUnlocked = false;
@@ -888,12 +900,16 @@ async function submitScore(totalPoints) {
       }
 
       if (response.game.status === "finished") {
+        announceX01MatchWinIfNeeded(t, response.game);
         const winnerName = winnerDisplayName(response.game, "Tie");
         showWinnerOverlay(winnerName);
         return;
       }
 
       if (is55By5Bust || isX01Bust) {
+        if (isX01Bust) {
+          announceX01CheckoutIfNeeded(response.game);
+        }
         return;
       }
 
@@ -902,7 +918,11 @@ async function submitScore(totalPoints) {
         const remaining = activePlayer?.x01_remaining ?? activePlayer?.fives ?? 0;
         announceX01TurnResult(t, response.game);
         resetX01TurnFlags();
-        announceX01CheckoutIfNeeded(response.game);
+        if (t.x01_leg_won) {
+          announceX01LegStartIfNeeded(response.game);
+        } else {
+          announceX01CheckoutIfNeeded(response.game);
+        }
         showMessage(
           t.counted
             ? `Turn saved: ${t.total_points} scored, ${remaining} remaining.`
@@ -1290,6 +1310,9 @@ function syncStateFromGame(game) {
   setTeamNames(game.team_names || {}, { syncInputs: true });
   state.cricketStartingBattingTeam = game.cricket_state?.starting_batting_team || game.cricket_state?.batting_team || "team_a";
   state.x01StartingScore = game.x01_state?.starting_score || 501;
+  state.x01MatchType = game.x01_state?.match_type || "best_of";
+  state.x01LegsValue = Number(game.x01_state?.legs_value) || 1;
+  state.x01StartingEntity = game.x01_state?.starting_entity || null;
 }
 
 function restoreLobbyStateFromGame(game) {
@@ -1306,6 +1329,9 @@ function restoreLobbyStateFromGame(game) {
   setTeamNames(game.team_names || {}, { syncInputs: true });
   state.cricketStartingBattingTeam = game.cricket_state?.starting_batting_team || game.cricket_state?.batting_team || "team_a";
   state.x01StartingScore = game.x01_state?.starting_score || 501;
+  state.x01MatchType = game.x01_state?.match_type || "best_of";
+  state.x01LegsValue = Number(game.x01_state?.legs_value) || 1;
+  state.x01StartingEntity = game.x01_state?.starting_entity || null;
 
   const teamModeSoloEl = document.getElementById("team-mode-solo");
   const teamModeTeamsEl = document.getElementById("team-mode-teams");
@@ -1414,6 +1440,39 @@ function resetX01TurnFlags() {
   state.x01CheckoutAnnouncementKey = null;
 }
 
+function currentX01LegNumber(game) {
+  const legsWon = game?.x01_state?.legs_won;
+  const completedLegs = legsWon && typeof legsWon === "object"
+    ? Object.values(legsWon).reduce((sum, value) => sum + (Number(value) || 0), 0)
+    : 0;
+  return completedLegs + (game?.status === "active" ? 1 : 0);
+}
+
+function announceX01LegStartIfNeeded(game) {
+  if (!game || game.game_type !== "x01" || game.status !== "active") return;
+
+  const activePlayer = game.players.find((player) => player.id === game.active_player_id);
+  if (!activePlayer) return;
+
+  const legNumber = currentX01LegNumber(game);
+  const key = `${game.id}:${legNumber}:${activePlayer.id}:leg-start`;
+  if (state.x01LegStartAnnouncementKey === key) return;
+  state.x01LegStartAnnouncementKey = key;
+
+  speakText(`Leg ${legNumber}, ${activePlayer.name} to throw first, game on`, { interrupt: false, dedupeKey: key });
+}
+
+function announceX01MatchWinIfNeeded(turn, game) {
+  if (!turn || !game || game.game_type !== "x01" || game.status !== "finished") return;
+  if (turn.x01_result !== "scored") return;
+
+  const key = `${game.id}:${turn.turn_number || game.turns?.length || 0}:match`;
+  if (state.x01MatchAnnouncementKey === key) return;
+  state.x01MatchAnnouncementKey = key;
+
+  speakText(`${turn.total_points}, and the match`, { interrupt: false, dedupeKey: key });
+}
+
 function choosePreferredSpeechVoice() {
   if (typeof window.speechSynthesis === "undefined") return null;
 
@@ -1450,7 +1509,7 @@ function ensurePreferredSpeechVoice() {
   return preferredSpeechVoice;
 }
 
-function speakText(text, { interrupt = true } = {}) {
+function speakText(text, { interrupt = true, dedupeKey = null } = {}) {
   if (!text) {
     return;
   }
@@ -1458,8 +1517,12 @@ function speakText(text, { interrupt = true } = {}) {
     return;
   }
 
+  if (dedupeKey && lastSpeechDedupeKey === dedupeKey && (Date.now() - lastSpeechDedupeAt) < SPEECH_DEDUPE_WINDOW_MS) {
+    return;
+  }
+
   if (!speechContextUnlocked) {
-    pendingSpeechRequest = { text, interrupt };
+    pendingSpeechRequest = { text, interrupt, dedupeKey };
     primeSpeechSynthesisIfNeeded();
     return;
   }
@@ -1469,7 +1532,11 @@ function speakText(text, { interrupt = true } = {}) {
   // if iOS rejected the speak() below. The onstart callback clears it if iOS
   // accepted the call, preventing a double-announce on the next touchstart.
   const seq = ++pendingSpeechRequestSeq;
-  pendingSpeechRequest = { text, interrupt, seq };
+  pendingSpeechRequest = { text, interrupt, dedupeKey, seq };
+  if (dedupeKey) {
+    lastSpeechDedupeKey = dedupeKey;
+    lastSpeechDedupeAt = Date.now();
+  }
 
   try {
     // On iOS (Safari and Chrome/WKWebView) the synthesis engine can silently
@@ -1513,7 +1580,16 @@ function buildX01CheckoutAnnouncement(game) {
   const x01State = game.x01_state || {};
   const checkout = x01State.active_checkout;
   const remaining = Number(x01State.active_remaining);
+  const startingScore = Number(x01State.starting_score);
   const activePlayer = game.players.find((player) => player.id === game.active_player_id);
+
+  // For 101, keep the opening leg call as "<name> ... game on" without
+  // an immediate remaining-score announcement. This also applies to new legs
+  // where remaining has just reset to the starting score.
+  if (startingScore === 101 && remaining === startingScore) {
+    return null;
+  }
+
   const shouldAnnounce = Boolean(checkout) || (Number.isFinite(remaining) && remaining >= 2 && remaining <= 40);
 
   if (!activePlayer || !shouldAnnounce) {
@@ -1532,23 +1608,44 @@ function announceX01CheckoutIfNeeded(game) {
   if (announcement.key === state.x01CheckoutAnnouncementKey) return;
 
   state.x01CheckoutAnnouncementKey = announcement.key;
-  speakText(announcement.text, { interrupt: false });
+  speakText(announcement.text, { interrupt: false, dedupeKey: announcement.key });
 }
 
 function announceX01TurnResult(turn, game) {
   if (!turn || !game || game.game_type !== "x01") return;
 
-  const playerName = game.players.find((player) => player.id === turn.player_id)?.name || "Player";
   if (turn.x01_result === "bust_overshoot") {
-    speakText(`${playerName} bust. ${turn.total_points} scored does not count.`);
     return;
   }
   if (turn.x01_result === "bust_leave_one") {
-    speakText(`${playerName} bust. Leaving 1 is not allowed.`);
     return;
   }
 
-  speakText(String(turn.total_points));
+  const key = `${game.id}:${turn.turn_number || game.turns?.length || 0}:turn`;
+  if (state.x01TurnAnnouncementKey === key) return;
+  state.x01TurnAnnouncementKey = key;
+
+  if (turn.x01_leg_won && game.status === "active") {
+    const wonLegNumber = Math.max(1, currentX01LegNumber(game) - 1);
+    speakText(`${turn.total_points}, and the ${ordinalSuffix(wonLegNumber)} leg`, { dedupeKey: key });
+    return;
+  }
+
+  speakText(String(turn.total_points), { dedupeKey: key });
+}
+
+function ordinalSuffix(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return "first";
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 13) {
+    return `${n}th`;
+  }
+  const mod10 = n % 10;
+  if (mod10 === 1) return `${n}st`;
+  if (mod10 === 2) return `${n}nd`;
+  if (mod10 === 3) return `${n}rd`;
+  return `${n}th`;
 }
 
 function renderX01StartSelection() {
@@ -1558,6 +1655,53 @@ function renderX01StartSelection() {
       input.checked = input.value === selectedScore;
     }
   });
+
+  const safeLegsValue = Math.max(1, Math.min(9, Number(state.x01LegsValue) || 1));
+  if (x01MatchTypeEl instanceof HTMLSelectElement) {
+    x01MatchTypeEl.value = state.x01MatchType === "first_to" ? "first_to" : "best_of";
+  }
+  if (x01LegsValueEl instanceof HTMLInputElement) {
+    x01LegsValueEl.value = String(safeLegsValue);
+  }
+  if (x01LegsValueLabelEl) {
+    x01LegsValueLabelEl.textContent = String(safeLegsValue);
+  }
+
+  if (!(x01StartingEntityEl instanceof HTMLSelectElement)) {
+    return;
+  }
+
+  const options = [];
+  if (state.teamMode === "teams") {
+    syncTeamAssignments();
+    const selectedPlayers = getSelectedPlayersInOrder();
+    const teamAPlayers = selectedPlayers.filter((player) => state.teamAssignments[player.id] === "team_a");
+    const teamBPlayers = selectedPlayers.filter((player) => state.teamAssignments[player.id] === "team_b");
+
+    if (teamAPlayers.length) {
+      options.push({ value: "team_a", label: teamInitialsLabel(teamDisplayName("team_a"), teamAPlayers) });
+    }
+    if (teamBPlayers.length) {
+      options.push({ value: "team_b", label: teamInitialsLabel(teamDisplayName("team_b"), teamBPlayers) });
+    }
+  } else {
+    const selectedPlayers = getSelectedPlayersInOrder();
+    for (const player of selectedPlayers) {
+      options.push({ value: String(player.id), label: player.name });
+    }
+  }
+
+  options.push({ value: "random", label: "Random" });
+  x01StartingEntityEl.innerHTML = options
+    .map((option) => `<option value="${option.value}">${option.label}</option>`)
+    .join("");
+
+  const desiredValue = state.x01StartingEntity ? String(state.x01StartingEntity) : "";
+  const selectedValue = options.some((option) => option.value === desiredValue)
+    ? desiredValue
+    : (options[0]?.value || "random");
+  x01StartingEntityEl.value = selectedValue;
+  state.x01StartingEntity = selectedValue;
 }
 
 function openX01StartOverlay() {
@@ -2092,10 +2236,19 @@ function renderX01TurnPanel(game) {
   x01CheckoutHintEl.textContent = x01State.active_checkout || "No checkout";
 }
 
+function x01LegsWonForEntity(x01State, entityKey) {
+  return Number(x01State?.legs_won?.[String(entityKey)] || 0);
+}
+
+function x01RequiredLegs(x01State) {
+  return Number(x01State?.required_legs || 1);
+}
+
 function renderX01Scoreboard(game) {
   scoreboardEl.innerHTML = "";
   const x01State = game.x01_state || {};
   const players = [...game.players];
+  const targetLegs = x01RequiredLegs(x01State);
 
   if (game.team_mode === "teams") {
     const grouped = groupPlayersByTeam(players);
@@ -2104,11 +2257,14 @@ function renderX01Scoreboard(game) {
       if (!members.length) continue;
       const label = teamInitialsLabel(teamDisplayName(teamKey, game.team_names), members);
       const teamRemaining = members[0]?.x01_remaining ?? x01State.starting_score ?? 501;
+      const teamLegsWon = x01LegsWonForEntity(x01State, teamKey);
       const teamRow = document.createElement("tr");
       teamRow.className = "team-header-row";
       teamRow.innerHTML = `
         <td><strong>${label}</strong></td>
         <td><strong>${teamRemaining}</strong></td>
+        <td><strong>${teamLegsWon}</strong></td>
+        <td><strong>${targetLegs}</strong></td>
       `;
       scoreboardEl.appendChild(teamRow);
 
@@ -2120,6 +2276,8 @@ function renderX01Scoreboard(game) {
         tr.innerHTML = `
           <td class="scoreboard-member">${player.name}</td>
           <td>${player.x01_remaining ?? teamRemaining}</td>
+          <td>${teamLegsWon}</td>
+          <td>${targetLegs}</td>
         `;
         scoreboardEl.appendChild(tr);
       }
@@ -2132,9 +2290,12 @@ function renderX01Scoreboard(game) {
     if (player.id === game.active_player_id && game.status === "active") {
       tr.classList.add("active-row");
     }
+    const playerLegsWon = x01LegsWonForEntity(x01State, player.id);
     tr.innerHTML = `
       <td>${player.name}</td>
       <td>${player.x01_remaining ?? x01State.starting_score ?? 501}</td>
+      <td>${playerLegsWon}</td>
+      <td>${targetLegs}</td>
     `;
     scoreboardEl.appendChild(tr);
   }
@@ -2427,12 +2588,18 @@ function renderGame() {
   const isX01 = game.game_type === "x01";
   const isNoughts = game.game_type === "noughts_and_crosses";
   const activePlayer = game.players.find((p) => p.id === game.active_player_id);
+  const scoreboardTable = document.getElementById("scoreboard-table");
+  if (scoreboardTable) {
+    scoreboardTable.classList.toggle("scoreboard-x01", isX01);
+  }
   const headers = Array.from(document.querySelectorAll("#scoreboard-table thead th"));
-  if (headers.length >= 3) {
+  if (headers.length >= 4) {
     headers[0].textContent = "Player";
     headers[1].textContent = isX01 ? "Remaining" : "Score";
-    headers[2].textContent = "Points Required";
-    headers[2].hidden = isX01;
+    headers[2].textContent = isX01 ? "Legs" : "Points Required";
+    headers[2].hidden = false;
+    headers[3].textContent = isX01 ? "Target" : "";
+    headers[3].hidden = !isX01;
   }
 
   if (standardTurnControlsEl) {
@@ -2683,6 +2850,9 @@ async function startConfiguredGame() {
         team_names: state.teamMode === "teams" ? normalizeTeamNames(state.teamNames) : undefined,
         starting_batting_team: state.gameType === "english_cricket" ? state.cricketStartingBattingTeam : undefined,
         x01_starting_score: state.gameType === "x01" ? state.x01StartingScore : undefined,
+        x01_match_type: state.gameType === "x01" ? state.x01MatchType : undefined,
+        x01_legs_value: state.gameType === "x01" ? state.x01LegsValue : undefined,
+        x01_starting_entity: state.gameType === "x01" ? state.x01StartingEntity : undefined,
       }),
     });
     syncStateFromGame(response.game);
@@ -2690,11 +2860,8 @@ async function startConfiguredGame() {
     await loadHistory();
     showMessage("Game started.");
     if (response.game.game_type === "x01") {
-      const firstPlayer = response.game.players && response.game.players[0];
-      if (firstPlayer) {
-        primeSpeechSynthesisIfNeeded();
-        speakText(`${firstPlayer.name} to throw first, game on`, { interrupt: false });
-      }
+      primeSpeechSynthesisIfNeeded();
+      announceX01LegStartIfNeeded(response.game);
     }
   } catch (err) {
     showBustBanner(err.message || "Unable to start game.");
@@ -2760,6 +2927,9 @@ async function startRematch() {
         team_names: teamMode === "teams" ? finishedGame.team_names : undefined,
         starting_batting_team: gameType === "english_cricket" ? newStartingBattingTeam : undefined,
         x01_starting_score: gameType === "x01" ? finishedGame.x01_state?.starting_score : undefined,
+        x01_match_type: gameType === "x01" ? finishedGame.x01_state?.match_type : undefined,
+        x01_legs_value: gameType === "x01" ? finishedGame.x01_state?.legs_value : undefined,
+        x01_starting_entity: gameType === "x01" ? finishedGame.x01_state?.starting_entity : undefined,
       }),
     });
 
@@ -2965,6 +3135,34 @@ async function init() {
     });
   });
 
+  if (x01MatchTypeEl instanceof HTMLSelectElement) {
+    x01MatchTypeEl.addEventListener("change", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLSelectElement)) return;
+      state.x01MatchType = target.value === "first_to" ? "first_to" : "best_of";
+    });
+  }
+
+  if (x01LegsValueEl instanceof HTMLInputElement) {
+    x01LegsValueEl.addEventListener("input", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement)) return;
+      const value = Math.max(1, Math.min(9, Number(target.value) || 1));
+      state.x01LegsValue = value;
+      if (x01LegsValueLabelEl) {
+        x01LegsValueLabelEl.textContent = String(value);
+      }
+    });
+  }
+
+  if (x01StartingEntityEl instanceof HTMLSelectElement) {
+    x01StartingEntityEl.addEventListener("change", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLSelectElement)) return;
+      state.x01StartingEntity = target.value || "random";
+    });
+  }
+
   if (chooseX01Btn) {
     chooseX01Btn.addEventListener("click", () => {
       closeCricketStartOverlay();
@@ -2973,6 +3171,9 @@ async function init() {
       state.gameType = "x01";
       state.teamMode = getTeamMode();
       state.x01StartingScore = 501;
+      state.x01MatchType = "best_of";
+      state.x01LegsValue = 1;
+      state.x01StartingEntity = null;
       resetX01TurnFlags();
       applyLayoutMode(state.game);
       renderTeamAssignment();

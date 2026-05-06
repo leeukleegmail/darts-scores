@@ -1246,6 +1246,9 @@ def test_create_x01_game_with_config(client):
             "game_type": "x01",
             "team_mode": "solo",
             "x01_starting_score": 301,
+            "x01_match_type": "first_to",
+            "x01_legs_value": 3,
+            "x01_starting_entity": str(p2),
         },
     )
 
@@ -1253,8 +1256,68 @@ def test_create_x01_game_with_config(client):
     game = res.get_json()["game"]
     assert game["game_type"] == "x01"
     assert game["x01_state"]["starting_score"] == 301
+    assert game["x01_state"]["match_type"] == "first_to"
+    assert game["x01_state"]["legs_value"] == 3
+    assert game["x01_state"]["required_legs"] == 3
+    assert game["x01_state"]["starting_entity"] == str(p2)
     assert game["players"][0]["x01_remaining"] == 301
-    assert game["active_player_id"] == p1
+    assert game["active_player_id"] == p2
+
+
+def test_x01_first_to_legs_requires_multiple_leg_wins(client):
+    p1 = add_player(client, "Leg Winner")
+
+    game = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1],
+            "game_type": "x01",
+            "x01_starting_score": 101,
+            "x01_match_type": "first_to",
+            "x01_legs_value": 3,
+        },
+    ).get_json()["game"]
+
+    first_leg = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 101})
+    assert first_leg.status_code == 200
+    first_leg_payload = first_leg.get_json()
+    assert first_leg_payload["game"]["status"] == "active"
+    assert first_leg_payload["game"]["x01_state"]["legs_won"][str(p1)] == 1
+    assert first_leg_payload["game"]["players"][0]["x01_remaining"] == 101
+
+    second_leg = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 101})
+    assert second_leg.status_code == 200
+    second_leg_payload = second_leg.get_json()
+    assert second_leg_payload["game"]["status"] == "active"
+    assert second_leg_payload["game"]["x01_state"]["legs_won"][str(p1)] == 2
+
+    match_leg = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 101})
+    assert match_leg.status_code == 200
+    match_leg_payload = match_leg.get_json()
+    assert match_leg_payload["game"]["status"] == "finished"
+    assert match_leg_payload["game"]["winner_player_id"] == p1
+    assert match_leg_payload["game"]["x01_state"]["legs_won"][str(p1)] == 3
+
+
+def test_x01_team_starting_entity_selects_first_throwing_team(client):
+    p1 = add_player(client, "Team A Lead")
+    p2 = add_player(client, "Team B Lead")
+
+    created = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2],
+            "game_type": "x01",
+            "team_mode": "teams",
+            "team_assignments": {str(p1): "team_a", str(p2): "team_b"},
+            "x01_starting_entity": "team_b",
+        },
+    )
+
+    assert created.status_code == 201
+    game = created.get_json()["game"]
+    assert game["active_player_id"] == p2
+    assert game["x01_state"]["starting_entity"] == "team_b"
 
 
 def test_x01_payload_includes_active_checkout_and_keeps_it_on_bust(client):

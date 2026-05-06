@@ -28,6 +28,9 @@ from game_logic import (
     normalize_requested_team_names,
     normalize_team_mode,
     normalize_total_points,
+    normalize_x01_legs_value,
+    normalize_x01_match_type,
+    normalize_x01_starting_entity,
     normalize_x01_starting_score,
     parse_cricket_state,
     parse_noughts_and_crosses_state,
@@ -794,6 +797,8 @@ def create_game():
     game_type = normalize_game_type(payload.get("game_type"))
     team_mode = normalize_team_mode(payload.get("team_mode"))
     x01_starting_score = normalize_x01_starting_score(payload.get("x01_starting_score"), 501)
+    x01_match_type = normalize_x01_match_type(payload.get("x01_match_type"), "best_of")
+    x01_legs_value = normalize_x01_legs_value(payload.get("x01_legs_value"), 1)
 
     ordered_player_ids, error = validate_ordered_player_ids(payload.get("ordered_player_ids") or [])
     if error:
@@ -818,6 +823,14 @@ def create_game():
     if error:
         return jsonify({"error": error}), 400
 
+    x01_starting_entity = normalize_x01_starting_entity(
+        payload.get("x01_starting_entity"),
+        team_mode,
+        ordered_player_ids,
+        normalized_assignments,
+        default=(str(ordered_player_ids[0]) if ordered_player_ids else "random"),
+    )
+
     initial_turn_position, cricket_state, noughts_and_crosses_state, x01_state = build_new_game_start_state(
         game_type,
         ordered_player_ids,
@@ -825,6 +838,9 @@ def create_game():
         team_mode,
         normalize_cricket_team(payload.get("starting_batting_team"), TEAM_A),
         x01_starting_score,
+        x01_match_type,
+        x01_legs_value,
+        x01_starting_entity,
     )
 
     game = Game(
@@ -910,6 +926,8 @@ def submit_turn(game_id: int):
                 "counted": turn.counted,
                 "fives_awarded": turn.fives_awarded,
                 "x01_result": decode_x01_turn_result(turn.dart_3) if game.game_type == "x01" else None,
+                "x01_leg_won": bool(turn.dart_2) if game.game_type == "x01" else None,
+                "x01_leg_number": int(turn.dart_2) if game.game_type == "x01" and turn.dart_2 else None,
             },
             "game": serialize_game_state(game),
         }

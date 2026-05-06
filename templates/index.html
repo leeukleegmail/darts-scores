@@ -123,6 +123,7 @@
                 <th>Player</th>
                 <th>Score</th>
                 <th>Points Required</th>
+                <th hidden></th>
               </tr>
             </thead>
             <tbody id="scoreboard"></tbody>
@@ -333,24 +334,44 @@
     <div id="x01-start-overlay" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="x01-start-title">
       <div class="modal-card x01-start-card">
         <h3 id="x01-start-title">Start X01</h3>
-        <p class="hint">Choose the starting total for this match.</p>
-        <div class="x01-option-group">
-          <label class="cricket-role-choice">
-            <input type="radio" name="x01-starting-score" value="1001" />
-            <span><strong>1001</strong></span>
-          </label>
-          <label class="cricket-role-choice">
-            <input type="radio" name="x01-starting-score" value="501" checked />
-            <span><strong>501</strong></span>
-          </label>
-          <label class="cricket-role-choice">
-            <input type="radio" name="x01-starting-score" value="301" />
-            <span><strong>301</strong></span>
-          </label>
-          <label class="cricket-role-choice">
-            <input type="radio" name="x01-starting-score" value="101" />
-            <span><strong>101</strong></span>
-          </label>
+        <p class="hint">Choose the starting total and match format for this game.</p>
+        <div class="x01-start-grid">
+          <div class="x01-option-group">
+            <h4>Starting Score</h4>
+            <label class="cricket-role-choice">
+              <input type="radio" name="x01-starting-score" value="1001" />
+              <span><strong>1001</strong></span>
+            </label>
+            <label class="cricket-role-choice">
+              <input type="radio" name="x01-starting-score" value="501" checked />
+              <span><strong>501</strong></span>
+            </label>
+            <label class="cricket-role-choice">
+              <input type="radio" name="x01-starting-score" value="301" />
+              <span><strong>301</strong></span>
+            </label>
+            <label class="cricket-role-choice">
+              <input type="radio" name="x01-starting-score" value="101" />
+              <span><strong>101</strong></span>
+            </label>
+          </div>
+
+          <div class="x01-option-group">
+            <h4>Match Format</h4>
+            <label class="x01-field-label" for="x01-match-type">Play Format</label>
+            <select id="x01-match-type" class="x01-field-input">
+              <option value="best_of" selected>Best Of</option>
+              <option value="first_to">First To</option>
+            </select>
+
+            <label class="x01-field-label" for="x01-legs-value">
+              Legs: <strong id="x01-legs-value-label">1</strong>
+            </label>
+            <input id="x01-legs-value" type="range" min="1" max="9" step="1" value="1" />
+
+            <label class="x01-field-label" for="x01-starting-entity">Starting Player</label>
+            <select id="x01-starting-entity" class="x01-field-input"></select>
+          </div>
         </div>
         <div class="modal-actions">
           <button id="x01-start-cancel" type="button" class="btn-ghost">Cancel</button>

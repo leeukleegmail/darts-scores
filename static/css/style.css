@@ -1075,6 +1075,15 @@ td {
   border-bottom: 1px solid var(--line);
 }
 
+#scoreboard-table.scoreboard-x01 th:nth-child(2),
+#scoreboard-table.scoreboard-x01 th:nth-child(3),
+#scoreboard-table.scoreboard-x01 th:nth-child(4),
+#scoreboard-table.scoreboard-x01 td:nth-child(2),
+#scoreboard-table.scoreboard-x01 td:nth-child(3),
+#scoreboard-table.scoreboard-x01 td:nth-child(4) {
+  text-align: center;
+}
+
 .active-row {
   background: var(--accent-soft);
 }
@@ -1780,6 +1789,20 @@ td {
 .x01-option-group {
   display: grid;
   gap: 0.55rem;
+}
+
+.x01-field-label {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.x01-field-input,
+#x01-legs-value {
+  width: 100%;
+}
+
+.x01-field-input {
+  min-height: 2.3rem;
 }
 
 .cricket-start-prompt {

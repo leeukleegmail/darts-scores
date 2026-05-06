@@ -4,15 +4,16 @@ import sys
 import tempfile
 import threading
 import time
+from contextlib import suppress
 from urllib.request import urlopen
 
 import pytest
 from selenium import webdriver
-from selenium.common.exceptions import WebDriverException
+from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException, WebDriverException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as ec
-from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support.ui import Select, WebDriverWait
 from werkzeug.serving import make_server
 
 
@@ -101,7 +102,48 @@ def browser():
     try:
         yield driver
     finally:
-        driver.quit()
+        _safe_quit_driver(driver)
+
+
+def _safe_quit_driver(driver) -> None:
+    if driver is None:
+        return
+
+    # Close extra windows first; this helps prevent quit() hangs in CI/headless runs.
+    with suppress(Exception):
+        for handle in list(driver.window_handles):
+            with suppress(Exception):
+                driver.switch_to.window(handle)
+                driver.close()
+
+    for _ in range(3):
+        try:
+            driver.quit()
+            break
+        except Exception:
+            time.sleep(0.2)
+
+    service = getattr(driver, "service", None)
+    if service is None:
+        return
+
+    with suppress(Exception):
+        service.stop()
+
+    # Last-resort cleanup if WebDriver process is still alive.
+    process = getattr(service, "process", None)
+    if process is None:
+        return
+
+    with suppress(Exception):
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=2)
+
+    with suppress(Exception):
+        if process.poll() is None:
+            process.kill()
+
 
 
 def _wait(browser, timeout=8):
@@ -201,7 +243,15 @@ def start_noughts_game(browser, first_player: str, second_player: str):
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "noughts-dashboard")))
 
 
-def start_x01_game(browser, player_names, starting_score="501", team_mode="solo"):
+def start_x01_game(
+    browser,
+    player_names,
+    starting_score="501",
+    team_mode="solo",
+    match_type="best_of",
+    legs_value=1,
+    starting_entity=None,
+):
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "setup-panel")))
 
     for player_name in player_names:
@@ -229,6 +279,25 @@ def start_x01_game(browser, player_names, starting_score="501", team_mode="solo"
     popup = _wait(browser).until(ec.visibility_of_element_located((By.ID, "x01-start-overlay")))
 
     popup.find_element(By.CSS_SELECTOR, f"input[name='x01-starting-score'][value='{starting_score}']").click()
+
+    Select(popup.find_element(By.ID, "x01-match-type")).select_by_value(match_type)
+
+    slider = popup.find_element(By.ID, "x01-legs-value")
+    browser.execute_script(
+        """
+        const slider = arguments[0];
+        const value = String(arguments[1]);
+        slider.value = value;
+        slider.dispatchEvent(new Event('input', { bubbles: true }));
+        slider.dispatchEvent(new Event('change', { bubbles: true }));
+        """,
+        slider,
+        int(legs_value),
+    )
+
+    if starting_entity is not None:
+        selector = Select(popup.find_element(By.ID, "x01-starting-entity"))
+        selector.select_by_value(str(starting_entity))
 
     browser.find_element(By.ID, "x01-start-game").click()
     _wait(browser).until(ec.invisibility_of_element_located((By.ID, "x01-start-overlay")))
@@ -401,9 +470,15 @@ def test_cricket_batting_keypad_disables_submit_when_score_exceeds_180(live_serv
     # Cricket opens on a bowling turn; submit one bowling turn so batting becomes active.
     bowling_submit = _wait(browser).until(ec.element_to_be_clickable((By.ID, "cricket-submit-bowling")))
     bowling_submit.click()
-    _wait(browser).until(
-        lambda d: d.find_element(By.CSS_SELECTOR, "#cricket-batting-keypad [data-keypad-action='submit']").get_attribute("disabled") is None
-    )
+
+    def batting_submit_enabled(driver):
+        try:
+            button = driver.find_element(By.CSS_SELECTOR, "#cricket-batting-keypad [data-keypad-action='submit']")
+            return button.get_attribute("disabled") is None
+        except (NoSuchElementException, StaleElementReferenceException):
+            return False
+
+    _wait(browser).until(batting_submit_enabled)
 
     submit_button = enter_value_with_keypad(browser, "cricket-batting-keypad", "cricket-batting-total", 181)
     assert submit_button.get_attribute("disabled") is not None
@@ -974,13 +1049,24 @@ def test_x01_shows_start_popup_with_defaults(live_server, browser):
     popup = _wait(browser).until(ec.visibility_of_element_located((By.ID, "x01-start-overlay")))
 
     assert popup.find_element(By.CSS_SELECTOR, "input[name='x01-starting-score'][value='501']").is_selected()
+    assert Select(popup.find_element(By.ID, "x01-match-type")).first_selected_option.get_attribute("value") == "best_of"
+    assert popup.find_element(By.ID, "x01-legs-value").get_attribute("value") == "1"
+    assert popup.find_element(By.ID, "x01-legs-value-label").text.strip() == "1"
+
+    starting_picker = Select(popup.find_element(By.ID, "x01-starting-entity"))
+    option_labels = [option.text.strip() for option in starting_picker.options]
+    assert option_labels == ["X01 Starter", "Random"]
+    assert starting_picker.first_selected_option.text.strip() == "X01 Starter"
 
     browser.find_element(By.ID, "x01-start-game").click()
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
     assert "501" in browser.find_element(By.ID, "scoreboard").text
     headers = browser.find_elements(By.CSS_SELECTOR, "#scoreboard-table thead th")
     visible_headers = [header.text.strip() for header in headers if header.is_displayed()]
-    assert visible_headers == ["Player", "Remaining"]
+    assert visible_headers == ["Player", "Remaining", "Legs", "Target"]
+
+    first_row_cells = browser.find_elements(By.CSS_SELECTOR, "#scoreboard tr")[0].find_elements(By.TAG_NAME, "td")
+    assert [cell.text.strip() for cell in first_row_cells] == ["X01 Starter", "501", "0", "1"]
 
 
 def test_x01_singles_game_can_complete_end_to_end(live_server, browser):
@@ -997,6 +1083,78 @@ def test_x01_singles_game_can_complete_end_to_end(live_server, browser):
     winner_overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
     assert winner_overlay.is_displayed()
     assert browser.find_element(By.ID, "winner-name").text.strip() == "Ava"
+
+
+def test_x01_first_to_three_requires_three_legs_to_win_end_to_end(live_server, browser):
+    browser.get(live_server)
+    start_x01_game(
+        browser,
+        ["Ava"],
+        starting_score="101",
+        match_type="first_to",
+        legs_value=3,
+    )
+
+    submit_standard_score_with_keypad(browser, 101)
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#1 Ava: total 101"))
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "scoreboard"), "101"))
+    assert not browser.find_element(By.ID, "winner-overlay").is_displayed()
+
+    submit_standard_score_with_keypad(browser, 101)
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#2 Ava: total 101"))
+    assert not browser.find_element(By.ID, "winner-overlay").is_displayed()
+
+    submit_standard_score_with_keypad(browser, 101)
+    winner_overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
+    assert winner_overlay.is_displayed()
+    assert browser.find_element(By.ID, "winner-name").text.strip() == "Ava"
+
+
+def test_x01_scoreboard_legs_and_target_increment_each_new_leg(live_server, browser):
+    browser.get(live_server)
+    start_x01_game(
+        browser,
+        ["Ava"],
+        starting_score="101",
+        match_type="first_to",
+        legs_value=3,
+    )
+
+    def scoreboard_row_values():
+        row = _wait(browser).until(ec.presence_of_all_elements_located((By.CSS_SELECTOR, "#scoreboard tr")))[0]
+        cells = row.find_elements(By.TAG_NAME, "td")
+        return [cell.text.strip() for cell in cells]
+
+    assert scoreboard_row_values() == ["Ava", "101", "0", "3"]
+
+    submit_standard_score_with_keypad(browser, 101)
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#1 Ava: total 101"))
+    _wait(browser).until(lambda d: scoreboard_row_values() == ["Ava", "101", "1", "3"])
+
+    submit_standard_score_with_keypad(browser, 101)
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#2 Ava: total 101"))
+    _wait(browser).until(lambda d: scoreboard_row_values() == ["Ava", "101", "2", "3"])
+
+
+def test_x01_best_of_three_finishes_after_two_legs_end_to_end(live_server, browser):
+    browser.get(live_server)
+    start_x01_game(
+        browser,
+        ["Nora"],
+        starting_score="101",
+        match_type="best_of",
+        legs_value=3,
+    )
+
+    submit_standard_score_with_keypad(browser, 101)
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#1 Nora: total 101"))
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "scoreboard"), "101"))
+    assert not browser.find_element(By.ID, "winner-overlay").is_displayed()
+
+    submit_standard_score_with_keypad(browser, 101)
+    winner_overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
+    assert winner_overlay.is_displayed()
+    assert browser.find_element(By.ID, "winner-name").text.strip() == "Nora"
 
 
 def test_x01_team_game_can_complete_end_to_end(live_server, browser):
@@ -1020,6 +1178,19 @@ def test_x01_team_game_can_complete_end_to_end(live_server, browser):
     winner_overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
     assert winner_overlay.is_displayed()
     assert browser.find_element(By.ID, "winner-name").text.strip() == "Team A"
+
+
+def test_x01_team_mode_can_choose_team_b_to_throw_first(live_server, browser):
+    browser.get(live_server)
+    start_x01_game(
+        browser,
+        ["Aria", "Bryn"],
+        starting_score="101",
+        team_mode="teams",
+        starting_entity="team_b",
+    )
+
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turn-player-name"), "Bryn"))
 
 
 def test_english_cricket_rejects_more_than_two_individual_players(live_server, browser):

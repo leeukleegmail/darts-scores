@@ -25,6 +25,7 @@ NOUGHTS_AND_CROSSES_WIN_LINES = (
     (2, 4, 6),
 )
 X01_VALID_STARTING_SCORES = (1001, 501, 301, 101)
+X01_VALID_MATCH_TYPES = ("best_of", "first_to")
 X01_RESULT_SCORED = 0
 X01_RESULT_BUST_OVERSHOOT = 1
 X01_RESULT_BUST_LEAVE_ONE = 2
@@ -259,6 +260,81 @@ def normalize_x01_starting_score(raw_score: object, default: int = 501) -> int:
     return default
 
 
+def normalize_x01_match_type(raw_match_type: object, default: str = "best_of") -> str:
+    if isinstance(raw_match_type, str):
+        candidate = raw_match_type.strip().lower()
+        if candidate in X01_VALID_MATCH_TYPES:
+            return candidate
+    return default
+
+
+def normalize_x01_legs_value(raw_legs_value: object, default: int = 1) -> int:
+    if isinstance(raw_legs_value, int) and 1 <= raw_legs_value <= 9:
+        return raw_legs_value
+    return default
+
+
+def required_legs_for_x01(match_type: str, legs_value: int) -> int:
+    normalized_match_type = normalize_x01_match_type(match_type)
+    normalized_legs_value = normalize_x01_legs_value(legs_value)
+    if normalized_match_type == "first_to":
+        return normalized_legs_value
+    return (normalized_legs_value + 1) // 2
+
+
+def normalize_x01_starting_entity(
+    raw_starting_entity: object,
+    team_mode: str,
+    ordered_player_ids: list[int],
+    assignments: dict[int, str],
+    default: str | None = None,
+) -> str:
+    if team_mode == "teams":
+        if raw_starting_entity in {TEAM_A, TEAM_B, "random"}:
+            return str(raw_starting_entity)
+        if default in {TEAM_A, TEAM_B, "random"}:
+            return str(default)
+        return TEAM_A
+
+    valid_player_ids = {str(player_id) for player_id in ordered_player_ids}
+    if isinstance(raw_starting_entity, int) and str(raw_starting_entity) in valid_player_ids:
+        return str(raw_starting_entity)
+    if isinstance(raw_starting_entity, str):
+        candidate = raw_starting_entity.strip().lower()
+        if candidate == "random":
+            return "random"
+        if raw_starting_entity.strip() in valid_player_ids:
+            return raw_starting_entity.strip()
+    if isinstance(default, str) and default in valid_player_ids | {"random"}:
+        return default
+    if ordered_player_ids:
+        return str(ordered_player_ids[0])
+    return "random"
+
+
+def x01_starting_turn_position(
+    ordered_player_ids: list[int],
+    assignments: dict[int, str],
+    team_mode: str,
+    starting_entity: str,
+) -> int:
+    if not ordered_player_ids:
+        return 0
+    if starting_entity == "random":
+        return random.randrange(len(ordered_player_ids))
+
+    if team_mode == "teams":
+        for index, player_id in enumerate(ordered_player_ids):
+            if assignments.get(player_id, TEAM_A) == starting_entity:
+                return index
+        return 0
+
+    for index, player_id in enumerate(ordered_player_ids):
+        if str(player_id) == starting_entity:
+            return index
+    return 0
+
+
 def x01_entity_keys(team_mode: str, ordered_player_ids: list[int], assignments: dict[int, str]) -> list[str]:
     if team_mode == "teams":
         present_teams = {assignments.get(player_id) for player_id in ordered_player_ids}
@@ -271,13 +347,37 @@ def build_initial_x01_state(
     assignments: dict[int, str],
     team_mode: str,
     starting_score: int = 501,
+    match_type: str = "best_of",
+    legs_value: int = 1,
+    starting_entity: str | None = None,
+    initial_turn_position: int = 0,
 ) -> dict[str, Any]:
     normalized_start = normalize_x01_starting_score(starting_score)
+    normalized_match_type = normalize_x01_match_type(match_type)
+    normalized_legs_value = normalize_x01_legs_value(legs_value)
+    entity_keys = x01_entity_keys(team_mode, ordered_player_ids, assignments)
+    normalized_starting_entity = normalize_x01_starting_entity(
+        starting_entity,
+        team_mode,
+        ordered_player_ids,
+        assignments,
+        default=(entity_keys[0] if entity_keys else "random"),
+    )
+    safe_turn_position = initial_turn_position if 0 <= initial_turn_position < max(1, len(ordered_player_ids)) else 0
     return {
         "starting_score": normalized_start,
+        "match_type": normalized_match_type,
+        "legs_value": normalized_legs_value,
+        "required_legs": required_legs_for_x01(normalized_match_type, normalized_legs_value),
+        "starting_entity": normalized_starting_entity,
+        "initial_turn_position": safe_turn_position,
         "remaining_scores": {
             key: normalized_start
-            for key in x01_entity_keys(team_mode, ordered_player_ids, assignments)
+            for key in entity_keys
+        },
+        "legs_won": {
+            key: 0
+            for key in entity_keys
         },
     }
 
@@ -299,12 +399,43 @@ def parse_x01_state(
         return default_state
 
     starting_score = normalize_x01_starting_score(decoded.get("starting_score"), default_state["starting_score"])
-    state = build_initial_x01_state(ordered_player_ids, assignments, team_mode, starting_score)
+    match_type = normalize_x01_match_type(decoded.get("match_type"), default_state["match_type"])
+    legs_value = normalize_x01_legs_value(decoded.get("legs_value"), default_state["legs_value"])
+    starting_entity = normalize_x01_starting_entity(
+        decoded.get("starting_entity"),
+        team_mode,
+        ordered_player_ids,
+        assignments,
+        default=default_state["starting_entity"],
+    )
+    initial_turn_position = decoded.get("initial_turn_position")
+    if not isinstance(initial_turn_position, int):
+        initial_turn_position = default_state["initial_turn_position"]
+
+    state = build_initial_x01_state(
+        ordered_player_ids,
+        assignments,
+        team_mode,
+        starting_score,
+        match_type,
+        legs_value,
+        starting_entity,
+        initial_turn_position,
+    )
     remaining_scores = decoded.get("remaining_scores") if isinstance(decoded.get("remaining_scores"), dict) else {}
     for key in state["remaining_scores"]:
         raw_remaining = remaining_scores.get(key)
         if isinstance(raw_remaining, int) and 0 <= raw_remaining <= starting_score:
             state["remaining_scores"][key] = raw_remaining
+
+    legs_won = decoded.get("legs_won") if isinstance(decoded.get("legs_won"), dict) else {}
+    max_legs = max(1, state["legs_value"])
+    for key in state["legs_won"]:
+        raw_legs = legs_won.get(key)
+        if isinstance(raw_legs, int) and 0 <= raw_legs <= max_legs:
+            state["legs_won"][key] = raw_legs
+
+    state["required_legs"] = required_legs_for_x01(state["match_type"], state["legs_value"])
     return state
 
 
@@ -696,6 +827,7 @@ def apply_x01_turn(
     remaining_scores = x01_state["remaining_scores"]
     remaining = int(remaining_scores.get(entity_key, x01_state["starting_score"]))
     result = "scored"
+    turn.dart_2 = 0
 
     projected_remaining = remaining - turn.total_points
     if projected_remaining < 0:
@@ -725,10 +857,39 @@ def apply_x01_turn(
             score_row.fives = projected_remaining
 
     if projected_remaining == 0:
+        legs_won = x01_state.setdefault("legs_won", {})
+        previous_legs = legs_won.get(entity_key, 0)
+        legs_won[entity_key] = previous_legs + 1
+        turn.dart_2 = legs_won[entity_key]
+
+        required_legs = required_legs_for_x01(
+            x01_state.get("match_type", "best_of"),
+            x01_state.get("legs_value", 1),
+        )
+        x01_state["required_legs"] = required_legs
+
+        if legs_won[entity_key] >= required_legs:
+            if getattr(game, "team_mode", "solo") == "teams":
+                finish_game(game, winner_team=entity_key)
+            else:
+                finish_game(game, winner_player_id=turn.player_id)
+            return
+
+        for key in remaining_scores:
+            remaining_scores[key] = x01_state["starting_score"]
+
         if getattr(game, "team_mode", "solo") == "teams":
-            finish_game(game, winner_team=entity_key)
+            for player in ordered_players:
+                player_team = assignments.get(player["id"], TEAM_A)
+                score_row = score_by_player.get(player["id"])
+                if score_row:
+                    score_row.fives = remaining_scores.get(player_team, x01_state["starting_score"])
         else:
-            finish_game(game, winner_player_id=turn.player_id)
+            for player in ordered_players:
+                score_row = score_by_player.get(player["id"])
+                if score_row:
+                    player_key = str(player["id"])
+                    score_row.fives = remaining_scores.get(player_key, x01_state["starting_score"])
 
 
 def recompute_game_state(
@@ -785,7 +946,12 @@ def recompute_game_state(
             assignments,
             game.team_mode,
             stored_x01_state["starting_score"],
+            stored_x01_state.get("match_type", "best_of"),
+            stored_x01_state.get("legs_value", 1),
+            stored_x01_state.get("starting_entity"),
+            stored_x01_state.get("initial_turn_position", 0),
         )
+        game.current_turn_position = x01_state.get("initial_turn_position", 0)
     else:
         x01_state = stored_x01_state
 
@@ -872,6 +1038,8 @@ def serialize_turns_for_game(turn_rows: list[tuple[Any, Any]], game: Any) -> lis
             "counted": turn.counted,
             "fives_awarded": turn.fives_awarded,
             "x01_result": decode_x01_turn_result(turn.dart_3) if game.game_type == "x01" else None,
+            "x01_leg_won": bool(turn.dart_2) if game.game_type == "x01" else None,
+            "x01_leg_number": int(turn.dart_2) if game.game_type == "x01" and turn.dart_2 else None,
             "noughts_marker": decode_noughts_marker(turn.dart_2) if game.game_type == "noughts_and_crosses" else None,
             "board_index": turn.total_points if game.game_type == "noughts_and_crosses" else None,
             "board_label": (
@@ -1026,6 +1194,9 @@ def build_new_game_start_state(
     team_mode: str,
     starting_batting_team: str | None,
     x01_starting_score: int,
+    x01_match_type: str = "best_of",
+    x01_legs_value: int = 1,
+    x01_starting_entity: str | None = None,
 ) -> tuple[int, str | None, str | None, str | None]:
     if game_type == "english_cricket":
         opening_state = build_initial_cricket_state(starting_batting_team)
@@ -1038,13 +1209,29 @@ def build_new_game_start_state(
         return initial_turn_position, json.dumps(opening_state), None, None
 
     if game_type == "x01":
+        initial_turn_position = x01_starting_turn_position(
+            ordered_player_ids,
+            normalized_assignments,
+            team_mode,
+            normalize_x01_starting_entity(
+                x01_starting_entity,
+                team_mode,
+                ordered_player_ids,
+                normalized_assignments,
+                default=(str(ordered_player_ids[0]) if ordered_player_ids else "random"),
+            ),
+        )
         x01_state = build_initial_x01_state(
             ordered_player_ids,
             normalized_assignments,
             team_mode,
             x01_starting_score,
+            x01_match_type,
+            x01_legs_value,
+            x01_starting_entity,
+            initial_turn_position,
         )
-        return 0, None, None, json.dumps(x01_state)
+        return initial_turn_position, None, None, json.dumps(x01_state)
 
     if game_type == "noughts_and_crosses":
         return 0, None, json.dumps(build_initial_noughts_and_crosses_state()), None
