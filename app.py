@@ -132,6 +132,7 @@ class Game(db.Model):
     cricket_state = db.Column(db.Text, nullable=True)
     noughts_and_crosses_state = db.Column(db.Text, nullable=True)
     x01_state = db.Column(db.Text, nullable=True)
+    shanghai_state = db.Column(db.Text, nullable=True)
     winner_team = db.Column(db.String(20), nullable=True)
     current_turn_position = db.Column(db.Integer, nullable=False, default=0)
     winner_player_id = db.Column(db.Integer, db.ForeignKey("players.id"), nullable=True)
@@ -402,6 +403,8 @@ def ensure_game_schema_columns() -> None:
         statements.append("ALTER TABLE games ADD COLUMN noughts_and_crosses_state TEXT")
     if "x01_state" not in existing_columns:
         statements.append("ALTER TABLE games ADD COLUMN x01_state TEXT")
+    if "shanghai_state" not in existing_columns:
+        statements.append("ALTER TABLE games ADD COLUMN shanghai_state TEXT")
     if "winner_team" not in existing_columns:
         statements.append("ALTER TABLE games ADD COLUMN winner_team VARCHAR(20)")
     if "history_hidden" not in existing_columns:
@@ -471,7 +474,7 @@ def recompute_game_state(game: Game) -> None:
 
 
 def build_player_stats(player: Player) -> dict:
-    supported_game_types = ("x01", "55by5", "english_cricket", "noughts_and_crosses")
+    supported_game_types = ("x01", "55by5", "english_cricket", "noughts_and_crosses", "shanghai")
     by_game_type = {
         game_type: {
             "game_type": game_type,
@@ -664,6 +667,7 @@ def api_meta():
                 {"id": "55by5", "name": "55 by 5"},
                 {"id": "english_cricket", "name": "English Cricket"},
                 {"id": "noughts_and_crosses", "name": "Noughts and Crosses"},
+                {"id": "shanghai", "name": "Shanghai"},
             ],
         }
     )
@@ -831,7 +835,7 @@ def create_game():
         default=(str(ordered_player_ids[0]) if ordered_player_ids else "random"),
     )
 
-    initial_turn_position, cricket_state, noughts_and_crosses_state, x01_state = build_new_game_start_state(
+    initial_turn_position, cricket_state, noughts_and_crosses_state, x01_state, shanghai_state = build_new_game_start_state(
         game_type,
         ordered_player_ids,
         normalized_assignments,
@@ -853,6 +857,7 @@ def create_game():
         cricket_state=cricket_state,
         noughts_and_crosses_state=noughts_and_crosses_state,
         x01_state=x01_state,
+        shanghai_state=shanghai_state,
         current_turn_position=initial_turn_position,
     )
     db.session.add(game)
@@ -928,6 +933,7 @@ def submit_turn(game_id: int):
                 "x01_result": decode_x01_turn_result(turn.dart_3) if game.game_type == "x01" else None,
                 "x01_leg_won": bool(turn.dart_2) if game.game_type == "x01" else None,
                 "x01_leg_number": int(turn.dart_2) if game.game_type == "x01" and turn.dart_2 else None,
+                "shanghai_instant": bool(turn.dart_2) if game.game_type == "shanghai" else None,
             },
             "game": serialize_game_state(game),
         }

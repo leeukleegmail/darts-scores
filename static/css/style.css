@@ -786,6 +786,12 @@ button:hover {
   align-items: stretch;
 }
 
+.standard-turn-layout.is-shanghai-layout {
+  grid-template-columns: minmax(300px, 340px) minmax(220px, 1fr);
+  gap: 0.9rem;
+  align-items: stretch;
+}
+
 .standard-entry-panel {
   display: grid;
   gap: 0.75rem;
@@ -830,6 +836,12 @@ button:hover {
   margin: 0;
 }
 
+.standard-turn-layout.is-shanghai-layout .standard-entry-panel {
+  grid-column: 1;
+  width: 100%;
+  margin: 0;
+}
+
 .x01-turn-panel {
   display: grid;
   gap: 0.65rem;
@@ -842,6 +854,53 @@ button:hover {
 .standard-turn-layout.is-x01-layout .x01-turn-panel {
   grid-column: 3;
   height: 100%;
+}
+
+.shanghai-turn-panel {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.standard-turn-layout.is-shanghai-layout .shanghai-turn-panel {
+  grid-column: 2;
+  height: 100%;
+}
+
+.shanghai-turn-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.7rem;
+}
+
+.shanghai-turn-pill {
+  display: grid;
+  gap: 0.3rem;
+  align-content: center;
+  justify-items: center;
+  padding: 0.8rem 0.9rem;
+  min-height: 6.5rem;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.shanghai-turn-pill span {
+  font-size: 0.9rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #d7d6d0;
+  text-align: center;
+}
+
+.shanghai-turn-pill strong {
+  font-size: clamp(2rem, 6vw, 3.3rem);
+  line-height: 0.95;
+  color: #f6ead2;
+  text-align: center;
 }
 
 .x01-turn-summary {
@@ -1907,13 +1966,28 @@ td {
     gap: 0.75rem;
   }
 
+  .standard-turn-layout.is-shanghai-layout {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
   .standard-turn-layout.is-x01-layout .standard-entry-panel,
   .turn-player-panel,
-  .standard-turn-layout.is-x01-layout .x01-turn-panel {
+  .standard-turn-layout.is-x01-layout .x01-turn-panel,
+  .standard-turn-layout.is-shanghai-layout .standard-entry-panel,
+  .standard-turn-layout.is-shanghai-layout .shanghai-turn-panel {
     grid-column: 1;
   }
 
   .x01-turn-pill {
+    min-height: 5.1rem;
+  }
+
+  .shanghai-turn-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .shanghai-turn-pill {
     min-height: 5.1rem;
   }
 

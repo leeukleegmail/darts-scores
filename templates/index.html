@@ -105,6 +105,10 @@
           </button>
           <button type="button" id="choose-55by5" class="mode-btn">55 by 5</button>
           <button type="button" id="choose-english-cricket" class="mode-btn">English Cricket</button>
+          <button type="button" id="choose-shanghai" class="mode-btn mode-btn--new">
+            <span class="mode-btn-sticker">New</span>
+            Shanghai
+          </button>
           <button type="button" id="choose-noughts-and-crosses" class="mode-btn">
             Noughts and Crosses
           </button>
@@ -156,6 +160,14 @@
                 <div class="x01-turn-pill x01-turn-pill--checkout">
                   <span>Checkout</span>
                   <strong id="x01-checkout-hint">-</strong>
+                </div>
+              </div>
+            </div>
+            <div id="shanghai-turn-panel" class="shanghai-turn-panel hidden">
+              <div class="shanghai-turn-summary">
+                <div class="shanghai-turn-pill">
+                  <span>Target</span>
+                  <strong id="shanghai-current-target">1</strong>
                 </div>
               </div>
             </div>
@@ -237,6 +249,7 @@
             <button type="button" class="help-nav-btn active" data-help-section="quick-start">Quick Start</button>
             <button type="button" class="help-nav-btn" data-help-section="x01">X01</button>
             <button type="button" class="help-nav-btn" data-help-section="55by5">55 by 5</button>
+            <button type="button" class="help-nav-btn" data-help-section="shanghai">Shanghai</button>
             <button type="button" class="help-nav-btn" data-help-section="cricket">English Cricket</button>
             <button type="button" class="help-nav-btn" data-help-section="noughts">Noughts and Crosses</button>
             <button type="button" class="help-nav-btn" data-help-section="admin">Accounts & History</button>
@@ -274,6 +287,19 @@
                 <li>Counted score is converted to <strong>fives</strong> (`total / 5`).</li>
                 <li>Hit exactly <strong>55</strong> fives to win; going over is a bust.</li>
                 <li>Use <strong>Undo</strong> to remove the latest turn if needed.</li>
+              </ul>
+            </section>
+
+            <section class="help-section" data-help-section="shanghai">
+              <h4>Shanghai</h4>
+              <ul class="help-points">
+                <li>Play moves through targets <strong>1</strong> to <strong>20</strong>, one round at a time.</li>
+                <li>Enter one total score for the current target round using the keypad.</li>
+                <li>Only positive multiples of the current target count, up to <strong>9 × target</strong>; any other total is a bust.</li>
+                <li>The live turn panel shows the current <strong>Target</strong> so you can see what number is in play.</li>
+                <li>In <strong>Teams</strong> mode, each team throws once per target and the team members alternate by round.</li>
+                <li>Scoring <strong>6 × the current target</strong> wins instantly with a Shanghai finish.</li>
+                <li>If nobody wins instantly by round <strong>20</strong>, the highest total score wins.</li>
               </ul>
             </section>
 

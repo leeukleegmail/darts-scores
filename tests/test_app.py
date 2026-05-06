@@ -879,6 +879,7 @@ def test_player_stats_endpoint_summarizes_wins_losses_by_game_type(client_with_m
         "55by5",
         "english_cricket",
         "noughts_and_crosses",
+        "shanghai",
     ]
 
     by_type = {item["game_type"]: item for item in payload["stats"]["by_game_type"]}
@@ -900,6 +901,13 @@ def test_player_stats_endpoint_summarizes_wins_losses_by_game_type(client_with_m
     assert by_type["x01"] == {
         "game_type": "x01",
         "label": "X01",
+        "played": 0,
+        "won": 0,
+        "lost": 0,
+    }
+    assert by_type["shanghai"] == {
+        "game_type": "shanghai",
+        "label": "Shanghai",
         "played": 0,
         "won": 0,
         "lost": 0,
@@ -2108,6 +2116,213 @@ def test_create_game_noughts_solo_requires_two_players(client):
     assert "two players" in res.get_json()["error"].lower()
 
 
+def test_create_shanghai_solo_mode(client):
+    p1 = add_player(client, "Shanghai Solo A")
+    p2 = add_player(client, "Shanghai Solo B")
+
+    res = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2],
+            "game_type": "shanghai",
+            "team_mode": "solo",
+        },
+    )
+
+    assert res.status_code == 201
+    game = res.get_json()["game"]
+    assert game["game_type"] == "shanghai"
+    assert game["active_player_id"] == p1
+    assert game["shanghai_state"]["current_round"] == 1
+    assert game["shanghai_state"]["current_target"] == 1
+
+
+def test_shanghai_round_advances_after_all_players_throw(client):
+    p1 = add_player(client, "Shanghai Round A")
+    p2 = add_player(client, "Shanghai Round B")
+
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1, p2], "game_type": "shanghai", "team_mode": "solo"},
+    ).get_json()["game"]
+
+    first = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": 5},
+    )
+    assert first.status_code == 200
+    first_game = first.get_json()["game"]
+    assert first_game["shanghai_state"]["current_round"] == 1
+    assert first_game["active_player_id"] == p2
+
+    second = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p2, "total_points": 0},
+    )
+    assert second.status_code == 200
+    assert second.get_json()["turn"]["counted"] is False
+    second_game = second.get_json()["game"]
+    assert second_game["shanghai_state"]["current_round"] == 2
+    assert second_game["shanghai_state"]["current_target"] == 2
+    assert second_game["active_player_id"] == p1
+
+
+def test_shanghai_invalid_total_busts_and_keeps_running_score(client):
+    p1 = add_player(client, "Shanghai Invalid")
+
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1], "game_type": "shanghai", "team_mode": "solo"},
+    ).get_json()["game"]
+
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 1})
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 2})
+
+    bust = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 8})
+    assert bust.status_code == 200
+    payload = bust.get_json()
+    assert payload["turn"]["counted"] is False
+    assert payload["turn"]["fives_awarded"] == 0
+    assert payload["turn"]["shanghai_instant"] is False
+    assert payload["game"]["players"][0]["fives"] == 3
+    assert payload["game"]["shanghai_state"]["current_round"] == 4
+    assert payload["game"]["shanghai_state"]["current_target"] == 4
+
+
+def test_shanghai_round_20_highest_score_wins(client):
+    p1 = add_player(client, "Shanghai Final A")
+    p2 = add_player(client, "Shanghai Final B")
+
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1, p2], "game_type": "shanghai", "team_mode": "solo"},
+    ).get_json()["game"]
+
+    for target in range(1, 20):
+        first = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": target})
+        assert first.status_code == 200
+        second = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p2, "total_points": target})
+        assert second.status_code == 200
+        assert second.get_json()["game"]["status"] == "active"
+
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 20})
+    final_turn = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p2, "total_points": 40})
+    assert final_turn.status_code == 200
+
+    payload = final_turn.get_json()
+    assert payload["game"]["status"] == "finished"
+    assert payload["game"]["winner_player_id"] == p2
+    assert payload["game"]["winner_team"] is None
+
+
+def test_shanghai_round_20_equal_scores_finishes_as_tie(client):
+    p1 = add_player(client, "Shanghai Tie A")
+    p2 = add_player(client, "Shanghai Tie B")
+
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1, p2], "game_type": "shanghai", "team_mode": "solo"},
+    ).get_json()["game"]
+
+    for target in range(1, 21):
+        first = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": target})
+        assert first.status_code == 200
+        second = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p2, "total_points": target})
+        assert second.status_code == 200
+
+    payload = second.get_json()
+    assert payload["game"]["status"] == "finished"
+    assert payload["game"]["winner_player_id"] is None
+    assert payload["game"]["winner_team"] is None
+
+
+def test_shanghai_instant_finish_on_six_x_target(client):
+    p1 = add_player(client, "Shanghai Instant")
+
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1], "game_type": "shanghai"},
+    ).get_json()["game"]
+
+    instant = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": 6},
+    )
+    assert instant.status_code == 200
+    payload = instant.get_json()
+    assert payload["turn"]["shanghai_instant"] is True
+    assert payload["game"]["status"] == "finished"
+    assert payload["game"]["winner_player_id"] == p1
+
+
+def test_shanghai_teams_throw_once_per_round_and_alternate_players(client):
+    a1 = add_player(client, "Shanghai Team A1")
+    b1 = add_player(client, "Shanghai Team B1")
+    a2 = add_player(client, "Shanghai Team A2")
+    b2 = add_player(client, "Shanghai Team B2")
+
+    game = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [a1, b1, a2, b2],
+            "game_type": "shanghai",
+            "team_mode": "teams",
+            "team_assignments": {
+                str(a1): "team_a",
+                str(b1): "team_b",
+                str(a2): "team_a",
+                str(b2): "team_b",
+            },
+        },
+    ).get_json()["game"]
+
+    assert game["active_player_id"] == a1
+
+    turn_a_round1 = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": a1, "total_points": 1},
+    )
+    assert turn_a_round1.status_code == 200
+    assert turn_a_round1.get_json()["game"]["active_player_id"] == b1
+
+    turn_b_round1 = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": b1, "total_points": 2},
+    )
+    assert turn_b_round1.status_code == 200
+    game_after_round1 = turn_b_round1.get_json()["game"]
+    assert game_after_round1["shanghai_state"]["current_round"] == 2
+    assert game_after_round1["active_player_id"] == a2
+
+    turn_a_round2 = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": a2, "total_points": 4},
+    )
+    assert turn_a_round2.status_code == 200
+    assert turn_a_round2.get_json()["game"]["active_player_id"] == b2
+
+
+def test_shanghai_undo_restores_round_and_active_player(client):
+    p1 = add_player(client, "Shanghai Undo A")
+    p2 = add_player(client, "Shanghai Undo B")
+
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1, p2], "game_type": "shanghai"},
+    ).get_json()["game"]
+
+    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 10})
+    second = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p2, "total_points": 5})
+    assert second.status_code == 200
+    assert second.get_json()["game"]["shanghai_state"]["current_round"] == 2
+
+    undo = client.delete(f"/api/games/{game['id']}/turn")
+    assert undo.status_code == 200
+    restored = undo.get_json()["game"]
+    assert restored["shanghai_state"]["current_round"] == 1
+    assert restored["active_player_id"] == p2
+
+
 # ---------------------------------------------------------------------------
 # History: all game types appear after completion
 # ---------------------------------------------------------------------------
@@ -2192,8 +2407,25 @@ def test_history_includes_noughts_game(client):
     assert entry["winner_player_id"] == p1
 
 
+def test_history_includes_shanghai_game(client):
+    p1 = add_player(client, "Hist Shanghai P1")
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1], "game_type": "shanghai"},
+    ).get_json()["game"]
+    result = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 6})
+    assert result.get_json()["game"]["status"] == "finished"
+
+    history = client.get("/api/games/history?limit=10").get_json()
+    ids = [g["id"] for g in history]
+    assert game["id"] in ids
+    entry = next(g for g in history if g["id"] == game["id"])
+    assert entry["game_type"] == "shanghai"
+    assert entry["winner_player_id"] == p1
+
+
 def test_history_includes_all_game_types_mixed(client):
-    """All four game types appear together in history when multiple games finish."""
+    """All supported game types appear together in history when multiple games finish."""
     p1 = add_player(client, "Mix P1")
     p2 = add_player(client, "Mix P2")
 
@@ -2222,12 +2454,17 @@ def test_history_includes_all_game_types_mixed(client):
     for cell, marker, pid in [(0, "X", p1), (3, "O", p2), (1, "X", p1), (4, "O", p2), (2, "X", p1)]:
         client.post(f"/api/games/{gnoughts['id']}/turn", json={"player_id": pid, "total_points": cell, "noughts_marker": marker})
 
+    # shanghai
+    gshanghai = client.post("/api/games", json={"ordered_player_ids": [p1], "game_type": "shanghai"}).get_json()["game"]
+    client.post(f"/api/games/{gshanghai['id']}/turn", json={"player_id": p1, "total_points": 6})
+
     history = client.get("/api/games/history?limit=10").get_json()
     game_types_in_history = {g["game_type"] for g in history}
     assert "55by5" in game_types_in_history
     assert "x01" in game_types_in_history
     assert "english_cricket" in game_types_in_history
     assert "noughts_and_crosses" in game_types_in_history
+    assert "shanghai" in game_types_in_history
 
 
 def test_history_abandoned_games_excluded(client):

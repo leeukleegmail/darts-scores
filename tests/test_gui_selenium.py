@@ -16,6 +16,7 @@ from tests.selenium_helpers import (
     start_cricket_game,
     start_noughts_game,
     start_noughts_team_game,
+    start_shanghai_game,
     start_single_player_game,
     start_x01_game,
     submit_cricket_score_with_keypad,
@@ -32,6 +33,91 @@ def test_start_game_shows_live_view(live_server, browser):
     assert current_player == "Alice to Throw"
     assert browser.find_element(By.ID, "live-panel").is_displayed()
     assert "275" in browser.find_element(By.ID, "scoreboard").text
+
+
+def test_shanghai_start_shows_target_in_live_meta(live_server, browser):
+    """Starting Shanghai shows round/target context in active game metadata."""
+    browser.get(live_server)
+    start_shanghai_game(browser, ["Sia", "Troy"])
+
+    panel = _wait(browser).until(ec.visibility_of_element_located((By.ID, "shanghai-turn-panel")))
+    assert panel.is_displayed()
+    assert browser.find_elements(By.ID, "shanghai-current-round") == []
+    assert browser.find_element(By.ID, "shanghai-current-target").text.strip() == "1"
+
+    meta_text = _wait(browser).until(
+        ec.visibility_of_element_located((By.ID, "active-game-meta"))
+    ).text
+    assert "Sia to Throw" in meta_text
+    assert "Round 1" in meta_text
+    assert "Target 1" in meta_text
+
+
+def test_shanghai_teams_alternate_thrower_each_round(live_server, browser):
+    """Teams throw once per target round and team members alternate by round."""
+    browser.get(live_server)
+    start_shanghai_game(browser, ["A1", "B1", "A2", "B2"], team_mode="teams")
+
+    def member_score_cells():
+        return browser.execute_script(
+            """
+            return Array.from(
+              document.querySelectorAll('#scoreboard tr:not(.team-header-row) td:nth-child(2)')
+            ).map((cell) => cell.textContent.trim());
+            """
+        )
+
+    _wait(browser).until(lambda d: member_score_cells() == ["-", "-", "-", "-"])
+
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "A1 to Throw"))
+    submit_standard_score_with_keypad(browser, 1)
+
+    _wait(browser).until(lambda d: member_score_cells() == ["-", "-", "-", "-"])
+
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "B1 to Throw"))
+    submit_standard_score_with_keypad(browser, 2)
+
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "A2 to Throw"))
+    _wait(browser).until(lambda d: member_score_cells() == ["-", "-", "-", "-"])
+    assert browser.find_elements(By.ID, "shanghai-current-round") == []
+    assert browser.find_element(By.ID, "shanghai-current-target").text.strip() == "2"
+
+
+def test_shanghai_instant_finish_shows_winner_overlay(live_server, browser):
+    """A 6x-target Shanghai finish ends the game immediately and shows the winner overlay."""
+    browser.get(live_server)
+    start_shanghai_game(browser, ["Sia"])
+
+    submit_standard_score_with_keypad(browser, 6)
+
+    winner_overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
+    assert winner_overlay.is_displayed()
+    assert browser.find_element(By.ID, "winner-name").text.strip() == "Sia"
+
+
+def test_shanghai_invalid_total_shows_bust_and_keeps_score(live_server, browser):
+    """Invalid Shanghai totals bust, leave the score unchanged, and show the red banner."""
+    browser.get(live_server)
+    start_shanghai_game(browser, ["Sia"])
+
+    submit_standard_score_with_keypad(browser, 1)
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#1 Sia: total 1"))
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "scoreboard"), "1"))
+
+    submit_standard_score_with_keypad(browser, 2)
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#2 Sia: total 2"))
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "scoreboard"), "3"))
+    _wait(browser).until(lambda d: d.find_element(By.ID, "shanghai-current-target").text.strip() == "3")
+
+    submit_standard_score_with_keypad(browser, 8)
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "bust-banner"), "Bust"))
+    _wait(browser).until(lambda d: "visible" in d.find_element(By.ID, "bust-banner").get_attribute("class"))
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#3 Sia: total 8 (bust)"))
+
+    scoreboard_text = browser.find_element(By.ID, "scoreboard").text
+    assert "Sia" in scoreboard_text
+    assert "3" in scoreboard_text
+    assert browser.find_element(By.ID, "shanghai-current-target").text.strip() == "4"
 
 
 def test_active_game_hides_select_game_panel_and_change_game_button(live_server, browser):
@@ -172,6 +258,15 @@ def test_help_button_opens_user_manual_in_header(live_server, browser):
         lambda d: "active" in d.find_element(By.CSS_SELECTOR, ".help-section[data-help-section='cricket']").get_attribute("class")
     )
     assert "Starting Roles" in browser.find_element(By.CSS_SELECTOR, ".help-section[data-help-section='cricket']").text
+
+    browser.find_element(By.CSS_SELECTOR, "#help-nav [data-help-section='shanghai']").click()
+    _wait(browser).until(
+        lambda d: "active" in d.find_element(By.CSS_SELECTOR, ".help-section[data-help-section='shanghai']").get_attribute("class")
+    )
+    shanghai_help = browser.find_element(By.CSS_SELECTOR, ".help-section[data-help-section='shanghai']").text
+    assert "Only positive multiples of the current target count" in shanghai_help
+    assert "6 × the current target" in shanghai_help
+    assert "highest total score wins" in shanghai_help
 
 
 def test_team_assignment_can_be_configured_before_choosing_game(live_server, browser):

@@ -72,6 +72,8 @@ const x01StartingEntityEl = document.getElementById("x01-starting-entity");
 const x01TurnPanelEl = document.getElementById("x01-turn-panel");
 const x01ActiveRemainingEl = document.getElementById("x01-active-remaining");
 const x01CheckoutHintEl = document.getElementById("x01-checkout-hint");
+const shanghaiTurnPanelEl = document.getElementById("shanghai-turn-panel");
+const shanghaiCurrentTargetEl = document.getElementById("shanghai-current-target");
 const turnPlayerPanelEl = document.getElementById("turn-player-panel");
 const turnPlayerNameEl = document.getElementById("turn-player-name");
 const teamAListEl = document.getElementById("team-a-list");
@@ -848,6 +850,7 @@ async function submitScore(totalPoints) {
     if (!state.game || state.game.status !== "active") return;
 
     const numericTotal = Number.isFinite(Number(totalPoints)) ? Number(totalPoints) : 0;
+    const submittingGameType = state.game.game_type;
     if (state.game.game_type === "55by5" && numericTotal % 5 !== 0) {
       showScoreWarningBanner("Total scored must be divisible by 5.");
     }
@@ -882,8 +885,9 @@ async function submitScore(totalPoints) {
       const is55By5Bust = response.game.game_type === "55by5" && !t.counted && t.total_points % 5 === 0;
       const isX01Bust = response.game.game_type === "x01"
         && (t.x01_result === "bust_overshoot" || t.x01_result === "bust_leave_one");
+      const isShanghaiBust = submittingGameType === "shanghai" && !t.counted;
 
-      if (is55By5Bust || isX01Bust) {
+      if (is55By5Bust || isX01Bust || isShanghaiBust) {
         showBustBanner("Bust");
         if (isX01Bust) {
           resetX01TurnFlags();
@@ -906,7 +910,7 @@ async function submitScore(totalPoints) {
         return;
       }
 
-      if (is55By5Bust || isX01Bust) {
+      if (is55By5Bust || isX01Bust || isShanghaiBust) {
         if (isX01Bust) {
           announceX01CheckoutIfNeeded(response.game);
         }
@@ -950,6 +954,15 @@ async function submitScore(totalPoints) {
           t.counted
             ? `${t.noughts_marker || "Move"} claimed ${t.board_label || `square ${t.board_index + 1}`}.`
             : `${t.board_label || "That square"} is already claimed.`
+        );
+        return;
+      }
+
+      if (response.game.game_type === "shanghai") {
+        showMessage(
+          t.shanghai_instant
+            ? `Shanghai finish! ${t.total_points} hit the round target multiplier.`
+            : `Shanghai turn saved: ${t.total_points} points.`
         );
         return;
       }
@@ -1115,6 +1128,7 @@ function renderPlayers() {
 function labelForGameType(gameType) {
   if (gameType === "x01") return "X01";
   if (gameType === "english_cricket") return "English Cricket";
+  if (gameType === "shanghai") return "Shanghai";
   if (gameType === "noughts_and_crosses") return "Noughts and Crosses";
   if (gameType === "55by5") return "55 by 5";
   return "55 by 5";
@@ -1239,6 +1253,12 @@ function updateHeroCopy(game) {
   if (activeGameType === "english_cricket") {
     heroTitleEl.textContent = "English Cricket";
     heroSubtitleEl.textContent = "Batting scores runs above 40 while bowling hunts 10 bull hits to finish the innings.";
+    return;
+  }
+
+  if (activeGameType === "shanghai") {
+    heroTitleEl.textContent = "Shanghai";
+    heroSubtitleEl.textContent = "Score each round target from 1 to 20. In teams, each team throws once per number with alternating throwers.";
     return;
   }
 
@@ -2225,6 +2245,58 @@ function renderStandardScoreboard(game) {
   }
 }
 
+function renderShanghaiScoreboard(game) {
+  scoreboardEl.innerHTML = "";
+  const shanghaiState = game.shanghai_state || {};
+  const scores = shanghaiState.scores || {};
+  const currentRound = Number(shanghaiState.current_round || 1);
+
+  if (game.team_mode === "teams") {
+    const grouped = groupPlayersByTeam([...game.players]);
+    for (const teamKey of ["team_a", "team_b"]) {
+      const members = grouped[teamKey];
+      if (!members.length) continue;
+      const label = teamInitialsLabel(teamDisplayName(teamKey, game.team_names), members);
+      const teamScore = Number(scores[teamKey] || 0);
+      const teamRow = document.createElement("tr");
+      teamRow.className = "team-header-row";
+      teamRow.innerHTML = `
+        <td><strong>${label}</strong></td>
+        <td><strong>${teamScore}</strong></td>
+        <td><strong>R${currentRound}</strong></td>
+      `;
+      scoreboardEl.appendChild(teamRow);
+
+      for (const player of members) {
+        const tr = document.createElement("tr");
+        if (player.id === game.active_player_id && game.status === "active") {
+          tr.classList.add("active-row");
+        }
+        tr.innerHTML = `
+          <td class="scoreboard-member">${player.name}</td>
+          <td>-</td>
+          <td>-</td>
+        `;
+        scoreboardEl.appendChild(tr);
+      }
+    }
+    return;
+  }
+
+  for (const player of game.players) {
+    const tr = document.createElement("tr");
+    if (player.id === game.active_player_id && game.status === "active") {
+      tr.classList.add("active-row");
+    }
+    tr.innerHTML = `
+      <td>${player.name}</td>
+      <td>${player.fives}</td>
+      <td>-</td>
+    `;
+    scoreboardEl.appendChild(tr);
+  }
+}
+
 function renderX01TurnPanel(game) {
   if (!x01TurnPanelEl || !x01ActiveRemainingEl || !x01CheckoutHintEl) return;
 
@@ -2234,6 +2306,17 @@ function renderX01TurnPanel(game) {
   x01TurnPanelEl.classList.toggle("hidden", game.game_type !== "x01");
   x01ActiveRemainingEl.textContent = String(remaining);
   x01CheckoutHintEl.textContent = x01State.active_checkout || "No checkout";
+}
+
+function renderShanghaiTurnPanel(game) {
+  if (!shanghaiTurnPanelEl || !shanghaiCurrentTargetEl) return;
+
+  const isShanghai = game?.game_type === "shanghai";
+  shanghaiTurnPanelEl.classList.toggle("hidden", !isShanghai);
+  if (!isShanghai) return;
+
+  const currentTarget = Number(game.shanghai_state?.current_target || 1);
+  shanghaiCurrentTargetEl.textContent = String(currentTarget);
 }
 
 function x01LegsWonForEntity(x01State, entityKey) {
@@ -2562,9 +2645,13 @@ function renderGame() {
     if (standardTurnControlsEl) {
       standardTurnControlsEl.classList.remove("hidden");
       standardTurnControlsEl.classList.remove("is-x01-layout");
+      standardTurnControlsEl.classList.remove("is-shanghai-layout");
     }
     if (x01TurnPanelEl) {
       x01TurnPanelEl.classList.add("hidden");
+    }
+    if (shanghaiTurnPanelEl) {
+      shanghaiTurnPanelEl.classList.add("hidden");
     }
     if (turnPlayerPanelEl) {
       turnPlayerPanelEl.classList.add("hidden");
@@ -2586,6 +2673,7 @@ function renderGame() {
 
   const isCricket = game.game_type === "english_cricket";
   const isX01 = game.game_type === "x01";
+  const isShanghai = game.game_type === "shanghai";
   const isNoughts = game.game_type === "noughts_and_crosses";
   const activePlayer = game.players.find((p) => p.id === game.active_player_id);
   const scoreboardTable = document.getElementById("scoreboard-table");
@@ -2596,7 +2684,7 @@ function renderGame() {
   if (headers.length >= 4) {
     headers[0].textContent = "Player";
     headers[1].textContent = isX01 ? "Remaining" : "Score";
-    headers[2].textContent = isX01 ? "Legs" : "Points Required";
+    headers[2].textContent = isX01 ? "Legs" : (isShanghai ? "Round" : "Points Required");
     headers[2].hidden = false;
     headers[3].textContent = isX01 ? "Target" : "";
     headers[3].hidden = !isX01;
@@ -2605,6 +2693,7 @@ function renderGame() {
   if (standardTurnControlsEl) {
     standardTurnControlsEl.classList.toggle("hidden", isCricket || isNoughts || game.status !== "active");
     standardTurnControlsEl.classList.toggle("is-x01-layout", isX01 && game.status === "active");
+    standardTurnControlsEl.classList.toggle("is-shanghai-layout", isShanghai && game.status === "active");
   }
   if (turnPlayerPanelEl) {
     const showTurnPlayerPanel = isX01 && game.status === "active";
@@ -2637,6 +2726,10 @@ function renderGame() {
     activeGameMetaEl.innerHTML = `<strong>Winner: ${winnerName}</strong>`;
   } else if (isCricket) {
     activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong>`;
+  } else if (isShanghai) {
+    const currentTarget = Number(game.shanghai_state?.current_target || 1);
+    const currentRound = Number(game.shanghai_state?.current_round || 1);
+    activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong> · Round ${currentRound} (Target ${currentTarget})`;
   } else if (isNoughts) {
     activeGameMetaEl.innerHTML = "<strong>Noughts and Crosses</strong>";
   } else if (isX01) {
@@ -2651,14 +2744,22 @@ function renderGame() {
   if (isCricket) {
     renderCricketDashboard(game);
     scoreboardEl.innerHTML = "";
+    renderShanghaiTurnPanel({ game_type: null });
   } else if (isNoughts) {
     renderNoughtsAndCrossesDashboard(game);
     scoreboardEl.innerHTML = "";
+    renderShanghaiTurnPanel({ game_type: null });
   } else if (isX01) {
+    renderShanghaiTurnPanel({ game_type: null });
     renderX01TurnPanel(game);
     renderX01Scoreboard(game);
+  } else if (isShanghai) {
+    renderX01TurnPanel({ game_type: null });
+    renderShanghaiTurnPanel(game);
+    renderShanghaiScoreboard(game);
   } else {
     renderX01TurnPanel({ game_type: null });
+    renderShanghaiTurnPanel({ game_type: null });
     renderStandardScoreboard(game);
   }
 
@@ -2675,6 +2776,12 @@ function renderGame() {
           : turn.x01_result === "bust_leave_one"
             ? "bust on 1 remaining"
                 : `${turn.total_points} scored`)
+      : isShanghai
+        ? (!turn.counted
+          ? "bust"
+          : turn.shanghai_instant
+          ? `${turn.total_points} scored (Shanghai finish)`
+          : `${turn.total_points} scored`)
       : isNoughts
         ? (turn.counted
           ? `${turn.noughts_marker || "Mark"} on ${turn.board_label || `square ${turn.board_index + 1}`}`
@@ -2758,6 +2865,8 @@ async function loadHistory() {
       ? "X01"
       : game.game_type === "english_cricket"
       ? "English Cricket"
+      : game.game_type === "shanghai"
+      ? "Shanghai"
       : game.game_type === "noughts_and_crosses"
       ? "Noughts and Crosses"
       : "55 by 5";
@@ -2960,6 +3069,7 @@ async function init() {
   const choose55Btn = document.getElementById("choose-55by5");
   const chooseX01Btn = document.getElementById("choose-x01");
   const chooseCricketBtn = document.getElementById("choose-english-cricket");
+  const chooseShanghaiBtn = document.getElementById("choose-shanghai");
   const chooseNoughtsBtn = document.getElementById("choose-noughts-and-crosses");
   const teamModeSoloEl = document.getElementById("team-mode-solo");
   const teamModeTeamsEl = document.getElementById("team-mode-teams");
@@ -3212,6 +3322,24 @@ async function init() {
       applyLayoutMode(state.game);
       renderTeamAssignment();
       openCricketStartOverlay();
+    });
+  }
+
+  if (chooseShanghaiBtn) {
+    chooseShanghaiBtn.addEventListener("click", async () => {
+      closeCricketStartOverlay();
+      closeX01StartOverlay();
+      closeNoughtsMarkOverlay();
+      closePlayerStats();
+      state.gameType = "shanghai";
+      state.teamMode = getTeamMode();
+      applyLayoutMode(state.game);
+      renderTeamAssignment();
+      try {
+        await startConfiguredGame();
+      } catch (err) {
+        showMessage(err.message, true);
+      }
     });
   }
 
