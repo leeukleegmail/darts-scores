@@ -482,6 +482,7 @@ def build_player_stats(player: Player) -> dict:
             "played": 0,
             "won": 0,
             "lost": 0,
+            "drawn": 0,
         }
         for game_type in supported_game_types
     }
@@ -497,6 +498,7 @@ def build_player_stats(player: Player) -> dict:
     games_played = 0
     games_won = 0
     games_lost = 0
+    games_drawn = 0
 
     for game in games:
         normalized_game_type = normalize_game_type(game.game_type)
@@ -508,6 +510,7 @@ def build_player_stats(player: Player) -> dict:
                 "played": 0,
                 "won": 0,
                 "lost": 0,
+                "drawn": 0,
             },
         )
         summary["played"] += 1
@@ -520,12 +523,16 @@ def build_player_stats(player: Player) -> dict:
         elif outcome == "lost":
             summary["lost"] += 1
             games_lost += 1
+        else:
+            summary["drawn"] += 1
+            games_drawn += 1
 
     win_rate = round((games_won / games_played) * 100, 1) if games_played else 0.0
     return {
         "games_played": games_played,
         "games_won": games_won,
         "games_lost": games_lost,
+        "games_drawn": games_drawn,
         "win_rate": win_rate,
         "by_game_type": [by_game_type[game_type] for game_type in supported_game_types],
     }
@@ -980,7 +987,7 @@ def games_history():
     limit = request.args.get("limit", default=20, type=int)
     limit = max(1, min(100, limit))
 
-    base_query = visible_games_query().filter_by(status="finished", history_hidden=False)
+    base_query = Game.query.filter_by(status="finished", history_hidden=False)
     total = base_query.count()
 
     games = (

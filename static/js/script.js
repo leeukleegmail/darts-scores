@@ -1176,6 +1176,7 @@ function renderPlayerStats() {
             <span>${item.played}</span>
             <span>${item.won}</span>
             <span>${item.lost}</span>
+            <span>${item.drawn || 0}</span>
             <span>${itemRate}%</span>
           </li>
         `;
@@ -1193,6 +1194,7 @@ function renderPlayerStats() {
         <div class="player-stat-tile"><strong>${stats.games_played}</strong><span>Played</span></div>
         <div class="player-stat-tile"><strong>${stats.games_won}</strong><span>Won</span></div>
         <div class="player-stat-tile"><strong>${stats.games_lost}</strong><span>Lost</span></div>
+        <div class="player-stat-tile"><strong>${stats.games_drawn || 0}</strong><span>Drawn</span></div>
         <div class="player-stat-tile"><strong>${winRate}%</strong><span>Win %</span></div>
       </div>
       <div>
@@ -1204,6 +1206,7 @@ function renderPlayerStats() {
               <span>Played</span>
               <span>Won</span>
               <span>Lost</span>
+              <span>Drawn</span>
               <span>%</span>
             </div>
           ` : ""}

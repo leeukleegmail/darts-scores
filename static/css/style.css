@@ -571,10 +571,10 @@ button:hover {
 .player-stats-breakdown-head,
 .player-stats-breakdown-row {
   display: grid;
-  grid-template-columns: minmax(120px, 1.5fr) repeat(4, minmax(52px, 0.8fr));
+  grid-template-columns: minmax(120px, 1.5fr) repeat(5, minmax(52px, 0.8fr));
   gap: 0.6rem;
   align-items: center;
-  min-width: 360px;
+  min-width: 430px;
 }
 
 .player-stats-breakdown-head {

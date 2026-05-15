@@ -572,7 +572,8 @@ def test_users_only_see_their_own_games_and_history(multi_auth_clients):
 
     viewer_history = player_client.get("/api/games/history")
     assert viewer_history.status_code == 200
-    assert viewer_history.get_json() == []
+    viewer_entries = viewer_history.get_json()
+    assert any(entry["id"] == admin_game["id"] for entry in viewer_entries)
 
 
 def test_admin_login_can_create_user(auth_client):
@@ -874,6 +875,7 @@ def test_player_stats_endpoint_summarizes_wins_losses_by_game_type(client_with_m
     assert payload["stats"]["games_played"] == 3
     assert payload["stats"]["games_won"] == 2
     assert payload["stats"]["games_lost"] == 1
+    assert payload["stats"]["games_drawn"] == 0
     assert [item["game_type"] for item in payload["stats"]["by_game_type"]] == [
         "x01",
         "55by5",
@@ -883,13 +885,21 @@ def test_player_stats_endpoint_summarizes_wins_losses_by_game_type(client_with_m
     ]
 
     by_type = {item["game_type"]: item for item in payload["stats"]["by_game_type"]}
-    assert by_type["55by5"] == {"game_type": "55by5", "label": "55 by 5", "played": 2, "won": 1, "lost": 1}
+    assert by_type["55by5"] == {
+        "game_type": "55by5",
+        "label": "55 by 5",
+        "played": 2,
+        "won": 1,
+        "lost": 1,
+        "drawn": 0,
+    }
     assert by_type["english_cricket"] == {
         "game_type": "english_cricket",
         "label": "English Cricket",
         "played": 1,
         "won": 1,
         "lost": 0,
+        "drawn": 0,
     }
     assert by_type["noughts_and_crosses"] == {
         "game_type": "noughts_and_crosses",
@@ -897,6 +907,7 @@ def test_player_stats_endpoint_summarizes_wins_losses_by_game_type(client_with_m
         "played": 0,
         "won": 0,
         "lost": 0,
+        "drawn": 0,
     }
     assert by_type["x01"] == {
         "game_type": "x01",
@@ -904,6 +915,7 @@ def test_player_stats_endpoint_summarizes_wins_losses_by_game_type(client_with_m
         "played": 0,
         "won": 0,
         "lost": 0,
+        "drawn": 0,
     }
     assert by_type["shanghai"] == {
         "game_type": "shanghai",
@@ -911,7 +923,47 @@ def test_player_stats_endpoint_summarizes_wins_losses_by_game_type(client_with_m
         "played": 0,
         "won": 0,
         "lost": 0,
+        "drawn": 0,
     }
+
+
+def test_player_stats_endpoint_counts_draws_in_totals(client_with_module):
+    client, app_module = client_with_module
+    alpha = add_player(client, "Alpha Draw Stats")
+    beta = add_player(client, "Beta Draw Stats")
+
+    with app_module.app.app_context():
+        draw_game = app_module.Game(
+            status="finished",
+            game_type="noughts_and_crosses",
+            team_mode="solo",
+            winner_player_id=None,
+            winner_team=None,
+            started_at=datetime.now(timezone.utc),
+            finished_at=datetime.now(timezone.utc),
+        )
+        app_module.db.session.add(draw_game)
+        app_module.db.session.flush()
+        app_module.db.session.add_all(
+            [
+                app_module.GamePlayerOrder(game_id=draw_game.id, player_id=alpha, position=0),
+                app_module.GamePlayerOrder(game_id=draw_game.id, player_id=beta, position=1),
+            ]
+        )
+        app_module.db.session.commit()
+
+    response = client.get(f"/api/players/{alpha}/stats")
+    assert response.status_code == 200
+    stats = response.get_json()["stats"]
+
+    assert stats["games_played"] == 1
+    assert stats["games_won"] == 0
+    assert stats["games_lost"] == 0
+    assert stats["games_drawn"] == 1
+    assert stats["games_played"] == stats["games_won"] + stats["games_lost"] + stats["games_drawn"]
+
+    by_type = {item["game_type"]: item for item in stats["by_game_type"]}
+    assert by_type["noughts_and_crosses"]["drawn"] == 1
 
 
 def test_delete_player_not_found_and_active_game_block(client):
