@@ -1191,11 +1191,11 @@ function renderPlayerStats() {
     </div>
     <div class="player-stats-body">
       <div class="player-stats-summary player-stats-summary-header" aria-label="Player win loss summary">
-        <div class="player-stat-tile"><strong>${stats.games_played}</strong><span>Played</span></div>
-        <div class="player-stat-tile"><strong>${stats.games_won}</strong><span>Won</span></div>
-        <div class="player-stat-tile"><strong>${stats.games_lost}</strong><span>Lost</span></div>
-        <div class="player-stat-tile"><strong>${stats.games_drawn || 0}</strong><span>Drawn</span></div>
-        <div class="player-stat-tile"><strong>${winRate}%</strong><span>Win %</span></div>
+        <div class="player-stat-tile"><strong>${stats.games_played}</strong><span>P</span></div>
+        <div class="player-stat-tile"><strong>${stats.games_won}</strong><span>W</span></div>
+        <div class="player-stat-tile"><strong>${stats.games_lost}</strong><span>L</span></div>
+        <div class="player-stat-tile"><strong>${stats.games_drawn || 0}</strong><span>D</span></div>
+        <div class="player-stat-tile"><strong>${winRate}%</strong><span>%</span></div>
       </div>
       <div>
         <p class="hint">${stats.games_played ? "Results by game type" : "No completed games recorded for this player yet."}</p>
@@ -1203,10 +1203,10 @@ function renderPlayerStats() {
           ${stats.games_played ? `
             <div class="player-stats-breakdown-head" aria-hidden="true">
               <span>Game</span>
-              <span>Played</span>
-              <span>Won</span>
-              <span>Lost</span>
-              <span>Drawn</span>
+              <span>P</span>
+              <span>W</span>
+              <span>L</span>
+              <span>D</span>
               <span>%</span>
             </div>
           ` : ""}

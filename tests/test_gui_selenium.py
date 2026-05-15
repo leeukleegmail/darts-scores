@@ -611,6 +611,11 @@ def test_player_manager_supports_search_and_stats_overlay_stacks_above(live_serv
 
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "player-stats-overlay")))
     assert browser.find_element(By.ID, "player-stats-title").text.strip() == "Bravo's Stats"
+    stat_labels = [
+        label.text.strip()
+        for label in browser.find_elements(By.CSS_SELECTOR, "#player-stats-panel .player-stat-tile span")
+    ]
+    assert stat_labels == ["P", "W", "L", "D", "%"]
 
     stats_z_index, manager_z_index = browser.execute_script(
         """
