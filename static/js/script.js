@@ -25,6 +25,7 @@ const state = {
   x01MatchAnnouncementKey: null,
   x01TurnAnnouncementKey: null,
   x01LegStartAnnouncementKey: null,
+  suppressX01CheckoutAnnouncementOnce: false,
 };
 
 const appShellEl = document.querySelector(".app-shell");
@@ -896,6 +897,7 @@ async function submitScore(totalPoints) {
         await delay(BUST_POST_SOUND_DELAY_MS);
       }
 
+      state.suppressX01CheckoutAnnouncementOnce = response.game.game_type === "x01" && response.game.status === "active";
       renderGame();
       // History only lists finished games; skip the round-trip while the game is
       // still active and only refresh it once the game ends.
@@ -2739,7 +2741,11 @@ function renderGame() {
     activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong>`;
   }
 
-  announceX01CheckoutIfNeeded(game);
+  if (isX01 && state.suppressX01CheckoutAnnouncementOnce) {
+    state.suppressX01CheckoutAnnouncementOnce = false;
+  } else {
+    announceX01CheckoutIfNeeded(game);
+  }
 
   if (isCricket) {
     renderCricketDashboard(game);

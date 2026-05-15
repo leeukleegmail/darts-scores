@@ -1378,6 +1378,8 @@ def test_create_noughts_and_crosses_solo_mode(client):
     assert len(game["noughts_and_crosses_state"]["cells"]) == 9
     assert game["noughts_and_crosses_state"]["cells"][4]["label"] == "Bullseye"
     assert game["noughts_and_crosses_state"]["cells"][0]["mark"] is None
+    cell_labels = [cell["label"] for cell in game["noughts_and_crosses_state"]["cells"]]
+    assert len(cell_labels) == len(set(cell_labels)), "Every cell label must be unique"
 
 
 def test_x01_counts_down_immediately(client):

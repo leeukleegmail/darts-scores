@@ -190,14 +190,13 @@ def now_iso(value: datetime | None) -> str | None:
 
 
 def generate_random_noughts_targets() -> list[str]:
-    targets = []
-    for index in range(9):
-        if index == 4:
-            targets.append("Bullseye")
-        else:
-            number = random.choice(NOUGHTS_AND_CROSSES_DARTBOARD_NUMBERS)
-            segment = random.choice(NOUGHTS_AND_CROSSES_SEGMENTS)
-            targets.append(f"{segment} {number}")
+    all_combinations = [
+        f"{segment} {number}"
+        for segment in NOUGHTS_AND_CROSSES_SEGMENTS
+        for number in NOUGHTS_AND_CROSSES_DARTBOARD_NUMBERS
+    ]
+    chosen = random.sample(all_combinations, 8)
+    targets = chosen[:4] + ["Bullseye"] + chosen[4:]
     return targets
 
 

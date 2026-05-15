@@ -831,6 +831,41 @@ def test_x01_singles_game_can_complete_end_to_end(live_server, browser):
     assert browser.find_element(By.ID, "winner-name").text.strip() == "Ava"
 
 
+def test_x01_turn_speech_announces_checkout_once(live_server, browser):
+        """A scored X01 turn only announces the checkout prompt once."""
+        browser.get(live_server)
+        browser.execute_script(
+                """
+                window.__spokenTexts = [];
+                Object.defineProperty(window, 'speechSynthesis', {
+                    configurable: true,
+                    value: {
+                    speak(utterance) {
+                        window.__spokenTexts.push(utterance.text);
+                        if (typeof utterance.onstart === 'function') {
+                            utterance.onstart();
+                        }
+                        if (typeof utterance.onend === 'function') {
+                            utterance.onend();
+                        }
+                    },
+                    resume() {},
+                    cancel() {},
+                    getVoices() { return []; },
+                    addEventListener() {},
+                    },
+                });
+                """
+        )
+        start_x01_game(browser, ["Ava"], starting_score="101")
+
+        submit_standard_score_with_keypad(browser, 60)
+
+        _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "x01-checkout-hint"), "9 D16"))
+        spoken_texts = browser.execute_script("return window.__spokenTexts;")
+        assert spoken_texts.count("Ava, you require 41") == 1
+
+
 def test_x01_first_to_three_requires_three_legs_to_win_end_to_end(live_server, browser):
     """First-to X01 does not finish until the configured leg target is reached."""
     browser.get(live_server)
