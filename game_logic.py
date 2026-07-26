@@ -31,14 +31,14 @@ X01_RESULT_BUST_OVERSHOOT = 1
 X01_RESULT_BUST_LEAVE_ONE = 2
 HALVE_IT_VARIANTS = ("standard", "hardcore")
 HALVE_IT_ROUNDS: tuple[dict[str, Any], ...] = (
-    {"target": "20", "kind": "number", "entry_mode": "hits", "number": 20},
-    {"target": "19", "kind": "number", "entry_mode": "hits", "number": 19},
-    {"target": "Any Double", "kind": "double", "entry_mode": "points"},
-    {"target": "18", "kind": "number", "entry_mode": "hits", "number": 18},
-    {"target": "17", "kind": "number", "entry_mode": "hits", "number": 17},
-    {"target": "Any Triple", "kind": "triple", "entry_mode": "points"},
-    {"target": "16", "kind": "number", "entry_mode": "hits", "number": 16},
     {"target": "15", "kind": "number", "entry_mode": "hits", "number": 15},
+    {"target": "16", "kind": "number", "entry_mode": "hits", "number": 16},
+    {"target": "Any Double", "kind": "double", "entry_mode": "points"},
+    {"target": "17", "kind": "number", "entry_mode": "hits", "number": 17},
+    {"target": "18", "kind": "number", "entry_mode": "hits", "number": 18},
+    {"target": "Any Triple", "kind": "triple", "entry_mode": "points"},
+    {"target": "19", "kind": "number", "entry_mode": "hits", "number": 19},
+    {"target": "20", "kind": "number", "entry_mode": "hits", "number": 20},
     {"target": "Bullseye", "kind": "bull", "entry_mode": "hits_or_points"},
 )
 HALVE_IT_TOTAL_ROUNDS = len(HALVE_IT_ROUNDS)

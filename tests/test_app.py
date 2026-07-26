@@ -1125,9 +1125,9 @@ def test_halve_it_scoring_and_miss_halves_total(client):
     )
     assert round_1.status_code == 200
     round_1_payload = round_1.get_json()
-    assert round_1_payload["turn"]["halve_it_target"] == "20"
+    assert round_1_payload["turn"]["halve_it_target"] == "15"
     assert round_1_payload["turn"]["halve_it_halved"] is False
-    assert next(player for player in round_1_payload["game"]["players"] if player["id"] == p1)["fives"] == 60
+    assert next(player for player in round_1_payload["game"]["players"] if player["id"] == p1)["fives"] == 50
 
     round_2 = client.post(
         f"/api/games/{game['id']}/turn",
@@ -1135,9 +1135,9 @@ def test_halve_it_scoring_and_miss_halves_total(client):
     )
     assert round_2.status_code == 200
     round_2_payload = round_2.get_json()
-    assert round_2_payload["turn"]["halve_it_target"] == "19"
+    assert round_2_payload["turn"]["halve_it_target"] == "16"
     assert round_2_payload["turn"]["halve_it_halved"] is True
-    assert next(player for player in round_2_payload["game"]["players"] if player["id"] == p1)["fives"] == 30
+    assert next(player for player in round_2_payload["game"]["players"] if player["id"] == p1)["fives"] == 25
 
 
 def test_halve_it_starting_scores_by_variant(client):

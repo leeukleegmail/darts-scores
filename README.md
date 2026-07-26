@@ -243,6 +243,7 @@ Notes:
 - Play runs for 9 rounds with round-specific targets.
 - Standard variant starts each player at 20 points.
 - Hardcore variant starts each player at 0 points.
+- Standard rounds are 15, 16, Any Double, 17, 18, Any Triple, 19, 20, and Bullseye.
 - Number rounds use hit-count entry (0 to 9 hits).
 - Double/Triple challenge rounds use points entry.
 - Miss a round target and your running score is halved (rounded down).
