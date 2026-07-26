@@ -696,11 +696,12 @@ def halve_it_points_from_entry(round_info: dict[str, Any], entry_value: int) -> 
         if isinstance(raw_totals, list) and raw_totals:
             allowed_totals = {int(value) for value in raw_totals}
             if entry_value in allowed_totals:
-                return entry_value, None
+                matched_total = next(total for total in allowed_totals if total == entry_value)
+                return matched_total, None
             return 0, None
         exact_total = int(round_info.get("exact_total") or 0)
         if entry_value == exact_total:
-            return entry_value, None
+            return exact_total, None
         # Non-exact entries are valid attempts that simply miss the target.
         return 0, None
 
