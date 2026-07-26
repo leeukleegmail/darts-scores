@@ -881,7 +881,7 @@ def test_player_stats_endpoint_summarizes_wins_losses_by_game_type(client_with_m
         "55by5",
         "english_cricket",
         "noughts_and_crosses",
-        "shanghai",
+        "halve_it",
     ]
 
     by_type = {item["game_type"]: item for item in payload["stats"]["by_game_type"]}
@@ -917,9 +917,9 @@ def test_player_stats_endpoint_summarizes_wins_losses_by_game_type(client_with_m
         "lost": 0,
         "drawn": 0,
     }
-    assert by_type["shanghai"] == {
-        "game_type": "shanghai",
-        "label": "Shanghai",
+    assert by_type["halve_it"] == {
+        "game_type": "halve_it",
+        "label": "Halve It",
         "played": 0,
         "won": 0,
         "lost": 0,
@@ -1042,6 +1042,7 @@ def test_turn_submission_rejects_scores_above_180_for_all_game_modes(client):
         },
         {"ordered_player_ids": [p1, p2], "game_type": "english_cricket"},
         {"ordered_player_ids": [p1, p2], "game_type": "noughts_and_crosses"},
+        {"ordered_player_ids": [p1], "game_type": "halve_it"},
     ]
 
     for payload in game_payloads:
@@ -1090,6 +1091,745 @@ def test_turn_submission_accepts_score_of_180_at_boundary(client):
         # x01 may finish immediately in some configs; quitting an active game is optional.
         if quit_res.status_code != 200:
             assert quit_res.status_code == 400
+
+
+def test_halve_it_rejects_team_mode(client):
+    p1 = add_player(client, "Halve Team A")
+    p2 = add_player(client, "Halve Team B")
+
+    created = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2],
+            "game_type": "halve_it",
+            "team_mode": "teams",
+            "team_assignments": {str(p1): "team_a", str(p2): "team_b"},
+        },
+    )
+
+    assert created.status_code == 400
+    assert "does not support teams" in created.get_json()["error"]
+
+
+def test_halve_it_scoring_and_miss_halves_total(client):
+    p1 = add_player(client, "Halve Solo")
+
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1], "game_type": "halve_it"},
+    ).get_json()["game"]
+
+    round_1 = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": 2},
+    )
+    assert round_1.status_code == 200
+    round_1_payload = round_1.get_json()
+    assert round_1_payload["turn"]["halve_it_target"] == "20"
+    assert round_1_payload["turn"]["halve_it_halved"] is False
+    assert next(player for player in round_1_payload["game"]["players"] if player["id"] == p1)["fives"] == 60
+
+    round_2 = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": 0},
+    )
+    assert round_2.status_code == 200
+    round_2_payload = round_2.get_json()
+    assert round_2_payload["turn"]["halve_it_target"] == "19"
+    assert round_2_payload["turn"]["halve_it_halved"] is True
+    assert next(player for player in round_2_payload["game"]["players"] if player["id"] == p1)["fives"] == 30
+
+
+def test_halve_it_starting_scores_by_variant(client):
+    standard_player = add_player(client, "Halve Standard Start")
+    standard_game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [standard_player], "game_type": "halve_it"},
+    ).get_json()["game"]
+    standard_score = next(player for player in standard_game["players"] if player["id"] == standard_player)["fives"]
+    assert standard_score == 20
+
+    assert client.delete(f"/api/games/{standard_game['id']}").status_code == 200
+
+    hardcore_player = add_player(client, "Halve Hardcore Start")
+    hardcore_game = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [hardcore_player],
+            "game_type": "halve_it",
+            "halve_it_variant": "hardcore",
+        },
+    ).get_json()["game"]
+    hardcore_score = next(player for player in hardcore_game["players"] if player["id"] == hardcore_player)["fives"]
+    assert hardcore_score == 0
+
+
+def test_halve_it_validates_entry_by_round_type(client):
+    p1 = add_player(client, "Halve Rules")
+
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1], "game_type": "halve_it"},
+    ).get_json()["game"]
+
+    invalid_number_round = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": 10},
+    )
+    assert invalid_number_round.status_code == 400
+    assert "expects hit count" in invalid_number_round.get_json()["error"]
+
+    assert client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": 3},
+    ).status_code == 200
+    assert client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": 3},
+    ).status_code == 200
+
+    invalid_double_round = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": 7},
+    )
+    assert invalid_double_round.status_code == 400
+    assert "divisible by 2" in invalid_double_round.get_json()["error"]
+
+
+def test_halve_it_bull_round_allows_up_to_six_marks(client):
+    p1 = add_player(client, "Halve Bull Rules")
+
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1], "game_type": "halve_it"},
+    ).get_json()["game"]
+
+    # Advance to round 9 (Bullseye).
+    for entry in [1, 1, 20, 1, 1, 30, 1, 1]:
+        response = client.post(
+            f"/api/games/{game['id']}/turn",
+            json={"player_id": p1, "total_points": entry},
+        )
+        assert response.status_code == 200
+
+    valid_bull_marks = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": 6},
+    )
+    assert valid_bull_marks.status_code == 200
+
+    # New game for invalid bull marks check.
+    game_invalid = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1], "game_type": "halve_it"},
+    ).get_json()["game"]
+
+    for entry in [1, 1, 20, 1, 1, 30, 1, 1]:
+        response = client.post(
+            f"/api/games/{game_invalid['id']}/turn",
+            json={"player_id": p1, "total_points": entry},
+        )
+        assert response.status_code == 200
+
+    invalid_bull_marks = client.post(
+        f"/api/games/{game_invalid['id']}/turn",
+        json={"player_id": p1, "total_points": 7},
+    )
+    assert invalid_bull_marks.status_code == 400
+    assert "hit count (0-6)" in invalid_bull_marks.get_json()["error"]
+
+
+def test_halve_it_hardcore_variant_generates_custom_rounds(client):
+    p1 = add_player(client, "Hardcore Solo")
+
+    created = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1],
+            "game_type": "halve_it",
+            "halve_it_variant": "hardcore",
+        },
+    )
+
+    assert created.status_code == 201
+    game = created.get_json()["game"]
+    halve_state = game["halve_it_state"]
+    assert halve_state["variant"] == "hardcore"
+    assert halve_state["total_rounds"] == 9
+    assert len(halve_state["rounds"]) == 9
+    assert halve_state["rounds"][8]["kind"] == "bull"
+    assert "Bullseye" in halve_state["rounds"][8]["target"]
+
+    round_8 = halve_state["rounds"][7]
+    assert round_8["kind"] == "exact_total"
+    assert round_8["exact_totals"] == [41, 101, 123]
+    assert "Exact 41 / 101 / 123" in round_8["target"]
+
+
+def test_halve_it_hardcore_round_9_is_bullseye(client):
+    p1 = add_player(client, "Hardcore Final Round Bull")
+
+    created = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1],
+            "game_type": "halve_it",
+            "halve_it_variant": "hardcore",
+        },
+    )
+    assert created.status_code == 201
+    game = created.get_json()["game"]
+
+    # Progress through 8 rounds with valid entries and capture score before R9.
+    for _ in range(8):
+        current_state = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+        round_info = current_state["halve_it_state"]["rounds"][current_state["halve_it_state"]["current_round"] - 1]
+        kind = round_info["kind"]
+        if kind == "number":
+            entry = 1
+        elif kind == "double":
+            entry = 20
+        elif kind == "triple":
+            entry = 21
+        elif kind == "exact_total":
+            if round_info.get("exact_totals"):
+                entry = int(round_info["exact_totals"][0])
+            else:
+                entry = int(round_info["exact_total"])
+        elif kind == "all_darts_hits":
+            entry = int(round_info.get("required_hits") or 3)
+        else:
+            entry = 0
+
+        turn = client.post(
+            f"/api/games/{game['id']}/turn",
+            json={"player_id": p1, "total_points": entry},
+        )
+        assert turn.status_code == 200
+
+    before_round_9_state = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+    before_round_9_score = next(player for player in before_round_9_state["players"] if player["id"] == p1)["fives"]
+
+    invalid_final = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": 26},
+    )
+    assert invalid_final.status_code == 400
+    assert "steps of 25" in invalid_final.get_json()["error"]
+
+    valid_final = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": 50},
+    )
+    assert valid_final.status_code == 200
+    payload = valid_final.get_json()
+    assert payload["turn"]["halve_it_halved"] is False
+    after_score = next(player for player in payload["game"]["players"] if player["id"] == p1)["fives"]
+    assert after_score == before_round_9_score + 50
+
+
+def test_halve_it_hardcore_round_9_allows_no_score(client):
+    p1 = add_player(client, "Hardcore Final Round No Score")
+
+    created = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1],
+            "game_type": "halve_it",
+            "halve_it_variant": "hardcore",
+        },
+    )
+    assert created.status_code == 201
+    game = created.get_json()["game"]
+
+    # Progress through 8 rounds with valid entries.
+    for _ in range(8):
+        current_state = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+        round_info = current_state["halve_it_state"]["rounds"][current_state["halve_it_state"]["current_round"] - 1]
+        kind = round_info["kind"]
+        if kind == "number":
+            entry = 1
+        elif kind == "double":
+            entry = 20
+        elif kind == "triple":
+            entry = 21
+        elif kind == "exact_total":
+            if round_info.get("exact_totals"):
+                entry = int(round_info["exact_totals"][0])
+            else:
+                entry = int(round_info["exact_total"])
+        elif kind == "all_darts_hits":
+            entry = int(round_info.get("required_hits") or 3)
+        elif kind == "manual_points":
+            entry = 45
+        else:
+            entry = 0
+
+        turn = client.post(
+            f"/api/games/{game['id']}/turn",
+            json={"player_id": p1, "total_points": entry},
+        )
+        assert turn.status_code == 200
+
+    before_round_9_state = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+    before_round_9_score = next(player for player in before_round_9_state["players"] if player["id"] == p1)["fives"]
+
+    no_score_final = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": 0},
+    )
+    assert no_score_final.status_code == 200
+    payload = no_score_final.get_json()
+    assert payload["turn"]["halve_it_halved"] is True
+    after_score = next(player for player in payload["game"]["players"] if player["id"] == p1)["fives"]
+    assert after_score == before_round_9_score // 2
+
+
+def test_halve_it_hardcore_single_number_rounds_use_hit_count_scoring(client):
+    p1 = add_player(client, "Hardcore Number Rules")
+
+    created = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1],
+            "game_type": "halve_it",
+            "halve_it_variant": "hardcore",
+        },
+    )
+    assert created.status_code == 201
+    game = created.get_json()["game"]
+
+    round_1_info = game["halve_it_state"]["rounds"][0]
+    assert round_1_info["kind"] == "number"
+    assert round_1_info["entry_mode"] == "hits"
+
+    # Two hits on 20 should score 40 in Hardcore round 1 (same as Standard number rounds).
+    turn_1 = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": 2},
+    )
+    assert turn_1.status_code == 200
+    score_after_turn_1 = next(player for player in turn_1.get_json()["game"]["players"] if player["id"] == p1)["fives"]
+    assert score_after_turn_1 == 40
+
+    # Round 2 (Any Double): valid divisible-by-2 score to progress.
+    turn_2 = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": 20},
+    )
+    assert turn_2.status_code == 200
+
+    # Round 3 is another single-number round and should also use hit-count scoring.
+    state_round_3 = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+    round_3_info = state_round_3["halve_it_state"]["rounds"][2]
+    assert round_3_info["kind"] == "number"
+    assert round_3_info["entry_mode"] == "hits"
+
+    turn_3 = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": 1},
+    )
+    assert turn_3.status_code == 200
+    round_3_value = int(round_3_info["number"])
+    score_after_turn_3 = next(player for player in turn_3.get_json()["game"]["players"] if player["id"] == p1)["fives"]
+    assert score_after_turn_3 == 40 + 20 + round_3_value
+
+
+def test_halve_it_hardcore_three_different_colors_allows_score_or_no_score(client):
+    p1 = add_player(client, "Hardcore Colors Rules")
+
+    created = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1],
+            "game_type": "halve_it",
+            "halve_it_variant": "hardcore",
+        },
+    )
+    assert created.status_code == 201
+    game = created.get_json()["game"]
+
+    rounds = game["halve_it_state"]["rounds"]
+    assert rounds[3]["target"] == "Three Different Colors"
+    assert rounds[3]["kind"] == "manual_points"
+    assert rounds[3]["entry_mode"] == "points"
+
+    # Progress to round 4 with valid entries.
+    assert client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 1}).status_code == 200
+    assert client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 20}).status_code == 200
+    assert client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 1}).status_code == 200
+
+    before_round_4 = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+    before_score = next(player for player in before_round_4["players"] if player["id"] == p1)["fives"]
+
+    # Entering a score should add that score.
+    scored_round = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": 45},
+    )
+    assert scored_round.status_code == 200
+    after_scored = next(player for player in scored_round.get_json()["game"]["players"] if player["id"] == p1)["fives"]
+    assert after_scored == before_score + 45
+
+    # End this game so a second verification game can be created.
+    assert client.delete(f"/api/games/{game['id']}").status_code == 200
+
+    # A fresh game verifies explicit no-score (0) is also accepted.
+    p2 = add_player(client, "Hardcore Colors Rules No Score")
+    game2 = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p2],
+            "game_type": "halve_it",
+            "halve_it_variant": "hardcore",
+        },
+    ).get_json()["game"]
+
+    assert client.post(f"/api/games/{game2['id']}/turn", json={"player_id": p2, "total_points": 1}).status_code == 200
+    assert client.post(f"/api/games/{game2['id']}/turn", json={"player_id": p2, "total_points": 20}).status_code == 200
+    assert client.post(f"/api/games/{game2['id']}/turn", json={"player_id": p2, "total_points": 1}).status_code == 200
+
+    before_no_score_state = client.get(f"/api/games/{game2['id']}/state").get_json()["game"]
+    before_no_score = next(player for player in before_no_score_state["players"] if player["id"] == p2)["fives"]
+
+    no_score_round = client.post(
+        f"/api/games/{game2['id']}/turn",
+        json={"player_id": p2, "total_points": 0},
+    )
+    assert no_score_round.status_code == 200
+    no_score_payload = no_score_round.get_json()
+    assert no_score_payload["turn"]["halve_it_halved"] is True
+    after_no_score = next(player for player in no_score_payload["game"]["players"] if player["id"] == p2)["fives"]
+    assert after_no_score == before_no_score // 2
+
+
+def test_halve_it_hardcore_black_white_black_allows_no_score(client):
+    p1 = add_player(client, "Hardcore BWB No Score")
+
+    created = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1],
+            "game_type": "halve_it",
+            "halve_it_variant": "hardcore",
+        },
+    )
+    assert created.status_code == 201
+    game = created.get_json()["game"]
+
+    # Progress to round 6 with valid entries for rounds 1-5.
+    for _ in range(5):
+        current_state = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+        round_info = current_state["halve_it_state"]["rounds"][current_state["halve_it_state"]["current_round"] - 1]
+        kind = round_info["kind"]
+        if kind == "number":
+            entry = 1
+        elif kind == "double":
+            entry = 20
+        elif kind == "triple":
+            entry = 21
+        elif kind == "exact_total":
+            if round_info.get("exact_totals"):
+                entry = int(round_info["exact_totals"][0])
+            else:
+                entry = int(round_info["exact_total"])
+        elif kind == "all_darts_hits":
+            entry = int(round_info.get("required_hits") or 3)
+        elif kind == "manual_points":
+            entry = 45
+        else:
+            entry = 0
+
+        response = client.post(
+            f"/api/games/{game['id']}/turn",
+            json={"player_id": p1, "total_points": entry},
+        )
+        assert response.status_code == 200
+
+    state_before = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+    round_6 = state_before["halve_it_state"]["rounds"][5]
+    assert round_6["target"] == "Black-White-Black"
+    assert round_6["kind"] == "manual_points"
+
+    score_before = next(player for player in state_before["players"] if player["id"] == p1)["fives"]
+
+    # No score should be accepted and should halve the player's current total.
+    no_score = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": 0},
+    )
+    assert no_score.status_code == 200
+    payload = no_score.get_json()
+    assert payload["turn"]["halve_it_halved"] is True
+    score_after = next(player for player in payload["game"]["players"] if player["id"] == p1)["fives"]
+    assert score_after == score_before // 2
+
+
+def test_halve_it_hardcore_black_white_black_allows_score_entry(client):
+    p1 = add_player(client, "Hardcore BWB Score Entry")
+
+    created = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1],
+            "game_type": "halve_it",
+            "halve_it_variant": "hardcore",
+        },
+    )
+    assert created.status_code == 201
+    game = created.get_json()["game"]
+
+    # Progress to round 6 with valid entries for rounds 1-5.
+    for _ in range(5):
+        current_state = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+        round_info = current_state["halve_it_state"]["rounds"][current_state["halve_it_state"]["current_round"] - 1]
+        kind = round_info["kind"]
+        if kind == "number":
+            entry = 1
+        elif kind == "double":
+            entry = 20
+        elif kind == "triple":
+            entry = 21
+        elif kind == "exact_total":
+            if round_info.get("exact_totals"):
+                entry = int(round_info["exact_totals"][0])
+            else:
+                entry = int(round_info["exact_total"])
+        elif kind == "all_darts_hits":
+            entry = int(round_info.get("required_hits") or 3)
+        elif kind == "manual_points":
+            entry = 45
+        else:
+            entry = 0
+
+        response = client.post(
+            f"/api/games/{game['id']}/turn",
+            json={"player_id": p1, "total_points": entry},
+        )
+        assert response.status_code == 200
+
+    state_before = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+    round_6 = state_before["halve_it_state"]["rounds"][5]
+    assert round_6["target"] == "Black-White-Black"
+    assert round_6["kind"] == "manual_points"
+
+    score_before = next(player for player in state_before["players"] if player["id"] == p1)["fives"]
+
+    scored_round = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": 90},
+    )
+    assert scored_round.status_code == 200
+    scored_payload = scored_round.get_json()
+    assert scored_payload["turn"]["halve_it_halved"] is False
+    score_after = next(player for player in scored_payload["game"]["players"] if player["id"] == p1)["fives"]
+    assert score_after == score_before + 90
+
+
+def test_halve_it_hardcore_three_different_colors_rejects_scores_over_180(client):
+    p1 = add_player(client, "Hardcore Colors Max")
+
+    created = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1],
+            "game_type": "halve_it",
+            "halve_it_variant": "hardcore",
+        },
+    )
+    assert created.status_code == 201
+    game = created.get_json()["game"]
+
+    # Progress to round 4.
+    assert client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 1}).status_code == 200
+    assert client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 20}).status_code == 200
+    assert client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 1}).status_code == 200
+
+    invalid_too_high = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": 181},
+    )
+    assert invalid_too_high.status_code == 400
+    assert "between 0 and 180" in invalid_too_high.get_json()["error"]
+
+
+def test_halve_it_hardcore_exact_round_accepts_miss_and_no_score(client):
+    p1 = add_player(client, "Hardcore Exact Miss")
+
+    created = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1],
+            "game_type": "halve_it",
+            "halve_it_variant": "hardcore",
+        },
+    )
+    assert created.status_code == 201
+    game = created.get_json()["game"]
+
+    # Progress to round 8 (always Exact in Hardcore).
+    for _ in range(7):
+        current_state = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+        round_info = current_state["halve_it_state"]["rounds"][current_state["halve_it_state"]["current_round"] - 1]
+        kind = round_info["kind"]
+        if kind == "number":
+            entry = 1
+        elif kind == "double":
+            entry = 20
+        elif kind == "triple":
+            entry = 21
+        elif kind == "exact_total":
+            if round_info.get("exact_totals"):
+                entry = int(round_info["exact_totals"][0])
+            else:
+                entry = int(round_info["exact_total"])
+        elif kind == "all_darts_hits":
+            entry = int(round_info.get("required_hits") or 3)
+        elif kind == "manual_points":
+            entry = 45
+        else:
+            entry = 0
+
+        response = client.post(
+            f"/api/games/{game['id']}/turn",
+            json={"player_id": p1, "total_points": entry},
+        )
+        assert response.status_code == 200
+
+    state_before = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+    round_8_info = state_before["halve_it_state"]["rounds"][7]
+    assert round_8_info["kind"] == "exact_total"
+    score_before = next(player for player in state_before["players"] if player["id"] == p1)["fives"]
+
+    # Non-exact should be accepted and treated as miss (halving score).
+    miss_round = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": 0},
+    )
+    assert miss_round.status_code == 200
+    miss_payload = miss_round.get_json()
+    assert miss_payload["turn"]["halve_it_halved"] is True
+    score_after_miss = next(player for player in miss_payload["game"]["players"] if player["id"] == p1)["fives"]
+    assert score_after_miss == score_before // 2
+
+
+def test_halve_it_hardcore_exact_round_exact_hit_still_scores(client):
+    p1 = add_player(client, "Hardcore Exact Hit")
+
+    created = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1],
+            "game_type": "halve_it",
+            "halve_it_variant": "hardcore",
+        },
+    )
+    assert created.status_code == 201
+    game = created.get_json()["game"]
+
+    # Progress to round 8.
+    for _ in range(7):
+        current_state = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+        round_info = current_state["halve_it_state"]["rounds"][current_state["halve_it_state"]["current_round"] - 1]
+        kind = round_info["kind"]
+        if kind == "number":
+            entry = 1
+        elif kind == "double":
+            entry = 20
+        elif kind == "triple":
+            entry = 21
+        elif kind == "exact_total":
+            if round_info.get("exact_totals"):
+                entry = int(round_info["exact_totals"][0])
+            else:
+                entry = int(round_info["exact_total"])
+        elif kind == "all_darts_hits":
+            entry = int(round_info.get("required_hits") or 3)
+        elif kind == "manual_points":
+            entry = 45
+        else:
+            entry = 0
+
+        response = client.post(
+            f"/api/games/{game['id']}/turn",
+            json={"player_id": p1, "total_points": entry},
+        )
+        assert response.status_code == 200
+
+    state_before = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+    round_8_info = state_before["halve_it_state"]["rounds"][7]
+    exact_target = int(round_8_info["exact_totals"][1])
+    score_before = next(player for player in state_before["players"] if player["id"] == p1)["fives"]
+
+    hit_round = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": exact_target},
+    )
+    assert hit_round.status_code == 200
+    hit_payload = hit_round.get_json()
+    assert hit_payload["turn"]["halve_it_halved"] is False
+    score_after_hit = next(player for player in hit_payload["game"]["players"] if player["id"] == p1)["fives"]
+    assert score_after_hit == score_before + exact_target
+
+
+def test_halve_it_hardcore_exact_round_shows_all_targets_and_scores_one_hit(client):
+    p1 = add_player(client, "Hardcore Exact Multi Target")
+
+    created = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1],
+            "game_type": "halve_it",
+            "halve_it_variant": "hardcore",
+        },
+    )
+    assert created.status_code == 201
+    game = created.get_json()["game"]
+
+    for _ in range(7):
+        current_state = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+        round_info = current_state["halve_it_state"]["rounds"][current_state["halve_it_state"]["current_round"] - 1]
+        kind = round_info["kind"]
+        if kind == "number":
+            entry = 1
+        elif kind == "double":
+            entry = 20
+        elif kind == "triple":
+            entry = 21
+        elif kind == "exact_total":
+            if round_info.get("exact_totals"):
+                entry = int(round_info["exact_totals"][0])
+            else:
+                entry = int(round_info["exact_total"])
+        elif kind == "all_darts_hits":
+            entry = int(round_info.get("required_hits") or 3)
+        elif kind == "manual_points":
+            entry = 45
+        else:
+            entry = 0
+
+        response = client.post(
+            f"/api/games/{game['id']}/turn",
+            json={"player_id": p1, "total_points": entry},
+        )
+        assert response.status_code == 200
+
+    state_before = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+    round_8 = state_before["halve_it_state"]["rounds"][7]
+    assert round_8["exact_totals"] == [41, 101, 123]
+    assert "Exact 41 / 101 / 123" in round_8["target"]
+
+    score_before = next(player for player in state_before["players"] if player["id"] == p1)["fives"]
+    chosen_target = 123
+    scored_round = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": chosen_target},
+    )
+    assert scored_round.status_code == 200
+    payload = scored_round.get_json()
+    assert payload["turn"]["halve_it_halved"] is False
+    score_after = next(player for player in payload["game"]["players"] if player["id"] == p1)["fives"]
+    assert score_after == score_before + chosen_target
 
 
 def test_undo_and_quit_invalid_states(client):
@@ -2170,211 +2910,16 @@ def test_create_game_noughts_solo_requires_two_players(client):
     assert "two players" in res.get_json()["error"].lower()
 
 
-def test_create_shanghai_solo_mode(client):
-    p1 = add_player(client, "Shanghai Solo A")
-    p2 = add_player(client, "Shanghai Solo B")
+def test_create_game_rejects_shanghai(client):
+    p1 = add_player(client, "No Shanghai A")
+    p2 = add_player(client, "No Shanghai B")
 
     res = client.post(
         "/api/games",
-        json={
-            "ordered_player_ids": [p1, p2],
-            "game_type": "shanghai",
-            "team_mode": "solo",
-        },
-    )
-
-    assert res.status_code == 201
-    game = res.get_json()["game"]
-    assert game["game_type"] == "shanghai"
-    assert game["active_player_id"] == p1
-    assert game["shanghai_state"]["current_round"] == 1
-    assert game["shanghai_state"]["current_target"] == 1
-
-
-def test_shanghai_round_advances_after_all_players_throw(client):
-    p1 = add_player(client, "Shanghai Round A")
-    p2 = add_player(client, "Shanghai Round B")
-
-    game = client.post(
-        "/api/games",
         json={"ordered_player_ids": [p1, p2], "game_type": "shanghai", "team_mode": "solo"},
-    ).get_json()["game"]
-
-    first = client.post(
-        f"/api/games/{game['id']}/turn",
-        json={"player_id": p1, "total_points": 5},
     )
-    assert first.status_code == 200
-    first_game = first.get_json()["game"]
-    assert first_game["shanghai_state"]["current_round"] == 1
-    assert first_game["active_player_id"] == p2
-
-    second = client.post(
-        f"/api/games/{game['id']}/turn",
-        json={"player_id": p2, "total_points": 0},
-    )
-    assert second.status_code == 200
-    assert second.get_json()["turn"]["counted"] is False
-    second_game = second.get_json()["game"]
-    assert second_game["shanghai_state"]["current_round"] == 2
-    assert second_game["shanghai_state"]["current_target"] == 2
-    assert second_game["active_player_id"] == p1
-
-
-def test_shanghai_invalid_total_busts_and_keeps_running_score(client):
-    p1 = add_player(client, "Shanghai Invalid")
-
-    game = client.post(
-        "/api/games",
-        json={"ordered_player_ids": [p1], "game_type": "shanghai", "team_mode": "solo"},
-    ).get_json()["game"]
-
-    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 1})
-    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 2})
-
-    bust = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 8})
-    assert bust.status_code == 200
-    payload = bust.get_json()
-    assert payload["turn"]["counted"] is False
-    assert payload["turn"]["fives_awarded"] == 0
-    assert payload["turn"]["shanghai_instant"] is False
-    assert payload["game"]["players"][0]["fives"] == 3
-    assert payload["game"]["shanghai_state"]["current_round"] == 4
-    assert payload["game"]["shanghai_state"]["current_target"] == 4
-
-
-def test_shanghai_round_20_highest_score_wins(client):
-    p1 = add_player(client, "Shanghai Final A")
-    p2 = add_player(client, "Shanghai Final B")
-
-    game = client.post(
-        "/api/games",
-        json={"ordered_player_ids": [p1, p2], "game_type": "shanghai", "team_mode": "solo"},
-    ).get_json()["game"]
-
-    for target in range(1, 20):
-        first = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": target})
-        assert first.status_code == 200
-        second = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p2, "total_points": target})
-        assert second.status_code == 200
-        assert second.get_json()["game"]["status"] == "active"
-
-    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 20})
-    final_turn = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p2, "total_points": 40})
-    assert final_turn.status_code == 200
-
-    payload = final_turn.get_json()
-    assert payload["game"]["status"] == "finished"
-    assert payload["game"]["winner_player_id"] == p2
-    assert payload["game"]["winner_team"] is None
-
-
-def test_shanghai_round_20_equal_scores_finishes_as_tie(client):
-    p1 = add_player(client, "Shanghai Tie A")
-    p2 = add_player(client, "Shanghai Tie B")
-
-    game = client.post(
-        "/api/games",
-        json={"ordered_player_ids": [p1, p2], "game_type": "shanghai", "team_mode": "solo"},
-    ).get_json()["game"]
-
-    for target in range(1, 21):
-        first = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": target})
-        assert first.status_code == 200
-        second = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p2, "total_points": target})
-        assert second.status_code == 200
-
-    payload = second.get_json()
-    assert payload["game"]["status"] == "finished"
-    assert payload["game"]["winner_player_id"] is None
-    assert payload["game"]["winner_team"] is None
-
-
-def test_shanghai_instant_finish_on_six_x_target(client):
-    p1 = add_player(client, "Shanghai Instant")
-
-    game = client.post(
-        "/api/games",
-        json={"ordered_player_ids": [p1], "game_type": "shanghai"},
-    ).get_json()["game"]
-
-    instant = client.post(
-        f"/api/games/{game['id']}/turn",
-        json={"player_id": p1, "total_points": 6},
-    )
-    assert instant.status_code == 200
-    payload = instant.get_json()
-    assert payload["turn"]["shanghai_instant"] is True
-    assert payload["game"]["status"] == "finished"
-    assert payload["game"]["winner_player_id"] == p1
-
-
-def test_shanghai_teams_throw_once_per_round_and_alternate_players(client):
-    a1 = add_player(client, "Shanghai Team A1")
-    b1 = add_player(client, "Shanghai Team B1")
-    a2 = add_player(client, "Shanghai Team A2")
-    b2 = add_player(client, "Shanghai Team B2")
-
-    game = client.post(
-        "/api/games",
-        json={
-            "ordered_player_ids": [a1, b1, a2, b2],
-            "game_type": "shanghai",
-            "team_mode": "teams",
-            "team_assignments": {
-                str(a1): "team_a",
-                str(b1): "team_b",
-                str(a2): "team_a",
-                str(b2): "team_b",
-            },
-        },
-    ).get_json()["game"]
-
-    assert game["active_player_id"] == a1
-
-    turn_a_round1 = client.post(
-        f"/api/games/{game['id']}/turn",
-        json={"player_id": a1, "total_points": 1},
-    )
-    assert turn_a_round1.status_code == 200
-    assert turn_a_round1.get_json()["game"]["active_player_id"] == b1
-
-    turn_b_round1 = client.post(
-        f"/api/games/{game['id']}/turn",
-        json={"player_id": b1, "total_points": 2},
-    )
-    assert turn_b_round1.status_code == 200
-    game_after_round1 = turn_b_round1.get_json()["game"]
-    assert game_after_round1["shanghai_state"]["current_round"] == 2
-    assert game_after_round1["active_player_id"] == a2
-
-    turn_a_round2 = client.post(
-        f"/api/games/{game['id']}/turn",
-        json={"player_id": a2, "total_points": 4},
-    )
-    assert turn_a_round2.status_code == 200
-    assert turn_a_round2.get_json()["game"]["active_player_id"] == b2
-
-
-def test_shanghai_undo_restores_round_and_active_player(client):
-    p1 = add_player(client, "Shanghai Undo A")
-    p2 = add_player(client, "Shanghai Undo B")
-
-    game = client.post(
-        "/api/games",
-        json={"ordered_player_ids": [p1, p2], "game_type": "shanghai"},
-    ).get_json()["game"]
-
-    client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 10})
-    second = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p2, "total_points": 5})
-    assert second.status_code == 200
-    assert second.get_json()["game"]["shanghai_state"]["current_round"] == 2
-
-    undo = client.delete(f"/api/games/{game['id']}/turn")
-    assert undo.status_code == 200
-    restored = undo.get_json()["game"]
-    assert restored["shanghai_state"]["current_round"] == 1
-    assert restored["active_player_id"] == p2
+    assert res.status_code == 400
+    assert "removed" in res.get_json()["error"].lower()
 
 
 # ---------------------------------------------------------------------------
@@ -2461,23 +3006,6 @@ def test_history_includes_noughts_game(client):
     assert entry["winner_player_id"] == p1
 
 
-def test_history_includes_shanghai_game(client):
-    p1 = add_player(client, "Hist Shanghai P1")
-    game = client.post(
-        "/api/games",
-        json={"ordered_player_ids": [p1], "game_type": "shanghai"},
-    ).get_json()["game"]
-    result = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 6})
-    assert result.get_json()["game"]["status"] == "finished"
-
-    history = client.get("/api/games/history?limit=10").get_json()
-    ids = [g["id"] for g in history]
-    assert game["id"] in ids
-    entry = next(g for g in history if g["id"] == game["id"])
-    assert entry["game_type"] == "shanghai"
-    assert entry["winner_player_id"] == p1
-
-
 def test_history_includes_all_game_types_mixed(client):
     """All supported game types appear together in history when multiple games finish."""
     p1 = add_player(client, "Mix P1")
@@ -2508,17 +3036,12 @@ def test_history_includes_all_game_types_mixed(client):
     for cell, marker, pid in [(0, "X", p1), (3, "O", p2), (1, "X", p1), (4, "O", p2), (2, "X", p1)]:
         client.post(f"/api/games/{gnoughts['id']}/turn", json={"player_id": pid, "total_points": cell, "noughts_marker": marker})
 
-    # shanghai
-    gshanghai = client.post("/api/games", json={"ordered_player_ids": [p1], "game_type": "shanghai"}).get_json()["game"]
-    client.post(f"/api/games/{gshanghai['id']}/turn", json={"player_id": p1, "total_points": 6})
-
     history = client.get("/api/games/history?limit=10").get_json()
     game_types_in_history = {g["game_type"] for g in history}
     assert "55by5" in game_types_in_history
     assert "x01" in game_types_in_history
     assert "english_cricket" in game_types_in_history
     assert "noughts_and_crosses" in game_types_in_history
-    assert "shanghai" in game_types_in_history
 
 
 def test_history_abandoned_games_excluded(client):

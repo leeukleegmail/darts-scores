@@ -238,7 +238,7 @@ def start_noughts_game(browser, first_player: str, second_player: str):
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "noughts-dashboard")))
 
 
-def start_shanghai_game(browser, player_names, team_mode="solo"):
+def start_halve_it_game(browser, player_names):
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "setup-panel")))
 
     for player_name in player_names:
@@ -254,12 +254,7 @@ def start_shanghai_game(browser, player_names, team_mode="solo"):
         if not player_checkbox.is_selected():
             player_checkbox.click()
 
-    if team_mode == "teams":
-        team_mode_toggle = _wait(browser).until(ec.element_to_be_clickable((By.ID, "team-mode-teams")))
-        if not team_mode_toggle.is_selected():
-            team_mode_toggle.click()
-
-    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-shanghai"))).click()
+    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-halve-it"))).click()
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
     _wait(browser).until(ec.visibility_of_element_located((By.CSS_SELECTOR, "#active-game-meta .current-player")))
 

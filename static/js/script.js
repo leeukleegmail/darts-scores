@@ -7,6 +7,7 @@ const state = {
   orderedPlayerIds: [],
   game: null,
   gameType: null,
+  halveItVariant: "standard",
   teamMode: "solo",
   teamAssignments: {},
   teamNames: { team_a: "Team A", team_b: "Team B" },
@@ -57,6 +58,8 @@ const cricketUndoTurnEl = document.getElementById("cricket-undo-turn");
 const standardScoreKeypadEl = document.getElementById("standard-score-keypad");
 const bullHitEl = document.getElementById("bull-hit");
 const selectedGameLabelEl = document.getElementById("selected-game-label");
+const halveItVariantEl = document.getElementById("halve-it-variant");
+const halveItVariantLabelEl = document.getElementById("halve-it-variant-label");
 const teamAssignmentEl = document.getElementById("team-assignment");
 const cricketStartOverlayEl = document.getElementById("cricket-start-overlay");
 const cricketStartPromptEl = document.getElementById("cricket-start-prompt");
@@ -73,8 +76,8 @@ const x01StartingEntityEl = document.getElementById("x01-starting-entity");
 const x01TurnPanelEl = document.getElementById("x01-turn-panel");
 const x01ActiveRemainingEl = document.getElementById("x01-active-remaining");
 const x01CheckoutHintEl = document.getElementById("x01-checkout-hint");
-const shanghaiTurnPanelEl = document.getElementById("shanghai-turn-panel");
-const shanghaiCurrentTargetEl = document.getElementById("shanghai-current-target");
+const roundTargetTurnPanelEl = document.getElementById("round-target-turn-panel");
+const roundTargetCurrentEl = document.getElementById("round-target-current");
 const turnPlayerPanelEl = document.getElementById("turn-player-panel");
 const turnPlayerNameEl = document.getElementById("turn-player-name");
 const teamAListEl = document.getElementById("team-a-list");
@@ -886,9 +889,9 @@ async function submitScore(totalPoints) {
       const is55By5Bust = response.game.game_type === "55by5" && !t.counted && t.total_points % 5 === 0;
       const isX01Bust = response.game.game_type === "x01"
         && (t.x01_result === "bust_overshoot" || t.x01_result === "bust_leave_one");
-      const isShanghaiBust = submittingGameType === "shanghai" && !t.counted;
+      const isHalveItHalved = submittingGameType === "halve_it" && Boolean(t.halve_it_halved);
 
-      if (is55By5Bust || isX01Bust || isShanghaiBust) {
+      if (is55By5Bust || isX01Bust) {
         showBustBanner("Bust");
         if (isX01Bust) {
           resetX01TurnFlags();
@@ -912,7 +915,7 @@ async function submitScore(totalPoints) {
         return;
       }
 
-      if (is55By5Bust || isX01Bust || isShanghaiBust) {
+      if (is55By5Bust || isX01Bust) {
         if (isX01Bust) {
           announceX01CheckoutIfNeeded(response.game);
         }
@@ -960,14 +963,16 @@ async function submitScore(totalPoints) {
         return;
       }
 
-      if (response.game.game_type === "shanghai") {
+      if (response.game.game_type === "halve_it") {
         showMessage(
-          t.shanghai_instant
-            ? `Shanghai finish! ${t.total_points} hit the round target multiplier.`
-            : `Shanghai turn saved: ${t.total_points} points.`
+          isHalveItHalved
+            ? `Missed ${t.halve_it_target || "target"}. Score halved.`
+            : `Halve It turn saved: +${t.fives_awarded} on ${t.halve_it_target || "target"}.`
         );
         return;
       }
+
+      const isBust = response.game.game_type === "55by5" && !t.counted && t.total_points % 5 === 0;
 
       showMessage(
         t.counted
@@ -1130,7 +1135,7 @@ function renderPlayers() {
 function labelForGameType(gameType) {
   if (gameType === "x01") return "X01";
   if (gameType === "english_cricket") return "English Cricket";
-  if (gameType === "shanghai") return "Shanghai";
+  if (gameType === "halve_it") return "Halve It";
   if (gameType === "noughts_and_crosses") return "Noughts and Crosses";
   if (gameType === "55by5") return "55 by 5";
   return "55 by 5";
@@ -1261,9 +1266,9 @@ function updateHeroCopy(game) {
     return;
   }
 
-  if (activeGameType === "shanghai") {
-    heroTitleEl.textContent = "Shanghai";
-    heroSubtitleEl.textContent = "Score each round target from 1 to 20. In teams, each team throws once per number with alternating throwers.";
+  if (activeGameType === "halve_it") {
+    heroTitleEl.textContent = "Halve It";
+    heroSubtitleEl.textContent = "Hit each round target to score, or miss completely and your running total is halved.";
     return;
   }
 
@@ -1283,6 +1288,53 @@ function getTeamMode() {
     return "solo";
   }
   return checked.value === "teams" ? "teams" : "solo";
+}
+
+function normalizeHalveItVariant(rawValue) {
+  return rawValue === "hardcore" ? "hardcore" : "standard";
+}
+
+function halveItVariantFromSlider() {
+  if (!(halveItVariantEl instanceof HTMLInputElement)) {
+    return "standard";
+  }
+  return halveItVariantEl.value === "1" ? "hardcore" : "standard";
+}
+
+function syncHalveItVariantControls(variant = state.halveItVariant) {
+  const normalized = normalizeHalveItVariant(variant);
+  state.halveItVariant = normalized;
+
+  if (halveItVariantEl instanceof HTMLInputElement) {
+    halveItVariantEl.value = normalized === "hardcore" ? "1" : "0";
+    halveItVariantEl.classList.toggle("is-hardcore", normalized === "hardcore");
+  }
+  if (halveItVariantLabelEl) {
+    halveItVariantLabelEl.textContent = normalized === "hardcore" ? "Hardcore" : "Standard";
+  }
+}
+
+function updateTeamModeAvailability() {
+  const teamModeSoloEl = document.getElementById("team-mode-solo");
+  const teamModeTeamsEl = document.getElementById("team-mode-teams");
+  const teamsChip = teamModeTeamsEl instanceof HTMLInputElement ? teamModeTeamsEl.closest(".chip") : null;
+  const disableTeams = state.gameType === "halve_it";
+
+  if (teamModeTeamsEl instanceof HTMLInputElement) {
+    teamModeTeamsEl.disabled = disableTeams;
+    if (disableTeams && teamModeTeamsEl.checked && teamModeSoloEl instanceof HTMLInputElement) {
+      teamModeSoloEl.checked = true;
+      state.teamMode = "solo";
+    }
+  }
+
+  if (teamModeSoloEl instanceof HTMLInputElement) {
+    teamModeSoloEl.disabled = false;
+  }
+
+  if (teamsChip instanceof HTMLElement) {
+    teamsChip.classList.toggle("chip-disabled", disableTeams);
+  }
 }
 
 function normalizeTeamNames(rawNames = {}) {
@@ -1338,6 +1390,8 @@ function syncStateFromGame(game) {
   state.x01MatchType = game.x01_state?.match_type || "best_of";
   state.x01LegsValue = Number(game.x01_state?.legs_value) || 1;
   state.x01StartingEntity = game.x01_state?.starting_entity || null;
+  state.halveItVariant = normalizeHalveItVariant(game.halve_it_state?.variant || state.halveItVariant);
+  syncHalveItVariantControls(state.halveItVariant);
 }
 
 function restoreLobbyStateFromGame(game) {
@@ -1357,6 +1411,8 @@ function restoreLobbyStateFromGame(game) {
   state.x01MatchType = game.x01_state?.match_type || "best_of";
   state.x01LegsValue = Number(game.x01_state?.legs_value) || 1;
   state.x01StartingEntity = game.x01_state?.starting_entity || null;
+  state.halveItVariant = normalizeHalveItVariant(game.halve_it_state?.variant || state.halveItVariant);
+  syncHalveItVariantControls(state.halveItVariant);
 
   const teamModeSoloEl = document.getElementById("team-mode-solo");
   const teamModeTeamsEl = document.getElementById("team-mode-teams");
@@ -2250,58 +2306,6 @@ function renderStandardScoreboard(game) {
   }
 }
 
-function renderShanghaiScoreboard(game) {
-  scoreboardEl.innerHTML = "";
-  const shanghaiState = game.shanghai_state || {};
-  const scores = shanghaiState.scores || {};
-  const currentRound = Number(shanghaiState.current_round || 1);
-
-  if (game.team_mode === "teams") {
-    const grouped = groupPlayersByTeam([...game.players]);
-    for (const teamKey of ["team_a", "team_b"]) {
-      const members = grouped[teamKey];
-      if (!members.length) continue;
-      const label = teamInitialsLabel(teamDisplayName(teamKey, game.team_names), members);
-      const teamScore = Number(scores[teamKey] || 0);
-      const teamRow = document.createElement("tr");
-      teamRow.className = "team-header-row";
-      teamRow.innerHTML = `
-        <td><strong>${label}</strong></td>
-        <td><strong>${teamScore}</strong></td>
-        <td><strong>R${currentRound}</strong></td>
-      `;
-      scoreboardEl.appendChild(teamRow);
-
-      for (const player of members) {
-        const tr = document.createElement("tr");
-        if (player.id === game.active_player_id && game.status === "active") {
-          tr.classList.add("active-row");
-        }
-        tr.innerHTML = `
-          <td class="scoreboard-member">${player.name}</td>
-          <td>-</td>
-          <td>-</td>
-        `;
-        scoreboardEl.appendChild(tr);
-      }
-    }
-    return;
-  }
-
-  for (const player of game.players) {
-    const tr = document.createElement("tr");
-    if (player.id === game.active_player_id && game.status === "active") {
-      tr.classList.add("active-row");
-    }
-    tr.innerHTML = `
-      <td>${player.name}</td>
-      <td>${player.fives}</td>
-      <td>-</td>
-    `;
-    scoreboardEl.appendChild(tr);
-  }
-}
-
 function renderX01TurnPanel(game) {
   if (!x01TurnPanelEl || !x01ActiveRemainingEl || !x01CheckoutHintEl) return;
 
@@ -2313,15 +2317,37 @@ function renderX01TurnPanel(game) {
   x01CheckoutHintEl.textContent = x01State.active_checkout || "No checkout";
 }
 
-function renderShanghaiTurnPanel(game) {
-  if (!shanghaiTurnPanelEl || !shanghaiCurrentTargetEl) return;
+function renderRoundTargetTurnPanel(game) {
+  if (!roundTargetTurnPanelEl || !roundTargetCurrentEl) return;
 
-  const isShanghai = game?.game_type === "shanghai";
-  shanghaiTurnPanelEl.classList.toggle("hidden", !isShanghai);
-  if (!isShanghai) return;
+  const isRoundTargetGame = game?.game_type === "halve_it";
+  roundTargetTurnPanelEl.classList.toggle("hidden", !isRoundTargetGame);
+  if (!isRoundTargetGame) return;
 
-  const currentTarget = Number(game.shanghai_state?.current_target || 1);
-  shanghaiCurrentTargetEl.textContent = String(currentTarget);
+  const currentTarget = String(game.halve_it_state?.current_target || "20");
+  roundTargetCurrentEl.textContent = currentTarget;
+}
+
+function renderHalveItScoreboard(game) {
+  scoreboardEl.innerHTML = "";
+  const halveState = game.halve_it_state || {};
+  const roundsTotal = Number(halveState.total_rounds || 9);
+  const roundsByPlayer = halveState.player_rounds || {};
+
+  for (const player of game.players) {
+    const tr = document.createElement("tr");
+    if (player.id === game.active_player_id && game.status === "active") {
+      tr.classList.add("active-row");
+    }
+
+    const roundsCompleted = Number(roundsByPlayer[String(player.id)] || 0);
+    tr.innerHTML = `
+      <td>${player.name}</td>
+      <td>${player.fives}</td>
+      <td>R${Math.min(roundsCompleted + 1, roundsTotal)}/${roundsTotal}</td>
+    `;
+    scoreboardEl.appendChild(tr);
+  }
 }
 
 function x01LegsWonForEntity(x01State, entityKey) {
@@ -2597,6 +2623,7 @@ function applyLayoutMode(game) {
   const activeMode = game && game.status === "active";
 
   updateHeroCopy(game);
+  updateTeamModeAvailability();
 
   if (activeMode) {
     closePlayerManager();
@@ -2650,13 +2677,13 @@ function renderGame() {
     if (standardTurnControlsEl) {
       standardTurnControlsEl.classList.remove("hidden");
       standardTurnControlsEl.classList.remove("is-x01-layout");
-      standardTurnControlsEl.classList.remove("is-shanghai-layout");
+      standardTurnControlsEl.classList.remove("is-target-layout");
     }
     if (x01TurnPanelEl) {
       x01TurnPanelEl.classList.add("hidden");
     }
-    if (shanghaiTurnPanelEl) {
-      shanghaiTurnPanelEl.classList.add("hidden");
+    if (roundTargetTurnPanelEl) {
+      roundTargetTurnPanelEl.classList.add("hidden");
     }
     if (turnPlayerPanelEl) {
       turnPlayerPanelEl.classList.add("hidden");
@@ -2678,7 +2705,7 @@ function renderGame() {
 
   const isCricket = game.game_type === "english_cricket";
   const isX01 = game.game_type === "x01";
-  const isShanghai = game.game_type === "shanghai";
+  const isHalveIt = game.game_type === "halve_it";
   const isNoughts = game.game_type === "noughts_and_crosses";
   const activePlayer = game.players.find((p) => p.id === game.active_player_id);
   const scoreboardTable = document.getElementById("scoreboard-table");
@@ -2689,7 +2716,7 @@ function renderGame() {
   if (headers.length >= 4) {
     headers[0].textContent = "Player";
     headers[1].textContent = isX01 ? "Remaining" : "Score";
-    headers[2].textContent = isX01 ? "Legs" : (isShanghai ? "Round" : "Points Required");
+    headers[2].textContent = isX01 ? "Legs" : (isHalveIt ? "Round" : "Points Required");
     headers[2].hidden = false;
     headers[3].textContent = isX01 ? "Target" : "";
     headers[3].hidden = !isX01;
@@ -2698,7 +2725,7 @@ function renderGame() {
   if (standardTurnControlsEl) {
     standardTurnControlsEl.classList.toggle("hidden", isCricket || isNoughts || game.status !== "active");
     standardTurnControlsEl.classList.toggle("is-x01-layout", isX01 && game.status === "active");
-    standardTurnControlsEl.classList.toggle("is-shanghai-layout", isShanghai && game.status === "active");
+    standardTurnControlsEl.classList.toggle("is-target-layout", isHalveIt && game.status === "active");
   }
   if (turnPlayerPanelEl) {
     const showTurnPlayerPanel = isX01 && game.status === "active";
@@ -2731,9 +2758,9 @@ function renderGame() {
     activeGameMetaEl.innerHTML = `<strong>Winner: ${winnerName}</strong>`;
   } else if (isCricket) {
     activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong>`;
-  } else if (isShanghai) {
-    const currentTarget = Number(game.shanghai_state?.current_target || 1);
-    const currentRound = Number(game.shanghai_state?.current_round || 1);
+  } else if (isHalveIt) {
+    const currentTarget = String(game.halve_it_state?.current_target || "20");
+    const currentRound = Number(game.halve_it_state?.current_round || 1);
     activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong> · Round ${currentRound} (Target ${currentTarget})`;
   } else if (isNoughts) {
     activeGameMetaEl.innerHTML = "<strong>Noughts and Crosses</strong>";
@@ -2753,22 +2780,22 @@ function renderGame() {
   if (isCricket) {
     renderCricketDashboard(game);
     scoreboardEl.innerHTML = "";
-    renderShanghaiTurnPanel({ game_type: null });
+    renderRoundTargetTurnPanel({ game_type: null });
   } else if (isNoughts) {
     renderNoughtsAndCrossesDashboard(game);
     scoreboardEl.innerHTML = "";
-    renderShanghaiTurnPanel({ game_type: null });
+    renderRoundTargetTurnPanel({ game_type: null });
   } else if (isX01) {
-    renderShanghaiTurnPanel({ game_type: null });
+    renderRoundTargetTurnPanel({ game_type: null });
     renderX01TurnPanel(game);
     renderX01Scoreboard(game);
-  } else if (isShanghai) {
+  } else if (isHalveIt) {
     renderX01TurnPanel({ game_type: null });
-    renderShanghaiTurnPanel(game);
-    renderShanghaiScoreboard(game);
+    renderRoundTargetTurnPanel(game);
+    renderHalveItScoreboard(game);
   } else {
     renderX01TurnPanel({ game_type: null });
-    renderShanghaiTurnPanel({ game_type: null });
+    renderRoundTargetTurnPanel({ game_type: null });
     renderStandardScoreboard(game);
   }
 
@@ -2785,12 +2812,10 @@ function renderGame() {
           : turn.x01_result === "bust_leave_one"
             ? "bust on 1 remaining"
                 : `${turn.total_points} scored`)
-      : isShanghai
-        ? (!turn.counted
-          ? "bust"
-          : turn.shanghai_instant
-          ? `${turn.total_points} scored (Shanghai finish)`
-          : `${turn.total_points} scored`)
+      : isHalveIt
+        ? (turn.halve_it_halved
+          ? `${turn.halve_it_target || "target"} missed, score halved`
+          : `+${turn.fives_awarded} on ${turn.halve_it_target || "target"}`)
       : isNoughts
         ? (turn.counted
           ? `${turn.noughts_marker || "Mark"} on ${turn.board_label || `square ${turn.board_index + 1}`}`
@@ -2807,7 +2832,7 @@ function renderGame() {
   }
 
   if (turnInputLabelEl && !isCricket) {
-    turnInputLabelEl.textContent = isX01 ? "Turn total" : "Total scored";
+    turnInputLabelEl.textContent = isX01 ? "Turn total" : isHalveIt ? "Round entry" : "Total scored";
   }
   if (bullHitEl) {
     bullHitEl.classList.add("hidden");
@@ -2874,8 +2899,8 @@ async function loadHistory() {
       ? "X01"
       : game.game_type === "english_cricket"
       ? "English Cricket"
-      : game.game_type === "shanghai"
-      ? "Shanghai"
+      : game.game_type === "halve_it"
+      ? "Halve It"
       : game.game_type === "noughts_and_crosses"
       ? "Noughts and Crosses"
       : "55 by 5";
@@ -2942,6 +2967,10 @@ async function startConfiguredGame() {
   }
 
   state.teamMode = getTeamMode();
+  if (state.gameType === "halve_it" && state.teamMode === "teams") {
+    showBustBanner("Halve It does not support teams. Switch to Singles.");
+    return;
+  }
   let teamAssignments = undefined;
   if (state.teamMode === "teams") {
     syncTeamAssignments();
@@ -2971,6 +3000,7 @@ async function startConfiguredGame() {
         x01_match_type: state.gameType === "x01" ? state.x01MatchType : undefined,
         x01_legs_value: state.gameType === "x01" ? state.x01LegsValue : undefined,
         x01_starting_entity: state.gameType === "x01" ? state.x01StartingEntity : undefined,
+        halve_it_variant: state.gameType === "halve_it" ? state.halveItVariant : undefined,
       }),
     });
     syncStateFromGame(response.game);
@@ -3048,6 +3078,7 @@ async function startRematch() {
         x01_match_type: gameType === "x01" ? finishedGame.x01_state?.match_type : undefined,
         x01_legs_value: gameType === "x01" ? finishedGame.x01_state?.legs_value : undefined,
         x01_starting_entity: gameType === "x01" ? finishedGame.x01_state?.starting_entity : undefined,
+        halve_it_variant: gameType === "halve_it" ? normalizeHalveItVariant(finishedGame.halve_it_state?.variant) : undefined,
       }),
     });
 
@@ -3062,6 +3093,7 @@ async function startRematch() {
 
 async function init() {
   resetTeamNames();
+  syncHalveItVariantControls(state.halveItVariant);
   setupScoreKeypad();
   setupDragAndDrop();
   setupTeamDragAndDrop();
@@ -3078,10 +3110,17 @@ async function init() {
   const choose55Btn = document.getElementById("choose-55by5");
   const chooseX01Btn = document.getElementById("choose-x01");
   const chooseCricketBtn = document.getElementById("choose-english-cricket");
-  const chooseShanghaiBtn = document.getElementById("choose-shanghai");
+  const chooseHalveItBtn = document.getElementById("choose-halve-it");
   const chooseNoughtsBtn = document.getElementById("choose-noughts-and-crosses");
   const teamModeSoloEl = document.getElementById("team-mode-solo");
   const teamModeTeamsEl = document.getElementById("team-mode-teams");
+
+  if (halveItVariantEl instanceof HTMLInputElement) {
+    halveItVariantEl.addEventListener("input", () => {
+      state.halveItVariant = halveItVariantFromSlider();
+      syncHalveItVariantControls(state.halveItVariant);
+    });
+  }
 
   if (helpButtonEl) {
     helpButtonEl.addEventListener("click", () => {
@@ -3294,6 +3333,7 @@ async function init() {
       state.x01LegsValue = 1;
       state.x01StartingEntity = null;
       resetX01TurnFlags();
+      updateTeamModeAvailability();
       applyLayoutMode(state.game);
       renderTeamAssignment();
       openX01StartOverlay();
@@ -3308,6 +3348,7 @@ async function init() {
       state.gameType = "55by5";
       state.teamMode = getTeamMode();
       state.cricketStartingBattingTeam = "team_a";
+      updateTeamModeAvailability();
       applyLayoutMode(state.game);
       renderTeamAssignment();
       try {
@@ -3328,20 +3369,24 @@ async function init() {
       if (!wasSelected) {
         state.cricketStartingBattingTeam = "team_a";
       }
+      updateTeamModeAvailability();
       applyLayoutMode(state.game);
       renderTeamAssignment();
       openCricketStartOverlay();
     });
   }
 
-  if (chooseShanghaiBtn) {
-    chooseShanghaiBtn.addEventListener("click", async () => {
+  if (chooseHalveItBtn) {
+    chooseHalveItBtn.addEventListener("click", async () => {
       closeCricketStartOverlay();
       closeX01StartOverlay();
       closeNoughtsMarkOverlay();
       closePlayerStats();
-      state.gameType = "shanghai";
+      state.gameType = "halve_it";
+      state.halveItVariant = halveItVariantFromSlider();
+      syncHalveItVariantControls(state.halveItVariant);
       state.teamMode = getTeamMode();
+      updateTeamModeAvailability();
       applyLayoutMode(state.game);
       renderTeamAssignment();
       try {
@@ -3360,6 +3405,7 @@ async function init() {
       closePlayerStats();
       state.gameType = "noughts_and_crosses";
       state.teamMode = getTeamMode();
+      updateTeamModeAvailability();
       applyLayoutMode(state.game);
       renderTeamAssignment();
       try {
@@ -3437,6 +3483,7 @@ async function init() {
     if (!(el instanceof HTMLInputElement)) continue;
     el.addEventListener("change", () => {
       state.teamMode = getTeamMode();
+      updateTeamModeAvailability();
       renderTeamAssignment();
     });
   }

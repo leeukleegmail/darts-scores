@@ -33,7 +33,7 @@ The app supports any number of players in the roster. After login, you set up pl
 - **X01**
 - **55 by 5**
 - **English Cricket**
-- **Shanghai**
+- **Halve It**
 - **Noughts and Crosses**
 
 For each new game, you select who is playing and drag players into the desired turn order. You can play in singles mode or in two teams with drag-and-drop team assignment.
@@ -42,9 +42,17 @@ For **55 by 5**, each turn is entered as one total score value using the on-scre
 
 For **X01**, the start popup lets you choose `1001`, `501`, `301`, or `101`, then players or teams count down to exactly zero. Overshooting zero or leaving `1` is a bust and scores nothing for that turn.
 
-For **Shanghai**, play advances through targets `1` to `20`. Each entered total must be a positive multiple of the current target up to `9 x target`; any other total is a bust. A score of `6 x target` wins instantly.
+For **Halve It**, each player completes 9 target rounds. Hit the round target to score, or miss it entirely and your running score is halved (rounded down).
 
 For **Noughts and Crosses**, each game generates a fresh board of dart targets and players claim squares as `X` or `O` until one side completes three in a row.
+
+## Recent Release Notes
+
+- Standard Halve It now starts players at 20 points; Hardcore still starts at 0.
+- Hardcore round 8 shows all three exact target options at once, and any one matching hit scores that target's points.
+- Hardcore round 9 is Bullseye.
+- Halve It no-score entries are supported consistently across all rounds.
+- Verified with `pytest -q` (`175 passed`).
 
 ## Requirements
 
@@ -184,10 +192,10 @@ Sessions expire after 30 minutes of inactivity. Logging out during an active gam
 3. Drag players in Selected Players to set the sequence.
 4. Choose `Singles` or `Teams` mode.
 5. If using `Teams`, drag players between Team A and Team B.
-6. In the separate **Select Game** panel, choose `X01`, `55 by 5`, `English Cricket`, `Shanghai`, or `Noughts and Crosses`.
+6. In the separate **Select Game** panel, choose `X01`, `55 by 5`, `English Cricket`, `Halve It`, or `Noughts and Crosses`.
 7. For X01, choose the starting score in the popup, then click `Start Game`.
 8. For English Cricket, a popup lets Team A choose whether to `Bat` or `Bowl`, then click `Start Game`.
-9. For `55 by 5`, `Shanghai`, and `Noughts and Crosses`, click the game button once to begin the match.
+9. For `55 by 5`, `Halve It`, and `Noughts and Crosses`, click the game button once to begin the match.
 10. In Live Game, use the on-screen keypad to enter the active player's score, or click board squares in Noughts and Crosses.
 11. Use `Submit Score`, `No Score`, or `Undo` as needed.
 12. Review completed games in Recent Games.
@@ -229,16 +237,17 @@ Notes:
 - In inning 2, batting side wins immediately if it passes the other side's runs.
 - If innings completes without an immediate chase win, higher run total wins.
 
-### Shanghai
+### Halve It
 
-- Supports singles mode or 2-team mode.
-- Play advances through targets `1` to `20`, one round at a time.
-- Each turn is entered as one total points value.
-- A valid Shanghai total must be a positive multiple of the current target, up to `9 x target`.
-- Any non-multiple, `0`, or total above `9 x target` is a bust and scores nothing for that turn.
-- Scoring exactly `6 x target` wins instantly.
-- If no instant win occurs by the end of round `20`, the highest total score wins.
-- In team mode, each team throws once per round and the thrower alternates by round.
+- Supports singles mode.
+- Play runs for 9 rounds with round-specific targets.
+- Standard variant starts each player at 20 points.
+- Hardcore variant starts each player at 0 points.
+- Number rounds use hit-count entry (0 to 9 hits).
+- Double/Triple challenge rounds use points entry.
+- Miss a round target and your running score is halved (rounded down).
+- Standard and Hardcore variants are available via the game selection slider.
+- Hardcore rounds are 20, Any Double, 19 or 16, Three Different Colors, Score 17 or Exact 41/101/123, Black-White-Black, Any Treble, Exact 41/101/123 (all shown, score one if hit), and Bullseye.
 
 ### Noughts and Crosses
 
@@ -259,9 +268,9 @@ Accepted total range per turn:
 
 - `0` to `180`
 
-Shanghai note:
+Halve It note:
 
-- The keypad still accepts values in the general `0` to `180` range, but Shanghai only counts valid target multiples up to `9 x target`.
+- The live target panel shows the current round target for quick reference before each entry.
 
 ## Project layout
 

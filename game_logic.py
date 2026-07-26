@@ -29,7 +29,20 @@ X01_VALID_MATCH_TYPES = ("best_of", "first_to")
 X01_RESULT_SCORED = 0
 X01_RESULT_BUST_OVERSHOOT = 1
 X01_RESULT_BUST_LEAVE_ONE = 2
-SHANGHAI_FINAL_ROUND = 20
+HALVE_IT_VARIANTS = ("standard", "hardcore")
+HALVE_IT_ROUNDS: tuple[dict[str, Any], ...] = (
+    {"target": "20", "kind": "number", "entry_mode": "hits", "number": 20},
+    {"target": "19", "kind": "number", "entry_mode": "hits", "number": 19},
+    {"target": "Any Double", "kind": "double", "entry_mode": "points"},
+    {"target": "18", "kind": "number", "entry_mode": "hits", "number": 18},
+    {"target": "17", "kind": "number", "entry_mode": "hits", "number": 17},
+    {"target": "Any Triple", "kind": "triple", "entry_mode": "points"},
+    {"target": "16", "kind": "number", "entry_mode": "hits", "number": 16},
+    {"target": "15", "kind": "number", "entry_mode": "hits", "number": 15},
+    {"target": "Bullseye", "kind": "bull", "entry_mode": "hits_or_points"},
+)
+HALVE_IT_TOTAL_ROUNDS = len(HALVE_IT_ROUNDS)
+HALVE_IT_HARDCORE_TOTAL_ROUNDS = 9
 
 X01_CHECKOUTS = {
     170: "T20 T20 Bull",
@@ -217,11 +230,162 @@ def normalize_game_type(raw_type: str | None) -> str:
         return "english_cricket"
     if game_type in {"x01", "501", "301", "1001", "101"}:
         return "x01"
-    if game_type in {"shanghai", "shangai"}:
-        return "shanghai"
+    if game_type in {"halve_it", "halve-it", "halveit"}:
+        return "halve_it"
     if game_type in {"noughts_and_crosses", "noughts-and-crosses", "noughts", "tic_tac_toe", "tic-tac-toe", "tic tac toe"}:
         return "noughts_and_crosses"
     return "55by5"
+
+
+def normalize_halve_it_variant(raw_variant: object, default: str = "standard") -> str:
+    if isinstance(raw_variant, str):
+        candidate = raw_variant.strip().lower()
+        if candidate in HALVE_IT_VARIANTS:
+            return candidate
+    return default
+
+
+def build_halve_it_standard_rounds() -> list[dict[str, Any]]:
+    return [
+        {
+            "round": index,
+            "target": round_def["target"],
+            "kind": round_def["kind"],
+            "entry_mode": round_def["entry_mode"],
+            "number": round_def.get("number"),
+        }
+        for index, round_def in enumerate(HALVE_IT_ROUNDS, start=1)
+    ]
+
+
+def build_halve_it_hardcore_rounds() -> list[dict[str, Any]]:
+    round_3_number = random.choice([19, 16])
+
+    round_8_exact_presets = [41, 101, 123]
+    round_5_high_targets = list(round_8_exact_presets)
+    round_5_kind = random.choice(["number", "exact_total"])
+    round_5_value = 17 if round_5_kind == "number" else random.choice(round_5_high_targets)
+
+    round_8_exact_targets = sorted(round_8_exact_presets)
+
+    return [
+        {"round": 1, "target": "20", "kind": "number", "entry_mode": "hits", "number": 20},
+        {"round": 2, "target": "Any Double", "kind": "double", "entry_mode": "points"},
+        {
+            "round": 3,
+            "target": str(round_3_number),
+            "kind": "number",
+            "entry_mode": "hits",
+            "number": round_3_number,
+        },
+        {
+            "round": 4,
+            "target": "Three Different Colors",
+            "kind": "manual_points",
+            "entry_mode": "points",
+        },
+        {
+            "round": 5,
+            "target": "Score 17" if round_5_kind == "number" else f"Exact {round_5_value}",
+            "kind": round_5_kind,
+            "entry_mode": "hits" if round_5_kind == "number" else "points",
+            "number": 17 if round_5_kind == "number" else None,
+            "exact_total": round_5_value if round_5_kind == "exact_total" else None,
+        },
+        {
+            "round": 6,
+            "target": "Black-White-Black",
+            "kind": "manual_points",
+            "entry_mode": "points",
+        },
+        {"round": 7, "target": "Any Treble", "kind": "triple", "entry_mode": "points"},
+        {
+            "round": 8,
+            "target": f"Exact {round_8_exact_targets[0]} / {round_8_exact_targets[1]} / {round_8_exact_targets[2]}",
+            "kind": "exact_total",
+            "entry_mode": "points",
+            "exact_totals": round_8_exact_targets,
+            "exact_presets": round_8_exact_presets,
+        },
+        {
+            "round": 9,
+            "target": "Bullseye",
+            "kind": "bull",
+            "entry_mode": "hits_or_points",
+        },
+    ]
+
+
+def build_initial_halve_it_state(variant: str = "standard") -> dict[str, Any]:
+    normalized_variant = normalize_halve_it_variant(variant)
+    rounds = (
+        build_halve_it_hardcore_rounds()
+        if normalized_variant == "hardcore"
+        else build_halve_it_standard_rounds()
+    )
+    return {
+        "variant": normalized_variant,
+        "rounds": rounds,
+        "total_rounds": len(rounds),
+    }
+
+
+def parse_halve_it_state(raw_value: str | None) -> dict[str, Any]:
+    default_state = build_initial_halve_it_state("standard")
+    if not raw_value:
+        return default_state
+    try:
+        decoded = json.loads(raw_value)
+    except (TypeError, ValueError):
+        return default_state
+    if not isinstance(decoded, dict):
+        return default_state
+
+    variant = normalize_halve_it_variant(decoded.get("variant"), "standard")
+    rounds = decoded.get("rounds") if isinstance(decoded.get("rounds"), list) else None
+    if not rounds:
+        return build_initial_halve_it_state(variant)
+
+    normalized_rounds: list[dict[str, Any]] = []
+    for index, raw_round in enumerate(rounds, start=1):
+        if not isinstance(raw_round, dict):
+            continue
+        round_copy = dict(raw_round)
+        round_copy["round"] = index
+        if not isinstance(round_copy.get("target"), str) or not round_copy["target"].strip():
+            round_copy["target"] = f"Round {index}"
+        round_copy["kind"] = str(round_copy.get("kind") or "number")
+        round_copy["entry_mode"] = str(round_copy.get("entry_mode") or "points")
+        normalized_rounds.append(round_copy)
+
+    if not normalized_rounds:
+        return build_initial_halve_it_state(variant)
+
+    return {
+        "variant": variant,
+        "rounds": normalized_rounds,
+        "total_rounds": len(normalized_rounds),
+    }
+
+
+def halve_it_round_info(round_number: int, halve_it_state: dict[str, Any] | None = None) -> dict[str, Any]:
+    state = halve_it_state or build_initial_halve_it_state("standard")
+    rounds = state.get("rounds") if isinstance(state.get("rounds"), list) and state.get("rounds") else build_halve_it_standard_rounds()
+    total_rounds = len(rounds)
+    clamped_round = max(1, min(total_rounds, int(round_number or 1)))
+    base = rounds[clamped_round - 1]
+    return {
+        "round": clamped_round,
+        "target": base.get("target", f"Round {clamped_round}"),
+        "kind": base.get("kind", "number"),
+        "entry_mode": base.get("entry_mode", "points"),
+        "number": base.get("number"),
+        "exact_total": base.get("exact_total"),
+        "exact_totals": base.get("exact_totals"),
+        "required_hits": base.get("required_hits"),
+        "fixed_points": base.get("fixed_points"),
+        "random_numbers": base.get("random_numbers"),
+    }
 
 
 def normalize_team_mode(raw_mode: str | None) -> str:
@@ -342,126 +506,6 @@ def x01_entity_keys(team_mode: str, ordered_player_ids: list[int], assignments: 
         present_teams = {assignments.get(player_id) for player_id in ordered_player_ids}
         return [team_key for team_key in (TEAM_A, TEAM_B) if team_key in present_teams]
     return [str(player_id) for player_id in ordered_player_ids]
-
-
-def shanghai_entity_order(team_mode: str, ordered_player_ids: list[int], assignments: dict[int, str]) -> list[str]:
-    if team_mode == "teams":
-        order: list[str] = []
-        for player_id in ordered_player_ids:
-            team_key = assignments.get(player_id, TEAM_A)
-            if team_key not in order:
-                order.append(team_key)
-        return order
-    return [str(player_id) for player_id in ordered_player_ids]
-
-
-def build_initial_shanghai_state(
-    ordered_player_ids: list[int],
-    assignments: dict[int, str],
-    team_mode: str,
-) -> dict[str, Any]:
-    entity_order = shanghai_entity_order(team_mode, ordered_player_ids, assignments)
-    return {
-        "current_round": 1,
-        "current_target": 1,
-        "entity_order": entity_order,
-        "scores": {entity_key: 0 for entity_key in entity_order},
-        "round_acted": {entity_key: False for entity_key in entity_order},
-    }
-
-
-def parse_shanghai_state(
-    raw_value: str | None,
-    ordered_player_ids: list[int],
-    assignments: dict[int, str],
-    team_mode: str,
-) -> dict[str, Any]:
-    default_state = build_initial_shanghai_state(ordered_player_ids, assignments, team_mode)
-    if not raw_value:
-        return default_state
-    try:
-        decoded = json.loads(raw_value)
-    except (TypeError, ValueError):
-        return default_state
-    if not isinstance(decoded, dict):
-        return default_state
-
-    entity_order = shanghai_entity_order(team_mode, ordered_player_ids, assignments)
-    state = {
-        "current_round": decoded.get("current_round"),
-        "current_target": decoded.get("current_target"),
-        "entity_order": entity_order,
-        "scores": {entity_key: 0 for entity_key in entity_order},
-        "round_acted": {entity_key: False for entity_key in entity_order},
-    }
-
-    if isinstance(state["current_round"], int):
-        state["current_round"] = max(1, min(SHANGHAI_FINAL_ROUND, state["current_round"]))
-    else:
-        state["current_round"] = 1
-
-    if isinstance(state["current_target"], int):
-        state["current_target"] = max(1, min(SHANGHAI_FINAL_ROUND, state["current_target"]))
-    else:
-        state["current_target"] = state["current_round"]
-
-    raw_scores = decoded.get("scores") if isinstance(decoded.get("scores"), dict) else {}
-    for entity_key in entity_order:
-        raw_score = raw_scores.get(entity_key)
-        if isinstance(raw_score, int) and raw_score >= 0:
-            state["scores"][entity_key] = raw_score
-
-    raw_round_acted = decoded.get("round_acted") if isinstance(decoded.get("round_acted"), dict) else {}
-    for entity_key in entity_order:
-        state["round_acted"][entity_key] = bool(raw_round_acted.get(entity_key, False))
-
-    return state
-
-
-def shanghai_entity_key_for_player(game: Any, player_id: int, assignments: dict[int, str]) -> str:
-    if getattr(game, "team_mode", "solo") == "teams":
-        return assignments.get(player_id, TEAM_A)
-    return str(player_id)
-
-
-def shanghai_active_player_id(
-    game: Any,
-    ordered_players: list[dict[str, Any]],
-    assignments: dict[int, str],
-    shanghai_state: dict[str, Any],
-) -> int | None:
-    entity_order = shanghai_state.get("entity_order") or shanghai_entity_order(
-        getattr(game, "team_mode", "solo"),
-        [player["id"] for player in ordered_players],
-        assignments,
-    )
-    round_acted = shanghai_state.get("round_acted") or {}
-    active_entity = next((entity for entity in entity_order if not round_acted.get(entity)), None)
-    if active_entity is None:
-        return None
-
-    if getattr(game, "team_mode", "solo") == "teams":
-        members = [player["id"] for player in ordered_players if assignments.get(player["id"], TEAM_A) == active_entity]
-        if not members:
-            return None
-        current_round = shanghai_state.get("current_round") if isinstance(shanghai_state.get("current_round"), int) else 1
-        member_index = (max(1, current_round) - 1) % len(members)
-        return members[member_index]
-
-    for player in ordered_players:
-        if str(player["id"]) == active_entity:
-            return player["id"]
-    return None
-
-
-def is_valid_shanghai_total(total_points: int, current_target: int) -> bool:
-    if current_target <= 0:
-        return False
-    if total_points <= 0:
-        return False
-    if total_points > (current_target * 9):
-        return False
-    return total_points % current_target == 0
 
 
 def build_initial_x01_state(
@@ -611,6 +655,70 @@ def turn_result(total: int) -> tuple[int, bool, int]:
     counted = total % 5 == 0
     fives = total // 5 if counted else 0
     return total, counted, fives
+
+
+def halve_it_points_from_entry(round_info: dict[str, Any], entry_value: int) -> tuple[int | None, str | None]:
+    kind = round_info.get("kind")
+    target = round_info.get("target")
+
+    if kind == "number":
+        if entry_value > 9:
+            return None, f"Round {round_info['round']} ({target}) expects hit count from 0 to 9."
+        number_value = int(round_info.get("number") or 0)
+        return entry_value * number_value, None
+
+    if kind == "double":
+        if entry_value > 120:
+            return None, "Any Double round allows up to 120 points."
+        if entry_value != 0 and entry_value % 2 != 0:
+            return None, "Any Double round score must be divisible by 2."
+        return entry_value, None
+
+    if kind == "triple":
+        if entry_value > 180:
+            return None, "Any Triple round allows up to 180 points."
+        if entry_value != 0 and entry_value % 3 != 0:
+            return None, "Any Triple round score must be divisible by 3."
+        return entry_value, None
+
+    if kind == "bull":
+        # Supports hit-count entry (0-6 marks) and explicit bull points (0-150, step 25).
+        if 0 <= entry_value <= 6:
+            return entry_value * 25, None
+        if entry_value > 150:
+            return None, "Bullseye round allows up to 150 points."
+        if entry_value % 25 != 0:
+            return None, "Bullseye round must be entered as hit count (0-6) or points in steps of 25."
+        return entry_value, None
+
+    if kind == "exact_total":
+        raw_totals = round_info.get("exact_totals")
+        if isinstance(raw_totals, list) and raw_totals:
+            allowed_totals = {int(value) for value in raw_totals}
+            if entry_value in allowed_totals:
+                return entry_value, None
+            return 0, None
+        exact_total = int(round_info.get("exact_total") or 0)
+        if entry_value == exact_total:
+            return entry_value, None
+        # Non-exact entries are valid attempts that simply miss the target.
+        return 0, None
+
+    if kind == "all_darts_hits":
+        required_hits = int(round_info.get("required_hits") or 3)
+        if entry_value == 0:
+            return 0, None
+        if entry_value != required_hits:
+            return None, f"{target} requires all {required_hits} darts to score."
+        fixed_points = int(round_info.get("fixed_points") or 0)
+        return fixed_points, None
+
+    if kind == "manual_points":
+        if entry_value > 180:
+            return None, f"{target} allows up to 180 points."
+        return entry_value, None
+
+    return None, "Invalid Halve It round configuration."
 
 
 def parse_team_assignments(raw_value: str | None) -> dict[int, str]:
@@ -1014,80 +1122,35 @@ def apply_x01_turn(
                     score_row.fives = remaining_scores.get(player_key, x01_state["starting_score"])
 
 
-def apply_shanghai_turn(
+def apply_halve_it_turn(
     game: Any,
     turn: Any,
-    ordered_players: list[dict[str, Any]],
-    assignments: dict[int, str],
-    shanghai_state: dict[str, Any],
+    score_row: Any,
+    player_rounds: dict[int, int],
+    halve_it_state: dict[str, Any],
 ) -> None:
-    entity_key = shanghai_entity_key_for_player(game, turn.player_id, assignments)
-    scores = shanghai_state.setdefault("scores", {})
-    round_acted = shanghai_state.setdefault("round_acted", {})
-    entity_order = shanghai_state.setdefault("entity_order", shanghai_entity_order(
-        getattr(game, "team_mode", "solo"),
-        [player["id"] for player in ordered_players],
-        assignments,
-    ))
+    round_number = player_rounds.get(turn.player_id, 0) + 1
+    round_info = halve_it_round_info(round_number, halve_it_state)
+    scored_points, validation_error = halve_it_points_from_entry(round_info, turn.total_points)
+    if validation_error:
+        scored_points = 0
 
-    if entity_key not in scores:
-        scores[entity_key] = 0
-    if entity_key not in round_acted:
-        round_acted[entity_key] = False
+    current_total = int(score_row.fives)
+    turn.dart_2 = round_number
 
-    current_target = shanghai_state.get("current_target")
-    if not isinstance(current_target, int):
-        current_target = 1
-        shanghai_state["current_target"] = current_target
-    current_round = shanghai_state.get("current_round")
-    if not isinstance(current_round, int):
-        current_round = 1
-        shanghai_state["current_round"] = current_round
-
-    # Shanghai reuses the generic turn fields: `counted` gates bust handling,
-    # `fives_awarded` carries raw points for history/UI text, and `dart_2`
-    # stores the instant-finish flag for serialization.
-    turn.dart_2 = 0
-
-    if is_valid_shanghai_total(turn.total_points, current_target):
-        turn.counted = True
-        turn.fives_awarded = turn.total_points
-        scores[entity_key] += turn.total_points
-
-        if turn.total_points == (6 * current_target):
-            turn.dart_2 = 1
-            if getattr(game, "team_mode", "solo") == "teams":
-                finish_game(game, winner_team=entity_key)
-            else:
-                finish_game(game, winner_player_id=turn.player_id)
-            return
-    else:
+    if not scored_points:
+        halved_total = current_total // 2
         turn.counted = False
-        turn.fives_awarded = 0
+        turn.fives_awarded = halved_total - current_total
+        turn.dart_3 = 1
+        score_row.fives = halved_total
+    else:
+        turn.counted = True
+        turn.fives_awarded = scored_points
+        turn.dart_3 = 0
+        score_row.fives = current_total + scored_points
 
-    round_acted[entity_key] = True
-
-    if all(round_acted.get(entity, False) for entity in entity_order):
-        if current_round >= SHANGHAI_FINAL_ROUND:
-            top_score = max(scores.values(), default=0)
-            top_entities = [entity for entity, score in scores.items() if score == top_score]
-            if len(top_entities) == 1:
-                winner_entity = top_entities[0]
-                if getattr(game, "team_mode", "solo") == "teams":
-                    finish_game(game, winner_team=winner_entity)
-                else:
-                    winner_player_id = next(
-                        (player["id"] for player in ordered_players if str(player["id"]) == winner_entity),
-                        None,
-                    )
-                    finish_game(game, winner_player_id=winner_player_id)
-            else:
-                finish_game(game)
-            return
-
-        shanghai_state["current_round"] = current_round + 1
-        shanghai_state["current_target"] = current_round + 1
-        shanghai_state["round_acted"] = {entity: False for entity in entity_order}
+    player_rounds[turn.player_id] = min(round_number, int(halve_it_state.get("total_rounds") or HALVE_IT_TOTAL_ROUNDS))
 
 
 def recompute_game_state(
@@ -1102,6 +1165,9 @@ def recompute_game_state(
 
     assignments = parse_team_assignments(game.team_assignments)
     initial_score = 0
+    stored_halve_it_state = parse_halve_it_state(getattr(game, "halve_it_state", None))
+    if game.game_type == "halve_it" and stored_halve_it_state.get("variant") == "standard":
+        initial_score = 20
     if game.game_type == "x01":
         stored_x01_state = parse_x01_state(
             game.x01_state,
@@ -1118,12 +1184,6 @@ def recompute_game_state(
     stored_noughts_state = parse_noughts_and_crosses_state(game.noughts_and_crosses_state)
     stored_x01_state = parse_x01_state(
         game.x01_state,
-        [player["id"] for player in ordered_players],
-        assignments,
-        game.team_mode,
-    )
-    stored_shanghai_state = parse_shanghai_state(
-        getattr(game, "shanghai_state", None),
         [player["id"] for player in ordered_players],
         assignments,
         game.team_mode,
@@ -1159,20 +1219,9 @@ def recompute_game_state(
     else:
         x01_state = stored_x01_state
 
-    if game.game_type == "shanghai":
-        shanghai_state = build_initial_shanghai_state(
-            [player["id"] for player in ordered_players],
-            assignments,
-            game.team_mode,
-        )
-        shanghai_start_player_id = shanghai_active_player_id(game, ordered_players, assignments, shanghai_state)
-        if shanghai_start_player_id is not None:
-            for index, player in enumerate(ordered_players):
-                if player["id"] == shanghai_start_player_id:
-                    game.current_turn_position = index
-                    break
-    else:
-        shanghai_state = stored_shanghai_state
+    halve_it_state = stored_halve_it_state
+
+    player_rounds = {player["id"]: 0 for player in ordered_players}
 
     team_totals = {TEAM_A: 0, TEAM_B: 0}
     for index, turn in enumerate(turns, start=1):
@@ -1197,30 +1246,27 @@ def recompute_game_state(
             apply_x01_turn(game, turn, ordered_players, score_by_player, assignments, x01_state)
         elif game.game_type == "noughts_and_crosses":
             apply_noughts_and_crosses_turn(game, turn, ordered_players, assignments, noughts_state)
-        elif game.game_type == "shanghai":
-            apply_shanghai_turn(game, turn, ordered_players, assignments, shanghai_state)
-            for player in ordered_players:
-                score_row = score_by_player.get(player["id"])
-                if not score_row:
-                    continue
-                if game.team_mode == "teams":
-                    entity_key = assignments.get(player["id"], TEAM_A)
+        elif game.game_type == "halve_it":
+            apply_halve_it_turn(game, turn, score_row, player_rounds, halve_it_state)
+            if all(
+                player_rounds.get(player["id"], 0) >= int(halve_it_state.get("total_rounds") or HALVE_IT_TOTAL_ROUNDS)
+                for player in ordered_players
+            ):
+                best_total = max((int(score_by_player[player["id"]].fives) for player in ordered_players), default=0)
+                winners = [
+                    player["id"]
+                    for player in ordered_players
+                    if int(score_by_player[player["id"]].fives) == best_total
+                ]
+                if len(winners) == 1:
+                    finish_game(game, winner_player_id=winners[0])
                 else:
-                    entity_key = str(player["id"])
-                score_row.fives = int(shanghai_state.get("scores", {}).get(entity_key, 0))
+                    finish_game(game)
         else:
             apply_standard_turn(game, turn, score_row, assignments, team_totals)
 
         if game.status == "active":
-            if game.game_type == "shanghai":
-                next_player_id = shanghai_active_player_id(game, ordered_players, assignments, shanghai_state)
-                if next_player_id is not None:
-                    for index, player in enumerate(ordered_players):
-                        if player["id"] == next_player_id:
-                            game.current_turn_position = index
-                            break
-            else:
-                game.current_turn_position = (game.current_turn_position + 1) % len(ordered_players)
+            game.current_turn_position = (game.current_turn_position + 1) % len(ordered_players)
 
     if game.game_type == "english_cricket":
         game.cricket_state = json.dumps(cricket_state)
@@ -1228,8 +1274,8 @@ def recompute_game_state(
         game.x01_state = json.dumps(x01_state)
     if game.game_type == "noughts_and_crosses":
         game.noughts_and_crosses_state = json.dumps(noughts_state)
-    if game.game_type == "shanghai":
-        game.shanghai_state = json.dumps(shanghai_state)
+    if game.game_type == "halve_it":
+        game.halve_it_state = json.dumps(halve_it_state)
 
 
 def active_player_id_for_game(game: Any, ordered_players: list[dict[str, Any]]) -> int | None:
@@ -1269,6 +1315,7 @@ def serialize_players_for_game(
 
 def serialize_turns_for_game(turn_rows: list[tuple[Any, Any]], game: Any) -> list[dict[str, Any]]:
     noughts_state = parse_noughts_and_crosses_state(game.noughts_and_crosses_state) if game.game_type == "noughts_and_crosses" else {}
+    halve_it_state = parse_halve_it_state(getattr(game, "halve_it_state", None)) if game.game_type == "halve_it" else None
     return [
         {
             "turn_number": turn.turn_number,
@@ -1280,7 +1327,13 @@ def serialize_turns_for_game(turn_rows: list[tuple[Any, Any]], game: Any) -> lis
             "x01_result": decode_x01_turn_result(turn.dart_3) if game.game_type == "x01" else None,
             "x01_leg_won": bool(turn.dart_2) if game.game_type == "x01" else None,
             "x01_leg_number": int(turn.dart_2) if game.game_type == "x01" and turn.dart_2 else None,
-            "shanghai_instant": bool(turn.dart_2) if game.game_type == "shanghai" else None,
+            "halve_it_round": int(turn.dart_2) if game.game_type == "halve_it" and turn.dart_2 else None,
+            "halve_it_halved": bool(turn.dart_3) if game.game_type == "halve_it" else None,
+            "halve_it_target": (
+                halve_it_round_info(int(turn.dart_2), halve_it_state)["target"]
+                if game.game_type == "halve_it" and turn.dart_2
+                else None
+            ),
             "noughts_marker": decode_noughts_marker(turn.dart_2) if game.game_type == "noughts_and_crosses" else None,
             "board_index": turn.total_points if game.game_type == "noughts_and_crosses" else None,
             "board_label": (
@@ -1318,12 +1371,7 @@ def build_game_state_payload(
     team_names = parse_team_names(game.team_names)
     noughts_state = parse_noughts_and_crosses_state(game.noughts_and_crosses_state)
     x01_state = parse_x01_state(game.x01_state, [player["id"] for player in ordered_players], assignments, game.team_mode)
-    shanghai_state = parse_shanghai_state(
-        getattr(game, "shanghai_state", None),
-        [player["id"] for player in ordered_players],
-        assignments,
-        game.team_mode,
-    )
+    halve_it_base_state = parse_halve_it_state(getattr(game, "halve_it_state", None))
 
     if game.game_type == "noughts_and_crosses":
         noughts_state["x_name"] = noughts_side_name(ordered_players, assignments, team_names, TEAM_A, game.team_mode)
@@ -1336,6 +1384,34 @@ def build_game_state_payload(
         x01_state["active_entity_key"] = active_entity_key
         x01_state["active_remaining"] = remaining
         x01_state["active_checkout"] = x01_checkout_hint(remaining, True)
+
+    halve_it_state = None
+    if game.game_type == "halve_it":
+        player_rounds = {player["id"]: 0 for player in ordered_players}
+        for turn, _ in turn_rows:
+            if turn.player_id in player_rounds and player_rounds[turn.player_id] < int(halve_it_base_state.get("total_rounds") or HALVE_IT_TOTAL_ROUNDS):
+                player_rounds[turn.player_id] += 1
+
+        active_round = 1
+        if active_player_id is not None and active_player_id in player_rounds:
+            active_round = min(
+                player_rounds[active_player_id] + 1,
+                int(halve_it_base_state.get("total_rounds") or HALVE_IT_TOTAL_ROUNDS),
+            )
+
+        round_info = halve_it_round_info(active_round, halve_it_base_state)
+        halve_it_state = {
+            "variant": halve_it_base_state.get("variant", "standard"),
+            "total_rounds": int(halve_it_base_state.get("total_rounds") or HALVE_IT_TOTAL_ROUNDS),
+            "current_round": active_round,
+            "current_target": round_info["target"],
+            "current_entry_mode": round_info["entry_mode"],
+            "player_rounds": {str(player_id): rounds for player_id, rounds in player_rounds.items()},
+            "rounds": [
+                halve_it_round_info(index, halve_it_base_state)
+                for index in range(1, int(halve_it_base_state.get("total_rounds") or HALVE_IT_TOTAL_ROUNDS) + 1)
+            ],
+        }
 
     return {
         "id": game.id,
@@ -1353,7 +1429,7 @@ def build_game_state_payload(
         "team_assignments": {str(key): value for key, value in assignments.items()},
         "cricket_state": parse_cricket_state(game.cricket_state) if game.game_type == "english_cricket" else None,
         "x01_state": x01_state if game.game_type == "x01" else None,
-        "shanghai_state": shanghai_state if game.game_type == "shanghai" else None,
+        "halve_it_state": halve_it_state,
         "noughts_and_crosses_state": noughts_state if game.game_type == "noughts_and_crosses" else None,
         "players": serialize_players_for_game(ordered_players, scores, assignments, game, x01_state),
         "turns": serialize_turns_for_game(turn_rows, game),
@@ -1366,8 +1442,8 @@ def game_type_label(game_type: str | None) -> str:
         return "English Cricket"
     if normalized == "x01":
         return "X01"
-    if normalized == "shanghai":
-        return "Shanghai"
+    if normalized == "halve_it":
+        return "Halve It"
     if normalized == "noughts_and_crosses":
         return "Noughts and Crosses"
     return "55 by 5"
@@ -1405,6 +1481,9 @@ def normalize_requested_team_assignments(
     raw_assignments: object,
 ) -> tuple[dict[int, str] | None, str | None]:
     normalized_assignments: dict[int, str] = {}
+
+    if game_type == "halve_it" and team_mode == "teams":
+        return None, "Halve It does not support teams. Choose Singles mode."
 
     if team_mode == "teams":
         if not isinstance(raw_assignments, dict):
@@ -1447,6 +1526,7 @@ def build_new_game_start_state(
     x01_match_type: str = "best_of",
     x01_legs_value: int = 1,
     x01_starting_entity: str | None = None,
+    halve_it_variant: str = "standard",
 ) -> tuple[int, str | None, str | None, str | None, str | None]:
     if game_type == "english_cricket":
         opening_state = build_initial_cricket_state(starting_batting_team)
@@ -1483,11 +1563,10 @@ def build_new_game_start_state(
         )
         return initial_turn_position, None, None, json.dumps(x01_state), None
 
-    if game_type == "shanghai":
-        shanghai_state = build_initial_shanghai_state(ordered_player_ids, normalized_assignments, team_mode)
-        return 0, None, None, None, json.dumps(shanghai_state)
-
     if game_type == "noughts_and_crosses":
         return 0, None, json.dumps(build_initial_noughts_and_crosses_state()), None, None
+
+    if game_type == "halve_it":
+        return 0, None, None, None, json.dumps(build_initial_halve_it_state(halve_it_variant))
 
     return 0, None, None, None, None

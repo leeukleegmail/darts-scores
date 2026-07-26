@@ -13,6 +13,7 @@ from sqlalchemy import func, or_, text
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from game_logic import (
+    HALVE_IT_TOTAL_ROUNDS,
     MAX_TURN_TOTAL,
     TEAM_A,
     TEAM_B,
@@ -20,6 +21,9 @@ from game_logic import (
     build_new_game_start_state,
     decode_x01_turn_result,
     encode_noughts_marker,
+    halve_it_points_from_entry,
+    halve_it_round_info,
+    normalize_halve_it_variant,
     game_type_label,
     normalize_cricket_team,
     normalize_game_type,
@@ -34,6 +38,7 @@ from game_logic import (
     normalize_x01_starting_score,
     parse_cricket_state,
     parse_noughts_and_crosses_state,
+    parse_halve_it_state,
     parse_team_assignments,
     parse_team_names,
     parse_x01_state,
@@ -132,7 +137,7 @@ class Game(db.Model):
     cricket_state = db.Column(db.Text, nullable=True)
     noughts_and_crosses_state = db.Column(db.Text, nullable=True)
     x01_state = db.Column(db.Text, nullable=True)
-    shanghai_state = db.Column(db.Text, nullable=True)
+    halve_it_state = db.Column(db.Text, nullable=True)
     winner_team = db.Column(db.String(20), nullable=True)
     current_turn_position = db.Column(db.Integer, nullable=False, default=0)
     winner_player_id = db.Column(db.Integer, db.ForeignKey("players.id"), nullable=True)
@@ -403,8 +408,8 @@ def ensure_game_schema_columns() -> None:
         statements.append("ALTER TABLE games ADD COLUMN noughts_and_crosses_state TEXT")
     if "x01_state" not in existing_columns:
         statements.append("ALTER TABLE games ADD COLUMN x01_state TEXT")
-    if "shanghai_state" not in existing_columns:
-        statements.append("ALTER TABLE games ADD COLUMN shanghai_state TEXT")
+    if "halve_it_state" not in existing_columns:
+        statements.append("ALTER TABLE games ADD COLUMN halve_it_state TEXT")
     if "winner_team" not in existing_columns:
         statements.append("ALTER TABLE games ADD COLUMN winner_team VARCHAR(20)")
     if "history_hidden" not in existing_columns:
@@ -474,7 +479,7 @@ def recompute_game_state(game: Game) -> None:
 
 
 def build_player_stats(player: Player) -> dict:
-    supported_game_types = ("x01", "55by5", "english_cricket", "noughts_and_crosses", "shanghai")
+    supported_game_types = ("x01", "55by5", "english_cricket", "noughts_and_crosses", "halve_it")
     by_game_type = {
         game_type: {
             "game_type": game_type,
@@ -674,7 +679,7 @@ def api_meta():
                 {"id": "55by5", "name": "55 by 5"},
                 {"id": "english_cricket", "name": "English Cricket"},
                 {"id": "noughts_and_crosses", "name": "Noughts and Crosses"},
-                {"id": "shanghai", "name": "Shanghai"},
+                {"id": "halve_it", "name": "Halve It"},
             ],
         }
     )
@@ -805,11 +810,15 @@ def create_game():
         return jsonify({"error": "Finish the active game before starting a new one."}), 400
 
     payload = request.get_json(silent=True) or {}
+    raw_game_type = (payload.get("game_type") or "").strip().lower()
+    if raw_game_type in {"shanghai", "shangai"}:
+        return jsonify({"error": "Shanghai has been removed and can no longer be started."}), 400
     game_type = normalize_game_type(payload.get("game_type"))
     team_mode = normalize_team_mode(payload.get("team_mode"))
     x01_starting_score = normalize_x01_starting_score(payload.get("x01_starting_score"), 501)
     x01_match_type = normalize_x01_match_type(payload.get("x01_match_type"), "best_of")
     x01_legs_value = normalize_x01_legs_value(payload.get("x01_legs_value"), 1)
+    halve_it_variant = normalize_halve_it_variant(payload.get("halve_it_variant"), "standard")
 
     ordered_player_ids, error = validate_ordered_player_ids(payload.get("ordered_player_ids") or [])
     if error:
@@ -842,7 +851,7 @@ def create_game():
         default=(str(ordered_player_ids[0]) if ordered_player_ids else "random"),
     )
 
-    initial_turn_position, cricket_state, noughts_and_crosses_state, x01_state, shanghai_state = build_new_game_start_state(
+    initial_turn_position, cricket_state, noughts_and_crosses_state, x01_state, halve_it_state = build_new_game_start_state(
         game_type,
         ordered_player_ids,
         normalized_assignments,
@@ -852,6 +861,7 @@ def create_game():
         x01_match_type,
         x01_legs_value,
         x01_starting_entity,
+        halve_it_variant,
     )
 
     game = Game(
@@ -864,15 +874,17 @@ def create_game():
         cricket_state=cricket_state,
         noughts_and_crosses_state=noughts_and_crosses_state,
         x01_state=x01_state,
-        shanghai_state=shanghai_state,
+        halve_it_state=halve_it_state,
         current_turn_position=initial_turn_position,
     )
     db.session.add(game)
     db.session.flush()
 
+    initial_fives = 20 if game_type == "halve_it" and halve_it_variant == "standard" else 0
+
     for index, player_id in enumerate(ordered_player_ids):
         db.session.add(GamePlayerOrder(game_id=game.id, player_id=player_id, position=index))
-        db.session.add(GameScore(game_id=game.id, player_id=player_id, fives=0))
+        db.session.add(GameScore(game_id=game.id, player_id=player_id, fives=initial_fives))
 
     db.session.commit()
     return jsonify({"game": serialize_game_state(game)}), 201
@@ -908,6 +920,20 @@ def submit_turn(game_id: int):
             return jsonify({"error": "Select a valid board square."}), 400
         noughts_marker = normalize_noughts_marker(payload.get("noughts_marker"), None)
 
+    halve_it_round = None
+    halve_it_target = None
+    if game.game_type == "halve_it":
+        halve_it_state = parse_halve_it_state(game.halve_it_state)
+        completed_rounds = Turn.query.filter_by(game_id=game.id, player_id=player_id).count()
+        halve_it_round = completed_rounds + 1
+        if halve_it_round > HALVE_IT_TOTAL_ROUNDS:
+            return jsonify({"error": "All Halve It rounds are complete for this player."}), 400
+        round_info = halve_it_round_info(halve_it_round, halve_it_state)
+        halve_it_target = round_info["target"]
+        _, halve_it_error = halve_it_points_from_entry(round_info, total_points)
+        if halve_it_error:
+            return jsonify({"error": halve_it_error}), 400
+
     turn_count = Turn.query.filter_by(game_id=game.id).count()
     turn = Turn(
         game_id=game.id,
@@ -940,7 +966,9 @@ def submit_turn(game_id: int):
                 "x01_result": decode_x01_turn_result(turn.dart_3) if game.game_type == "x01" else None,
                 "x01_leg_won": bool(turn.dart_2) if game.game_type == "x01" else None,
                 "x01_leg_number": int(turn.dart_2) if game.game_type == "x01" and turn.dart_2 else None,
-                "shanghai_instant": bool(turn.dart_2) if game.game_type == "shanghai" else None,
+                "halve_it_round": int(turn.dart_2) if game.game_type == "halve_it" and turn.dart_2 else halve_it_round,
+                "halve_it_halved": bool(turn.dart_3) if game.game_type == "halve_it" else None,
+                "halve_it_target": halve_it_target,
             },
             "game": serialize_game_state(game),
         }
