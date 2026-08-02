@@ -120,6 +120,10 @@
               </div>
             </div>
           </div>
+          <button type="button" id="choose-hi-low" class="mode-btn mode-btn--new">
+            <span class="mode-btn-sticker">New</span>
+            Hi/Low ↕
+          </button>
           <button type="button" id="choose-noughts-and-crosses" class="mode-btn">
             Noughts and Crosses
           </button>
@@ -261,6 +265,7 @@
             <button type="button" class="help-nav-btn" data-help-section="x01">X01</button>
             <button type="button" class="help-nav-btn" data-help-section="55by5">55 by 5</button>
             <button type="button" class="help-nav-btn" data-help-section="halve-it">Halve It</button>
+            <button type="button" class="help-nav-btn" data-help-section="hi-low">Hi/Low</button>
             <button type="button" class="help-nav-btn" data-help-section="cricket">English Cricket</button>
             <button type="button" class="help-nav-btn" data-help-section="noughts">Noughts and Crosses</button>
             <button type="button" class="help-nav-btn" data-help-section="admin">Accounts & History</button>
@@ -313,6 +318,18 @@
                 <li>Use the variant slider in <strong>Select Game</strong> to switch between <strong>Standard</strong> and <strong>Hardcore</strong>.</li>
                 <li>Hardcore uses custom challenge rounds: round 8 is an exact target chosen from preset values around 40/100/120, and round 9 is Bullseye.</li>
                 <li>Teams are not supported in Halve It; use <strong>Singles</strong>.</li>
+              </ul>
+            </section>
+
+            <section class="help-section" data-help-section="hi-low">
+              <h4>Hi/Low</h4>
+              <ul class="help-points">
+                <li>Before start, choose default limits (<strong>low 26</strong>, <strong>high 45</strong>) or switch to custom values.</li>
+                <li>In bounds phase, your score must be <strong>lower than low</strong> or <strong>higher than high</strong> (equal does not count).</li>
+                <li>After a successful throw, the game uses a <strong>single moving target</strong>; the next player must avoid matching it exactly.</li>
+                <li><strong>No Score</strong> always eliminates the current player in this mode.</li>
+                <li>Eliminated players are crossed out and skipped in turn order.</li>
+                <li>Solo: last active player wins. Teams: the last team with active players wins.</li>
               </ul>
             </section>
 
@@ -414,6 +431,34 @@
         <div class="modal-actions">
           <button id="x01-start-cancel" type="button" class="btn-ghost">Cancel</button>
           <button id="x01-start-game" type="button">Start Game</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="hi-low-start-overlay" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="hi-low-start-title">
+      <div class="modal-card hi-low-start-card">
+        <h3 id="hi-low-start-title">Start Hi/Low</h3>
+        <p class="hint">Use default bounds or enable custom low/high starting numbers.</p>
+        <div class="hi-low-start-grid">
+          <div class="hi-low-option-group">
+            <h4>Starting Bounds</h4>
+            <p class="hint hi-low-default-label">Default: lower than <strong>26</strong> or higher than <strong>45</strong>.</p>
+            <div class="hi-low-custom-switch-shell" aria-label="Hi/Low custom bounds toggle">
+              <span class="hi-low-custom-label hi-low-custom-label--left">Default</span>
+              <input id="hi-low-custom-toggle" class="hi-low-custom-toggle" type="range" min="0" max="1" step="1" value="0" aria-label="Toggle custom Hi/Low bounds" />
+              <span class="hi-low-custom-label hi-low-custom-label--right">Custom</span>
+            </div>
+          </div>
+          <div class="hi-low-option-group">
+            <label class="x01-field-label" for="hi-low-low-input">Low Bound</label>
+            <input id="hi-low-low-input" class="x01-field-input" type="number" min="0" max="180" step="1" value="26" disabled />
+            <label class="x01-field-label" for="hi-low-high-input">High Bound</label>
+            <input id="hi-low-high-input" class="x01-field-input" type="number" min="0" max="180" step="1" value="45" disabled />
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button id="hi-low-start-cancel" type="button" class="btn-ghost">Cancel</button>
+          <button id="hi-low-start-game" type="button">Start Game</button>
         </div>
       </div>
     </div>

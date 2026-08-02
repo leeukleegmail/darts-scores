@@ -18,6 +18,9 @@ const state = {
   x01MatchType: "best_of",
   x01LegsValue: 1,
   x01StartingEntity: null,
+  hiLowUseCustom: false,
+  hiLowLow: 26,
+  hiLowHigh: 45,
   pendingNoughtsCellIndex: null,
   playerStats: null,
   loadingPlayerStatsId: null,
@@ -73,6 +76,12 @@ const x01MatchTypeEl = document.getElementById("x01-match-type");
 const x01LegsValueEl = document.getElementById("x01-legs-value");
 const x01LegsValueLabelEl = document.getElementById("x01-legs-value-label");
 const x01StartingEntityEl = document.getElementById("x01-starting-entity");
+const hiLowStartOverlayEl = document.getElementById("hi-low-start-overlay");
+const hiLowStartGameEl = document.getElementById("hi-low-start-game");
+const hiLowStartCancelEl = document.getElementById("hi-low-start-cancel");
+const hiLowCustomToggleEl = document.getElementById("hi-low-custom-toggle");
+const hiLowLowInputEl = document.getElementById("hi-low-low-input");
+const hiLowHighInputEl = document.getElementById("hi-low-high-input");
 const x01TurnPanelEl = document.getElementById("x01-turn-panel");
 const x01ActiveRemainingEl = document.getElementById("x01-active-remaining");
 const x01CheckoutHintEl = document.getElementById("x01-checkout-hint");
@@ -972,6 +981,17 @@ async function submitScore(totalPoints) {
         return;
       }
 
+      if (response.game.game_type === "hi_low") {
+        const turnPlayer = response.game.players.find((player) => player.id === t.player_id);
+        const turnPlayerName = turnPlayer?.name || "Player";
+        if (t.hi_low_result === "eliminated") {
+          showMessage(`${turnPlayerName} failed and is eliminated.`);
+        } else {
+          showMessage(`${turnPlayerName} succeeded. Moving target is now ${t.total_points}.`);
+        }
+        return;
+      }
+
       const isBust = response.game.game_type === "55by5" && !t.counted && t.total_points % 5 === 0;
 
       showMessage(
@@ -1134,6 +1154,7 @@ function renderPlayers() {
 
 function labelForGameType(gameType) {
   if (gameType === "x01") return "X01";
+  if (gameType === "hi_low") return "Hi/Low";
   if (gameType === "english_cricket") return "English Cricket";
   if (gameType === "halve_it") return "Halve It";
   if (gameType === "noughts_and_crosses") return "Noughts and Crosses";
@@ -1272,6 +1293,12 @@ function updateHeroCopy(game) {
     return;
   }
 
+  if (activeGameType === "hi_low") {
+    heroTitleEl.textContent = "Hi/Low";
+    heroSubtitleEl.textContent = "Hit outside bounds, then keep the moving target alive while avoiding elimination.";
+    return;
+  }
+
   if (activeGameType === "noughts_and_crosses") {
     heroTitleEl.textContent = "Noughts and Crosses";
     heroSubtitleEl.textContent = "Click a dart target square and assign it to X or O to build three in a row.";
@@ -1390,8 +1417,14 @@ function syncStateFromGame(game) {
   state.x01MatchType = game.x01_state?.match_type || "best_of";
   state.x01LegsValue = Number(game.x01_state?.legs_value) || 1;
   state.x01StartingEntity = game.x01_state?.starting_entity || null;
+  state.hiLowUseCustom = Boolean(game.hi_low_state && (
+    Number(game.hi_low_state.start_low) !== 26 || Number(game.hi_low_state.start_high) !== 45
+  ));
+  state.hiLowLow = Number(game.hi_low_state?.start_low) || 26;
+  state.hiLowHigh = Number(game.hi_low_state?.start_high) || 45;
   state.halveItVariant = normalizeHalveItVariant(game.halve_it_state?.variant || state.halveItVariant);
   syncHalveItVariantControls(state.halveItVariant);
+  syncHiLowStartControls();
 }
 
 function restoreLobbyStateFromGame(game) {
@@ -1411,8 +1444,14 @@ function restoreLobbyStateFromGame(game) {
   state.x01MatchType = game.x01_state?.match_type || "best_of";
   state.x01LegsValue = Number(game.x01_state?.legs_value) || 1;
   state.x01StartingEntity = game.x01_state?.starting_entity || null;
+  state.hiLowUseCustom = Boolean(game.hi_low_state && (
+    Number(game.hi_low_state.start_low) !== 26 || Number(game.hi_low_state.start_high) !== 45
+  ));
+  state.hiLowLow = Number(game.hi_low_state?.start_low) || 26;
+  state.hiLowHigh = Number(game.hi_low_state?.start_high) || 45;
   state.halveItVariant = normalizeHalveItVariant(game.halve_it_state?.variant || state.halveItVariant);
   syncHalveItVariantControls(state.halveItVariant);
+  syncHiLowStartControls();
 
   const teamModeSoloEl = document.getElementById("team-mode-solo");
   const teamModeTeamsEl = document.getElementById("team-mode-teams");
@@ -1514,6 +1553,45 @@ function closeCricketStartOverlay() {
 function closeX01StartOverlay() {
   if (x01StartOverlayEl) {
     x01StartOverlayEl.classList.remove("visible");
+  }
+}
+
+function normalizeHiLowBoundValue(rawValue, fallback) {
+  const numeric = Number(rawValue);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.max(0, Math.min(180, Math.trunc(numeric)));
+}
+
+function syncHiLowStartControls() {
+  if (hiLowCustomToggleEl instanceof HTMLInputElement) {
+    hiLowCustomToggleEl.value = state.hiLowUseCustom ? "1" : "0";
+  }
+
+  const lowValue = normalizeHiLowBoundValue(state.hiLowLow, 26);
+  const highValue = normalizeHiLowBoundValue(state.hiLowHigh, 45);
+  state.hiLowLow = lowValue;
+  state.hiLowHigh = highValue;
+
+  if (hiLowLowInputEl instanceof HTMLInputElement) {
+    hiLowLowInputEl.value = String(lowValue);
+    hiLowLowInputEl.disabled = !state.hiLowUseCustom;
+  }
+  if (hiLowHighInputEl instanceof HTMLInputElement) {
+    hiLowHighInputEl.value = String(highValue);
+    hiLowHighInputEl.disabled = !state.hiLowUseCustom;
+  }
+}
+
+function openHiLowStartOverlay() {
+  syncHiLowStartControls();
+  if (hiLowStartOverlayEl) {
+    hiLowStartOverlayEl.classList.add("visible");
+  }
+}
+
+function closeHiLowStartOverlay() {
+  if (hiLowStartOverlayEl) {
+    hiLowStartOverlayEl.classList.remove("visible");
   }
 }
 
@@ -2350,6 +2428,35 @@ function renderHalveItScoreboard(game) {
   }
 }
 
+function renderHiLowScoreboard(game) {
+  scoreboardEl.innerHTML = "";
+  const hiLowState = game.hi_low_state || {};
+  const eliminated = new Set(Array.isArray(hiLowState.eliminated_players) ? hiLowState.eliminated_players : []);
+
+  for (const player of game.players) {
+    const tr = document.createElement("tr");
+    const isEliminated = eliminated.has(player.id) || Boolean(player.hi_low_eliminated);
+    if (player.id === game.active_player_id && game.status === "active") {
+      tr.classList.add("active-row");
+    }
+    if (isEliminated) {
+      tr.classList.add("eliminated-row");
+    }
+
+    const lastSuccess = Number.isFinite(Number(player.hi_low_last_success))
+      ? String(player.hi_low_last_success)
+      : "-";
+    const statusLabel = isEliminated ? "Eliminated" : "Active";
+
+    tr.innerHTML = `
+      <td>${player.name}</td>
+      <td>${statusLabel}</td>
+      <td>${lastSuccess}</td>
+    `;
+    scoreboardEl.appendChild(tr);
+  }
+}
+
 function x01LegsWonForEntity(x01State, entityKey) {
   return Number(x01State?.legs_won?.[String(entityKey)] || 0);
 }
@@ -2629,6 +2736,7 @@ function applyLayoutMode(game) {
     closePlayerManager();
     closeCricketStartOverlay();
     closeX01StartOverlay();
+    closeHiLowStartOverlay();
     closeNoughtsMarkOverlay();
     if (gameSelectionPanelEl) {
       gameSelectionPanelEl.classList.add("hidden");
@@ -2644,6 +2752,7 @@ function applyLayoutMode(game) {
   if (gameSelectionPanelEl) {
     gameSelectionPanelEl.classList.remove("hidden");
   }
+  closeHiLowStartOverlay();
   setupPanelEl.classList.remove("hidden");
   historyPanelEl.classList.remove("hidden");
   livePanelEl.classList.add("hidden");
@@ -2706,6 +2815,7 @@ function renderGame() {
   const isCricket = game.game_type === "english_cricket";
   const isX01 = game.game_type === "x01";
   const isHalveIt = game.game_type === "halve_it";
+  const isHiLow = game.game_type === "hi_low";
   const isNoughts = game.game_type === "noughts_and_crosses";
   const activePlayer = game.players.find((p) => p.id === game.active_player_id);
   const scoreboardTable = document.getElementById("scoreboard-table");
@@ -2715,8 +2825,8 @@ function renderGame() {
   const headers = Array.from(document.querySelectorAll("#scoreboard-table thead th"));
   if (headers.length >= 4) {
     headers[0].textContent = "Player";
-    headers[1].textContent = isX01 ? "Remaining" : "Score";
-    headers[2].textContent = isX01 ? "Legs" : (isHalveIt ? "Round" : "Points Required");
+    headers[1].textContent = isX01 ? "Remaining" : (isHiLow ? "Status" : "Score");
+    headers[2].textContent = isX01 ? "Legs" : (isHalveIt ? "Round" : (isHiLow ? "Last Success" : "Points Required"));
     headers[2].hidden = false;
     headers[3].textContent = isX01 ? "Target" : "";
     headers[3].hidden = !isX01;
@@ -2762,6 +2872,15 @@ function renderGame() {
     const currentTarget = String(game.halve_it_state?.current_target || "20");
     const currentRound = Number(game.halve_it_state?.current_round || 1);
     activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong> · Round ${currentRound} (Target ${currentTarget})`;
+  } else if (isHiLow) {
+    const hiLowState = game.hi_low_state || {};
+    if (hiLowState.phase === "single_target" && Number.isFinite(Number(hiLowState.current_target))) {
+      activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong> · Moving target ${hiLowState.current_target} (must be different)`;
+    } else {
+      const low = Number(hiLowState.start_low) || 26;
+      const high = Number(hiLowState.start_high) || 45;
+      activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong> · Score lower than ${low} or higher than ${high}`;
+    }
   } else if (isNoughts) {
     activeGameMetaEl.innerHTML = "<strong>Noughts and Crosses</strong>";
   } else if (isX01) {
@@ -2793,6 +2912,10 @@ function renderGame() {
     renderX01TurnPanel({ game_type: null });
     renderRoundTargetTurnPanel(game);
     renderHalveItScoreboard(game);
+  } else if (isHiLow) {
+    renderX01TurnPanel({ game_type: null });
+    renderRoundTargetTurnPanel({ game_type: null });
+    renderHiLowScoreboard(game);
   } else {
     renderX01TurnPanel({ game_type: null });
     renderRoundTargetTurnPanel({ game_type: null });
@@ -2816,6 +2939,10 @@ function renderGame() {
         ? (turn.halve_it_halved
           ? `${turn.halve_it_target || "target"} missed, score halved`
           : `+${turn.fives_awarded} on ${turn.halve_it_target || "target"}`)
+      : isHiLow
+        ? (turn.hi_low_result === "eliminated"
+          ? "eliminated"
+          : `set moving target to ${turn.total_points}`)
       : isNoughts
         ? (turn.counted
           ? `${turn.noughts_marker || "Mark"} on ${turn.board_label || `square ${turn.board_index + 1}`}`
@@ -2899,6 +3026,8 @@ async function loadHistory() {
       ? "X01"
       : game.game_type === "english_cricket"
       ? "English Cricket"
+      : game.game_type === "hi_low"
+      ? "Hi/Low"
       : game.game_type === "halve_it"
       ? "Halve It"
       : game.game_type === "noughts_and_crosses"
@@ -2986,6 +3115,17 @@ async function startConfiguredGame() {
     return;
   }
 
+  if (state.gameType === "hi_low") {
+    const low = normalizeHiLowBoundValue(state.hiLowLow, 26);
+    const high = normalizeHiLowBoundValue(state.hiLowHigh, 45);
+    state.hiLowLow = low;
+    state.hiLowHigh = high;
+    if (state.hiLowUseCustom && low >= high) {
+      showBustBanner("Custom Hi/Low values must use low below high.");
+      return;
+    }
+  }
+
   try {
     const response = await api("/api/games", {
       method: "POST",
@@ -3001,6 +3141,9 @@ async function startConfiguredGame() {
         x01_legs_value: state.gameType === "x01" ? state.x01LegsValue : undefined,
         x01_starting_entity: state.gameType === "x01" ? state.x01StartingEntity : undefined,
         halve_it_variant: state.gameType === "halve_it" ? state.halveItVariant : undefined,
+        hi_low_use_custom: state.gameType === "hi_low" ? state.hiLowUseCustom : undefined,
+        hi_low_low: state.gameType === "hi_low" ? state.hiLowLow : undefined,
+        hi_low_high: state.gameType === "hi_low" ? state.hiLowHigh : undefined,
       }),
     });
     syncStateFromGame(response.game);
@@ -3079,6 +3222,11 @@ async function startRematch() {
         x01_legs_value: gameType === "x01" ? finishedGame.x01_state?.legs_value : undefined,
         x01_starting_entity: gameType === "x01" ? finishedGame.x01_state?.starting_entity : undefined,
         halve_it_variant: gameType === "halve_it" ? normalizeHalveItVariant(finishedGame.halve_it_state?.variant) : undefined,
+        hi_low_use_custom: gameType === "hi_low"
+          ? (Number(finishedGame.hi_low_state?.start_low) !== 26 || Number(finishedGame.hi_low_state?.start_high) !== 45)
+          : undefined,
+        hi_low_low: gameType === "hi_low" ? finishedGame.hi_low_state?.start_low : undefined,
+        hi_low_high: gameType === "hi_low" ? finishedGame.hi_low_state?.start_high : undefined,
       }),
     });
 
@@ -3094,6 +3242,7 @@ async function startRematch() {
 async function init() {
   resetTeamNames();
   syncHalveItVariantControls(state.halveItVariant);
+  syncHiLowStartControls();
   setupScoreKeypad();
   setupDragAndDrop();
   setupTeamDragAndDrop();
@@ -3111,6 +3260,7 @@ async function init() {
   const chooseX01Btn = document.getElementById("choose-x01");
   const chooseCricketBtn = document.getElementById("choose-english-cricket");
   const chooseHalveItBtn = document.getElementById("choose-halve-it");
+  const chooseHiLowBtn = document.getElementById("choose-hi-low");
   const chooseNoughtsBtn = document.getElementById("choose-noughts-and-crosses");
   const teamModeSoloEl = document.getElementById("team-mode-solo");
   const teamModeTeamsEl = document.getElementById("team-mode-teams");
@@ -3232,6 +3382,10 @@ async function init() {
       closeX01StartOverlay();
       return;
     }
+    if (hiLowStartOverlayEl?.classList.contains("visible")) {
+      closeHiLowStartOverlay();
+      return;
+    }
     if (noughtsMarkOverlayEl?.classList.contains("visible")) {
       closeNoughtsMarkOverlay();
     }
@@ -3324,6 +3478,7 @@ async function init() {
   if (chooseX01Btn) {
     chooseX01Btn.addEventListener("click", () => {
       closeCricketStartOverlay();
+      closeHiLowStartOverlay();
       closeNoughtsMarkOverlay();
       closePlayerStats();
       state.gameType = "x01";
@@ -3344,6 +3499,7 @@ async function init() {
     choose55Btn.addEventListener("click", async () => {
       closeCricketStartOverlay();
       closeX01StartOverlay();
+      closeHiLowStartOverlay();
       closePlayerStats();
       state.gameType = "55by5";
       state.teamMode = getTeamMode();
@@ -3363,6 +3519,7 @@ async function init() {
     chooseCricketBtn.addEventListener("click", () => {
       const wasSelected = state.gameType === "english_cricket";
       closeX01StartOverlay();
+      closeHiLowStartOverlay();
       closePlayerStats();
       state.gameType = "english_cricket";
       state.teamMode = getTeamMode();
@@ -3380,6 +3537,7 @@ async function init() {
     chooseHalveItBtn.addEventListener("click", async () => {
       closeCricketStartOverlay();
       closeX01StartOverlay();
+      closeHiLowStartOverlay();
       closeNoughtsMarkOverlay();
       closePlayerStats();
       state.gameType = "halve_it";
@@ -3397,10 +3555,29 @@ async function init() {
     });
   }
 
+  if (chooseHiLowBtn) {
+    chooseHiLowBtn.addEventListener("click", () => {
+      closeCricketStartOverlay();
+      closeX01StartOverlay();
+      closeNoughtsMarkOverlay();
+      closePlayerStats();
+      state.gameType = "hi_low";
+      state.teamMode = getTeamMode();
+      state.hiLowUseCustom = false;
+      state.hiLowLow = 26;
+      state.hiLowHigh = 45;
+      updateTeamModeAvailability();
+      applyLayoutMode(state.game);
+      renderTeamAssignment();
+      openHiLowStartOverlay();
+    });
+  }
+
   if (chooseNoughtsBtn) {
     chooseNoughtsBtn.addEventListener("click", async () => {
       closeCricketStartOverlay();
       closeX01StartOverlay();
+      closeHiLowStartOverlay();
       closeNoughtsMarkOverlay();
       closePlayerStats();
       state.gameType = "noughts_and_crosses";
@@ -3428,9 +3605,36 @@ async function init() {
     });
   }
 
+  if (hiLowStartCancelEl) {
+    hiLowStartCancelEl.addEventListener("click", () => {
+      closeHiLowStartOverlay();
+    });
+  }
+
   if (x01StartGameEl) {
     x01StartGameEl.addEventListener("click", async () => {
       closeX01StartOverlay();
+      try {
+        await startConfiguredGame();
+      } catch (err) {
+        showMessage(err.message, true);
+      }
+    });
+  }
+
+  if (hiLowStartGameEl) {
+    hiLowStartGameEl.addEventListener("click", async () => {
+      const low = normalizeHiLowBoundValue(hiLowLowInputEl?.value ?? state.hiLowLow, 26);
+      const high = normalizeHiLowBoundValue(hiLowHighInputEl?.value ?? state.hiLowHigh, 45);
+      state.hiLowLow = low;
+      state.hiLowHigh = high;
+
+      if (state.hiLowUseCustom && low >= high) {
+        showBustBanner("Custom Hi/Low values must use low below high.");
+        return;
+      }
+
+      closeHiLowStartOverlay();
       try {
         await startConfiguredGame();
       } catch (err) {
@@ -3452,6 +3656,41 @@ async function init() {
       if (event.target === x01StartOverlayEl) {
         closeX01StartOverlay();
       }
+    });
+  }
+
+  if (hiLowStartOverlayEl) {
+    hiLowStartOverlayEl.addEventListener("click", (event) => {
+      if (event.target === hiLowStartOverlayEl) {
+        closeHiLowStartOverlay();
+      }
+    });
+  }
+
+  if (hiLowCustomToggleEl instanceof HTMLInputElement) {
+    hiLowCustomToggleEl.addEventListener("input", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement)) return;
+      state.hiLowUseCustom = target.value === "1";
+      syncHiLowStartControls();
+    });
+  }
+
+  if (hiLowLowInputEl instanceof HTMLInputElement) {
+    hiLowLowInputEl.addEventListener("input", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement)) return;
+      state.hiLowLow = normalizeHiLowBoundValue(target.value, 26);
+      target.value = String(state.hiLowLow);
+    });
+  }
+
+  if (hiLowHighInputEl instanceof HTMLInputElement) {
+    hiLowHighInputEl.addEventListener("input", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement)) return;
+      state.hiLowHigh = normalizeHiLowBoundValue(target.value, 45);
+      target.value = String(state.hiLowHigh);
     });
   }
 

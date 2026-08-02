@@ -1294,6 +1294,15 @@ td {
   background: var(--accent-soft);
 }
 
+.eliminated-row {
+  opacity: 0.58;
+}
+
+.eliminated-row td {
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+}
+
 .team-header-row {
   background: rgba(212, 58, 58, 0.2);
 }
@@ -1988,8 +1997,14 @@ td {
   width: min(620px, 94vw);
 }
 
+.hi-low-start-card {
+  width: min(620px, 94vw);
+}
+
 .x01-start-card h3,
-.x01-start-card h4 {
+.x01-start-card h4,
+.hi-low-start-card h3,
+.hi-low-start-card h4 {
   margin-top: 0;
 }
 
@@ -2000,9 +2015,44 @@ td {
   margin-top: 1rem;
 }
 
+.hi-low-start-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
 .x01-option-group {
   display: grid;
   gap: 0.55rem;
+}
+
+.hi-low-option-group {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.hi-low-default-label {
+  margin: 0;
+}
+
+.hi-low-custom-switch-shell {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.hi-low-custom-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.hi-low-custom-toggle {
+  width: 100%;
 }
 
 .x01-field-label {
@@ -2112,6 +2162,7 @@ td {
 
 @media (max-width: 640px) {
   .x01-start-grid,
+  .hi-low-start-grid,
   .x01-turn-summary {
     grid-template-columns: 1fr;
   }

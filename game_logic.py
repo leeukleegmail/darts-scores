@@ -29,6 +29,10 @@ X01_VALID_MATCH_TYPES = ("best_of", "first_to")
 X01_RESULT_SCORED = 0
 X01_RESULT_BUST_OVERSHOOT = 1
 X01_RESULT_BUST_LEAVE_ONE = 2
+HI_LOW_DEFAULT_LOW = 26
+HI_LOW_DEFAULT_HIGH = 45
+HI_LOW_RESULT_SUCCESS = 0
+HI_LOW_RESULT_ELIMINATED = 1
 HALVE_IT_VARIANTS = ("standard", "hardcore")
 HALVE_IT_ROUNDS: tuple[dict[str, Any], ...] = (
     {"target": "15", "kind": "number", "entry_mode": "hits", "number": 15},
@@ -230,6 +234,8 @@ def normalize_game_type(raw_type: str | None) -> str:
         return "english_cricket"
     if game_type in {"x01", "501", "301", "1001", "101"}:
         return "x01"
+    if game_type in {"hi_low", "hi-low", "hilow", "higher_and_lower", "higher-and-lower"}:
+        return "hi_low"
     if game_type in {"halve_it", "halve-it", "halveit"}:
         return "halve_it"
     if game_type in {"noughts_and_crosses", "noughts-and-crosses", "noughts", "tic_tac_toe", "tic-tac-toe", "tic tac toe"}:
@@ -655,6 +661,203 @@ def turn_result(total: int) -> tuple[int, bool, int]:
     counted = total % 5 == 0
     fives = total // 5 if counted else 0
     return total, counted, fives
+
+
+def normalize_hi_low_bound(raw_value: object, default: int) -> int:
+    if isinstance(raw_value, int) and 0 <= raw_value <= MAX_TURN_TOTAL:
+        return raw_value
+    return default
+
+
+def normalize_hi_low_start_bounds(
+    *,
+    use_custom: bool,
+    raw_low: object,
+    raw_high: object,
+) -> tuple[int, int, str | None]:
+    if not use_custom:
+        return HI_LOW_DEFAULT_LOW, HI_LOW_DEFAULT_HIGH, None
+
+    low_value = normalize_hi_low_bound(raw_low, HI_LOW_DEFAULT_LOW)
+    high_value = normalize_hi_low_bound(raw_high, HI_LOW_DEFAULT_HIGH)
+    if low_value >= high_value:
+        return low_value, high_value, "Hi/Low custom values require low to be less than high."
+    return low_value, high_value, None
+
+
+def build_initial_hi_low_state(low_bound: int = HI_LOW_DEFAULT_LOW, high_bound: int = HI_LOW_DEFAULT_HIGH) -> dict[str, Any]:
+    normalized_low = normalize_hi_low_bound(low_bound, HI_LOW_DEFAULT_LOW)
+    normalized_high = normalize_hi_low_bound(high_bound, HI_LOW_DEFAULT_HIGH)
+    if normalized_low >= normalized_high:
+        normalized_low = HI_LOW_DEFAULT_LOW
+        normalized_high = HI_LOW_DEFAULT_HIGH
+    return {
+        "start_low": normalized_low,
+        "start_high": normalized_high,
+        "phase": "bounds",
+        "current_target": None,
+        "eliminated_players": [],
+        "last_success": {},
+    }
+
+
+def parse_hi_low_state(raw_value: str | None, ordered_player_ids: list[int]) -> dict[str, Any]:
+    default_state = build_initial_hi_low_state()
+    if not raw_value:
+        return default_state
+    try:
+        decoded = json.loads(raw_value)
+    except (TypeError, ValueError):
+        return default_state
+    if not isinstance(decoded, dict):
+        return default_state
+
+    start_low = normalize_hi_low_bound(decoded.get("start_low"), HI_LOW_DEFAULT_LOW)
+    start_high = normalize_hi_low_bound(decoded.get("start_high"), HI_LOW_DEFAULT_HIGH)
+    if start_low >= start_high:
+        start_low = HI_LOW_DEFAULT_LOW
+        start_high = HI_LOW_DEFAULT_HIGH
+
+    phase = "single_target" if decoded.get("phase") == "single_target" else "bounds"
+    current_target = decoded.get("current_target")
+    if not isinstance(current_target, int) or not (0 <= current_target <= MAX_TURN_TOTAL):
+        current_target = None
+
+    allowed_ids = set(ordered_player_ids)
+    raw_eliminated = decoded.get("eliminated_players")
+    eliminated_players: list[int] = []
+    if isinstance(raw_eliminated, list):
+        for raw_player_id in raw_eliminated:
+            if isinstance(raw_player_id, int) and raw_player_id in allowed_ids and raw_player_id not in eliminated_players:
+                eliminated_players.append(raw_player_id)
+
+    last_success: dict[str, int] = {}
+    raw_last_success = decoded.get("last_success")
+    if isinstance(raw_last_success, dict):
+        for raw_player_id, raw_score in raw_last_success.items():
+            try:
+                player_id = int(raw_player_id)
+            except (TypeError, ValueError):
+                continue
+            if player_id not in allowed_ids or player_id in eliminated_players:
+                continue
+            if isinstance(raw_score, int) and 0 <= raw_score <= MAX_TURN_TOTAL:
+                last_success[str(player_id)] = raw_score
+
+    if phase == "single_target" and current_target is None:
+        phase = "bounds"
+
+    return {
+        "start_low": start_low,
+        "start_high": start_high,
+        "phase": phase,
+        "current_target": current_target,
+        "eliminated_players": eliminated_players,
+        "last_success": last_success,
+    }
+
+
+def active_hi_low_player_ids(ordered_players: list[dict[str, Any]], hi_low_state: dict[str, Any]) -> list[int]:
+    eliminated = set(hi_low_state.get("eliminated_players") or [])
+    return [player["id"] for player in ordered_players if player["id"] not in eliminated]
+
+
+def first_active_hi_low_turn_position(ordered_players: list[dict[str, Any]], hi_low_state: dict[str, Any]) -> int:
+    active_ids = set(active_hi_low_player_ids(ordered_players, hi_low_state))
+    for index, player in enumerate(ordered_players):
+        if player["id"] in active_ids:
+            return index
+    return 0
+
+
+def next_active_hi_low_turn_position(current_position: int, ordered_players: list[dict[str, Any]], hi_low_state: dict[str, Any]) -> int:
+    if not ordered_players:
+        return 0
+    active_ids = set(active_hi_low_player_ids(ordered_players, hi_low_state))
+    if not active_ids:
+        return current_position
+    for offset in range(1, len(ordered_players) + 1):
+        candidate = (current_position + offset) % len(ordered_players)
+        if ordered_players[candidate]["id"] in active_ids:
+            return candidate
+    return current_position
+
+
+def encode_hi_low_turn_result(result: str | None) -> int:
+    if result == "eliminated":
+        return HI_LOW_RESULT_ELIMINATED
+    return HI_LOW_RESULT_SUCCESS
+
+
+def decode_hi_low_turn_result(encoded_result: int | None) -> str:
+    if encoded_result == HI_LOW_RESULT_ELIMINATED:
+        return "eliminated"
+    return "success"
+
+
+def maybe_finish_hi_low_game(
+    game: Any,
+    ordered_players: list[dict[str, Any]],
+    assignments: dict[int, str],
+    hi_low_state: dict[str, Any],
+) -> None:
+    active_ids = active_hi_low_player_ids(ordered_players, hi_low_state)
+    if getattr(game, "team_mode", "solo") == "teams":
+        active_teams = {assignments.get(player_id, TEAM_A) for player_id in active_ids}
+        if len(active_teams) == 1:
+            finish_game(game, winner_team=next(iter(active_teams)))
+        elif not active_teams:
+            finish_game(game)
+        return
+
+    if len(active_ids) == 1:
+        finish_game(game, winner_player_id=active_ids[0])
+    elif not active_ids:
+        finish_game(game)
+
+
+def apply_hi_low_turn(
+    game: Any,
+    turn: Any,
+    ordered_players: list[dict[str, Any]],
+    score_row: Any,
+    assignments: dict[int, str],
+    hi_low_state: dict[str, Any],
+) -> None:
+    del score_row
+    eliminated_ids = set(hi_low_state.get("eliminated_players") or [])
+    if turn.player_id in eliminated_ids:
+        return
+
+    start_low = int(hi_low_state.get("start_low", HI_LOW_DEFAULT_LOW))
+    start_high = int(hi_low_state.get("start_high", HI_LOW_DEFAULT_HIGH))
+    phase = "single_target" if hi_low_state.get("phase") == "single_target" else "bounds"
+    current_target = hi_low_state.get("current_target")
+
+    score = int(turn.total_points)
+    success = False
+    if score != 0:
+        if phase == "single_target" and isinstance(current_target, int):
+            success = score != current_target
+        else:
+            success = score < start_low or score > start_high
+
+    if success:
+        hi_low_state["phase"] = "single_target"
+        hi_low_state["current_target"] = score
+        hi_low_state.setdefault("last_success", {})[str(turn.player_id)] = score
+        turn.counted = True
+        turn.fives_awarded = score
+        turn.dart_3 = encode_hi_low_turn_result("success")
+        return
+
+    eliminated = hi_low_state.setdefault("eliminated_players", [])
+    if turn.player_id not in eliminated:
+        eliminated.append(turn.player_id)
+    turn.counted = False
+    turn.fives_awarded = 0
+    turn.dart_3 = encode_hi_low_turn_result("eliminated")
+    maybe_finish_hi_low_game(game, ordered_players, assignments, hi_low_state)
 
 
 def halve_it_points_from_entry(round_info: dict[str, Any], entry_value: int) -> tuple[int | None, str | None]:
@@ -1189,6 +1392,10 @@ def recompute_game_state(
         assignments,
         game.team_mode,
     )
+    stored_hi_low_state = parse_hi_low_state(
+        getattr(game, "hi_low_state", None),
+        [player["id"] for player in ordered_players],
+    )
 
     if game.game_type == "english_cricket":
         cricket_state = build_initial_cricket_state(stored_cricket_state["starting_batting_team"])
@@ -1219,6 +1426,15 @@ def recompute_game_state(
         game.current_turn_position = x01_state.get("initial_turn_position", 0)
     else:
         x01_state = stored_x01_state
+
+    if game.game_type == "hi_low":
+        hi_low_state = build_initial_hi_low_state(
+            stored_hi_low_state.get("start_low", HI_LOW_DEFAULT_LOW),
+            stored_hi_low_state.get("start_high", HI_LOW_DEFAULT_HIGH),
+        )
+        game.current_turn_position = first_active_hi_low_turn_position(ordered_players, hi_low_state)
+    else:
+        hi_low_state = stored_hi_low_state
 
     halve_it_state = stored_halve_it_state
 
@@ -1263,11 +1479,20 @@ def recompute_game_state(
                     finish_game(game, winner_player_id=winners[0])
                 else:
                     finish_game(game)
+        elif game.game_type == "hi_low":
+            apply_hi_low_turn(game, turn, ordered_players, score_row, assignments, hi_low_state)
         else:
             apply_standard_turn(game, turn, score_row, assignments, team_totals)
 
         if game.status == "active":
-            game.current_turn_position = (game.current_turn_position + 1) % len(ordered_players)
+            if game.game_type == "hi_low":
+                game.current_turn_position = next_active_hi_low_turn_position(
+                    game.current_turn_position,
+                    ordered_players,
+                    hi_low_state,
+                )
+            else:
+                game.current_turn_position = (game.current_turn_position + 1) % len(ordered_players)
 
     if game.game_type == "english_cricket":
         game.cricket_state = json.dumps(cricket_state)
@@ -1277,6 +1502,8 @@ def recompute_game_state(
         game.noughts_and_crosses_state = json.dumps(noughts_state)
     if game.game_type == "halve_it":
         game.halve_it_state = json.dumps(halve_it_state)
+    if game.game_type == "hi_low":
+        game.hi_low_state = json.dumps(hi_low_state)
 
 
 def active_player_id_for_game(game: Any, ordered_players: list[dict[str, Any]]) -> int | None:
@@ -1293,7 +1520,10 @@ def serialize_players_for_game(
     assignments: dict[int, str],
     game: Any,
     x01_state: dict[str, Any] | None = None,
+    hi_low_state: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
+    hi_low_eliminated = set((hi_low_state or {}).get("eliminated_players") or [])
+    hi_low_last_success = (hi_low_state or {}).get("last_success") or {}
     return [
         {
             "id": item["id"],
@@ -1307,6 +1537,12 @@ def serialize_players_for_game(
                     scores.get(item["id"], 0),
                 )
                 if game.game_type == "x01"
+                else None
+            ),
+            "hi_low_eliminated": (item["id"] in hi_low_eliminated) if game.game_type == "hi_low" else None,
+            "hi_low_last_success": (
+                hi_low_last_success.get(str(item["id"]))
+                if game.game_type == "hi_low"
                 else None
             ),
         }
@@ -1336,6 +1572,7 @@ def serialize_turns_for_game(turn_rows: list[tuple[Any, Any]], game: Any) -> lis
                 else None
             ),
             "noughts_marker": decode_noughts_marker(turn.dart_2) if game.game_type == "noughts_and_crosses" else None,
+            "hi_low_result": decode_hi_low_turn_result(turn.dart_3) if game.game_type == "hi_low" else None,
             "board_index": turn.total_points if game.game_type == "noughts_and_crosses" else None,
             "board_label": (
                 noughts_state.get("cells", [])[turn.total_points].get("label")
@@ -1373,6 +1610,7 @@ def build_game_state_payload(
     noughts_state = parse_noughts_and_crosses_state(game.noughts_and_crosses_state)
     x01_state = parse_x01_state(game.x01_state, [player["id"] for player in ordered_players], assignments, game.team_mode)
     halve_it_base_state = parse_halve_it_state(getattr(game, "halve_it_state", None))
+    hi_low_state = parse_hi_low_state(getattr(game, "hi_low_state", None), [player["id"] for player in ordered_players])
 
     if game.game_type == "noughts_and_crosses":
         noughts_state["x_name"] = noughts_side_name(ordered_players, assignments, team_names, TEAM_A, game.team_mode)
@@ -1430,9 +1668,10 @@ def build_game_state_payload(
         "team_assignments": {str(key): value for key, value in assignments.items()},
         "cricket_state": parse_cricket_state(game.cricket_state) if game.game_type == "english_cricket" else None,
         "x01_state": x01_state if game.game_type == "x01" else None,
+        "hi_low_state": hi_low_state if game.game_type == "hi_low" else None,
         "halve_it_state": halve_it_state,
         "noughts_and_crosses_state": noughts_state if game.game_type == "noughts_and_crosses" else None,
-        "players": serialize_players_for_game(ordered_players, scores, assignments, game, x01_state),
+        "players": serialize_players_for_game(ordered_players, scores, assignments, game, x01_state, hi_low_state),
         "turns": serialize_turns_for_game(turn_rows, game),
     }
 
@@ -1443,6 +1682,8 @@ def game_type_label(game_type: str | None) -> str:
         return "English Cricket"
     if normalized == "x01":
         return "X01"
+    if normalized == "hi_low":
+        return "Hi/Low"
     if normalized == "halve_it":
         return "Halve It"
     if normalized == "noughts_and_crosses":
@@ -1528,7 +1769,9 @@ def build_new_game_start_state(
     x01_legs_value: int = 1,
     x01_starting_entity: str | None = None,
     halve_it_variant: str = "standard",
-) -> tuple[int, str | None, str | None, str | None, str | None]:
+    hi_low_start_low: int = HI_LOW_DEFAULT_LOW,
+    hi_low_start_high: int = HI_LOW_DEFAULT_HIGH,
+) -> tuple[int, str | None, str | None, str | None, str | None, str | None]:
     if game_type == "english_cricket":
         opening_state = build_initial_cricket_state(starting_batting_team)
         ordered_for_start = [{"id": player_id} for player_id in ordered_player_ids]
@@ -1537,7 +1780,7 @@ def build_new_game_start_state(
             normalized_assignments,
             opening_state["bowling_team"],
         )
-        return initial_turn_position, json.dumps(opening_state), None, None, None
+        return initial_turn_position, json.dumps(opening_state), None, None, None, None
 
     if game_type == "x01":
         initial_turn_position = x01_starting_turn_position(
@@ -1562,12 +1805,16 @@ def build_new_game_start_state(
             x01_starting_entity,
             initial_turn_position,
         )
-        return initial_turn_position, None, None, json.dumps(x01_state), None
+        return initial_turn_position, None, None, json.dumps(x01_state), None, None
 
     if game_type == "noughts_and_crosses":
-        return 0, None, json.dumps(build_initial_noughts_and_crosses_state()), None, None
+        return 0, None, json.dumps(build_initial_noughts_and_crosses_state()), None, None, None
 
     if game_type == "halve_it":
-        return 0, None, None, None, json.dumps(build_initial_halve_it_state(halve_it_variant))
+        return 0, None, None, None, json.dumps(build_initial_halve_it_state(halve_it_variant)), None
 
-    return 0, None, None, None, None
+    if game_type == "hi_low":
+        hi_low_state = build_initial_hi_low_state(hi_low_start_low, hi_low_start_high)
+        return 0, None, None, None, None, json.dumps(hi_low_state)
+
+    return 0, None, None, None, None, None

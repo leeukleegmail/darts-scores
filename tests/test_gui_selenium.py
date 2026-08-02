@@ -15,6 +15,7 @@ from tests.selenium_helpers import (
     open_player_manager,
     start_cricket_game,
     start_halve_it_game,
+    start_hi_low_game,
     start_noughts_game,
     start_noughts_team_game,
     start_single_player_game,
@@ -42,7 +43,7 @@ def test_halve_it_start_shows_round_target_panel(live_server, browser):
 
     panel = _wait(browser).until(ec.visibility_of_element_located((By.ID, "round-target-turn-panel")))
     assert panel.is_displayed()
-    assert browser.find_element(By.ID, "round-target-current").text.strip() == "20"
+    assert browser.find_element(By.ID, "round-target-current").text.strip() == "15"
     assert "Round 1" in browser.find_element(By.ID, "active-game-meta").text
 
 
@@ -96,6 +97,68 @@ def test_halve_it_variant_slider_can_start_hardcore(live_server, browser):
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
     assert browser.find_element(By.ID, "round-target-turn-panel").is_displayed()
     assert browser.find_element(By.ID, "round-target-current").text.strip()
+
+
+def test_hi_low_custom_setup_starts_game_and_enables_inputs(live_server, browser):
+    """Hi/Low start modal defaults to locked inputs and supports custom bounds via slider."""
+    browser.get(live_server)
+
+    add_player(browser, "Luca")
+    add_player(browser, "Maya")
+
+    luca_checkbox = _wait(browser).until(
+        ec.presence_of_element_located(
+            (By.XPATH, "//div[@id='selectable-players']//label[.//span[normalize-space()='Luca']]//input")
+        )
+    )
+    maya_checkbox = _wait(browser).until(
+        ec.presence_of_element_located(
+            (By.XPATH, "//div[@id='selectable-players']//label[.//span[normalize-space()='Maya']]//input")
+        )
+    )
+    if not luca_checkbox.is_selected():
+        luca_checkbox.click()
+    if not maya_checkbox.is_selected():
+        maya_checkbox.click()
+
+    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-hi-low"))).click()
+    popup = _wait(browser).until(ec.visibility_of_element_located((By.ID, "hi-low-start-overlay")))
+
+    low_input = popup.find_element(By.ID, "hi-low-low-input")
+    high_input = popup.find_element(By.ID, "hi-low-high-input")
+    assert low_input.get_attribute("disabled") is not None
+    assert high_input.get_attribute("disabled") is not None
+
+    slider = popup.find_element(By.ID, "hi-low-custom-toggle")
+    browser.execute_script(
+        """
+        const slider = arguments[0];
+        slider.value = '1';
+        slider.dispatchEvent(new Event('input', { bubbles: true }));
+        slider.dispatchEvent(new Event('change', { bubbles: true }));
+        """,
+        slider,
+    )
+
+    _wait(browser).until(lambda d: d.find_element(By.ID, "hi-low-low-input").get_attribute("disabled") is None)
+    _wait(browser).until(lambda d: d.find_element(By.ID, "hi-low-high-input").get_attribute("disabled") is None)
+
+    low_input = popup.find_element(By.ID, "hi-low-low-input")
+    high_input = popup.find_element(By.ID, "hi-low-high-input")
+    low_input.clear()
+    low_input.send_keys("20")
+    high_input.clear()
+    high_input.send_keys("60")
+
+    popup.find_element(By.ID, "hi-low-start-game").click()
+    _wait(browser).until(ec.invisibility_of_element_located((By.ID, "hi-low-start-overlay")))
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
+
+    headers = browser.find_elements(By.CSS_SELECTOR, "#scoreboard-table thead th")
+    assert headers[1].text.strip() == "Status"
+    assert headers[2].text.strip() == "Last Success"
+
+    assert "lower than 20 or higher than 60" in browser.find_element(By.ID, "active-game-meta").text.lower()
 
 
 def test_active_game_hides_select_game_panel_and_change_game_button(live_server, browser):
@@ -545,12 +608,16 @@ def test_busy_badge_updates_while_setup_screen_stays_open(live_server, browser):
     ended = client.delete(f"/api/games/{game_id}")
     assert ended.status_code == 200
 
-    _wait(browser, timeout=10).until(
-        lambda d: d.find_element(
-            By.XPATH,
-            "//div[@id='selectable-players']//label[.//span[normalize-space()='Dynamic Busy']]//input",
-        ).get_attribute("disabled") is None
-    )
+    def _dynamic_player_enabled(driver):
+        try:
+            return driver.find_element(
+                By.XPATH,
+                "//div[@id='selectable-players']//label[.//span[normalize-space()='Dynamic Busy']]//input",
+            ).get_attribute("disabled") is None
+        except (NoSuchElementException, StaleElementReferenceException):
+            return False
+
+    _wait(browser, timeout=10).until(_dynamic_player_enabled)
     assert not browser.find_elements(
         By.XPATH,
         "//div[@id='selectable-players']//label[.//span[normalize-space()='Dynamic Busy']]//span[contains(@class, 'chip-busy-sticker') and normalize-space()='Busy']",
@@ -802,6 +869,78 @@ def test_x01_shows_start_popup_with_defaults(live_server, browser):
 
     first_row_cells = browser.find_elements(By.CSS_SELECTOR, "#scoreboard tr")[0].find_elements(By.TAG_NAME, "td")
     assert [cell.text.strip() for cell in first_row_cells] == ["X01 Starter", "501", "0", "1"]
+
+
+def test_hi_low_solo_game_can_complete_end_to_end_with_eliminations(live_server, browser):
+    """A solo Hi/Low game supports elimination, skip flow, and winner overlay."""
+    browser.get(live_server)
+    start_hi_low_game(browser, ["Ari", "Bea", "Cal"], custom_bounds=(20, 60))
+
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "Ari to Throw"))
+    submit_standard_score_with_keypad(browser, 40)
+
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#1 Ari: total 40 (eliminated)"))
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "Bea to Throw"))
+    ari_row = _wait(browser).until(
+        ec.presence_of_element_located((By.XPATH, "//tbody[@id='scoreboard']/tr[td[normalize-space()='Ari']]"))
+    )
+    assert "eliminated-row" in ari_row.get_attribute("class")
+
+    submit_standard_score_with_keypad(browser, 65)
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#2 Bea: total 65 (set moving target to 65)"))
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "Cal to Throw"))
+
+    submit_standard_score_with_keypad(browser, 65)
+
+    winner_overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
+    assert winner_overlay.is_displayed()
+    assert browser.find_element(By.ID, "winner-name").text.strip() == "Bea"
+
+
+def test_hi_low_team_game_can_finish_by_team_survival(live_server, browser):
+    """A team Hi/Low game ends when one team has no active players left."""
+    browser.get(live_server)
+
+    for player_name in ("A Team 1", "B Team 1", "A Team 2", "B Team 2"):
+        add_player(browser, player_name)
+        player_checkbox = _wait(browser).until(
+            ec.presence_of_element_located(
+                (
+                    By.XPATH,
+                    f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
+                )
+            )
+        )
+        if not player_checkbox.is_selected():
+            player_checkbox.click()
+
+    team_mode = _wait(browser).until(ec.element_to_be_clickable((By.ID, "team-mode-teams")))
+    if not team_mode.is_selected():
+        team_mode.click()
+
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "team-assignment")))
+    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-hi-low"))).click()
+    popup = _wait(browser).until(ec.visibility_of_element_located((By.ID, "hi-low-start-overlay")))
+    popup.find_element(By.ID, "hi-low-start-game").click()
+    _wait(browser).until(ec.invisibility_of_element_located((By.ID, "hi-low-start-overlay")))
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
+
+    scripted_turns = [
+        ("A Team 1", 70),
+        ("B Team 1", 70),
+        ("A Team 2", 50),
+        ("B Team 2", 50),
+    ]
+
+    for turn_number, (player_name, value) in enumerate(scripted_turns, start=1):
+        _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), f"{player_name} to Throw"))
+        submit_standard_score_with_keypad(browser, value)
+        if turn_number < len(scripted_turns):
+            _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), f"#{turn_number} {player_name}: total {value}"))
+
+    winner_overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
+    assert winner_overlay.is_displayed()
+    assert browser.find_element(By.ID, "winner-name").text.strip() == "Team A"
 
 
 def test_x01_singles_game_can_complete_end_to_end(live_server, browser):

@@ -34,6 +34,7 @@ The app supports any number of players in the roster. After login, you set up pl
 - **55 by 5**
 - **English Cricket**
 - **Halve It**
+- **Hi/Low**
 - **Noughts and Crosses**
 
 For each new game, you select who is playing and drag players into the desired turn order. You can play in singles mode or in two teams with drag-and-drop team assignment.
@@ -43,6 +44,8 @@ For **55 by 5**, each turn is entered as one total score value using the on-scre
 For **X01**, the start popup lets you choose `1001`, `501`, `301`, or `101`, then players or teams count down to exactly zero. Overshooting zero or leaving `1` is a bust and scores nothing for that turn.
 
 For **Halve It**, each player completes 9 target rounds. Hit the round target to score, or miss it entirely and your running score is halved (rounded down).
+
+For **Hi/Low**, the start popup uses default bounds (`low 26`, `high 45`) unless custom values are enabled. In the opening bounds phase, a turn must be strictly lower than the low bound or strictly higher than the high bound. After the first success, the game switches to a moving single target: matching that target exactly fails and eliminates the player. Failed turns (including `No Score`) eliminate the player, and the game skips eliminated players automatically.
 
 For **Noughts and Crosses**, each game generates a fresh board of dart targets and players claim squares as `X` or `O` until one side completes three in a row.
 
@@ -192,13 +195,14 @@ Sessions expire after 30 minutes of inactivity. Logging out during an active gam
 3. Drag players in Selected Players to set the sequence.
 4. Choose `Singles` or `Teams` mode.
 5. If using `Teams`, drag players between Team A and Team B.
-6. In the separate **Select Game** panel, choose `X01`, `55 by 5`, `English Cricket`, `Halve It`, or `Noughts and Crosses`.
+6. In the separate **Select Game** panel, choose `X01`, `55 by 5`, `English Cricket`, `Halve It`, `Hi/Low`, or `Noughts and Crosses`.
 7. For X01, choose the starting score in the popup, then click `Start Game`.
 8. For English Cricket, a popup lets Team A choose whether to `Bat` or `Bowl`, then click `Start Game`.
 9. For `55 by 5`, `Halve It`, and `Noughts and Crosses`, click the game button once to begin the match.
-10. In Live Game, use the on-screen keypad to enter the active player's score, or click board squares in Noughts and Crosses.
-11. Use `Submit Score`, `No Score`, or `Undo` as needed.
-12. Review completed games in Recent Games.
+10. For `Hi/Low`, choose default or custom bounds in the popup, then click `Start Game`.
+11. In Live Game, use the on-screen keypad to enter the active player's score, or click board squares in Noughts and Crosses.
+12. Use `Submit Score`, `No Score`, or `Undo` as needed.
+13. Review completed games in Recent Games.
 
 Notes:
 
@@ -249,6 +253,19 @@ Notes:
 - Miss a round target and your running score is halved (rounded down).
 - Standard and Hardcore variants are available via the game selection slider.
 - Hardcore rounds are 20, Any Double, 19 or 16, Three Different Colors, Score 17 or Exact 41/101/123, Black-White-Black, Any Treble, Exact 41/101/123 (all shown, score one if hit), and Bullseye.
+
+### Hi/Low
+
+- Supports singles mode or 2-team mode.
+- Start popup supports default bounds (`low 26`, `high 45`) or custom bounds.
+- Custom bounds require `low < high`.
+- Bounds phase success: turn must be `< low` or `> high`.
+- Equality never counts as success.
+- After first success, game enters moving-target phase where matching the target exactly fails.
+- `No Score` always eliminates the current player.
+- Eliminated players are skipped in turn order.
+- Solo winner is the last active player.
+- Team winner is the last team with active (non-eliminated) players.
 
 ### Noughts and Crosses
 
@@ -310,7 +327,7 @@ Main routes exposed by the Flask app:
 - `PUT /api/players/<player_id>` -> rename player
 - `DELETE /api/players/<player_id>` -> delete player (if not in active game)
 - `GET /api/games/active` -> current user's active game state
-- `POST /api/games` -> create game from ordered player ids (supports `game_type`, `team_mode`, `team_assignments`, `team_names`, `starting_batting_team`, `x01_starting_score`)
+- `POST /api/games` -> create game from ordered player ids (supports `game_type`, `team_mode`, `team_assignments`, `team_names`, `starting_batting_team`, `x01_starting_score`, `x01_match_type`, `x01_legs_value`, `x01_starting_entity`, `halve_it_variant`, `hi_low_use_custom`, `hi_low_low`, `hi_low_high`)
 - `POST /api/games/<game_id>/turn` -> submit one turn total value
 - `DELETE /api/games/<game_id>/turn` -> undo the most recent turn
 - `GET /api/games/<game_id>/state` -> full game state
