@@ -320,6 +320,50 @@ def start_x01_game(
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
 
 
+def start_hi_low_game(browser, player_names, custom_bounds=None):
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "setup-panel")))
+
+    for player_name in player_names:
+        add_player(browser, player_name)
+        player_checkbox = _wait(browser).until(
+            ec.presence_of_element_located(
+                (
+                    By.XPATH,
+                    f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
+                )
+            )
+        )
+        if not player_checkbox.is_selected():
+            player_checkbox.click()
+
+    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-hi-low"))).click()
+    popup = _wait(browser).until(ec.visibility_of_element_located((By.ID, "hi-low-start-overlay")))
+
+    if custom_bounds is not None:
+        low_value, high_value = custom_bounds
+        slider = popup.find_element(By.ID, "hi-low-custom-toggle")
+        browser.execute_script(
+            """
+            const slider = arguments[0];
+            slider.value = '1';
+            slider.dispatchEvent(new Event('input', { bubbles: true }));
+            slider.dispatchEvent(new Event('change', { bubbles: true }));
+            """,
+            slider,
+        )
+
+        low_input = popup.find_element(By.ID, "hi-low-low-input")
+        high_input = popup.find_element(By.ID, "hi-low-high-input")
+        low_input.clear()
+        low_input.send_keys(str(low_value))
+        high_input.clear()
+        high_input.send_keys(str(high_value))
+
+    popup.find_element(By.ID, "hi-low-start-game").click()
+    _wait(browser).until(ec.invisibility_of_element_located((By.ID, "hi-low-start-overlay")))
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
+
+
 def start_noughts_team_game(browser, team_a_players: list, team_b_players: list):
     """Start a Noughts and Crosses game in teams mode.
 

@@ -27,6 +27,7 @@ from game_logic import (
     game_type_label,
     normalize_cricket_team,
     normalize_game_type,
+    normalize_hi_low_start_bounds,
     normalize_noughts_marker,
     normalize_requested_team_assignments,
     normalize_requested_team_names,
@@ -46,6 +47,7 @@ from game_logic import (
     recompute_game_state as replay_game_state,
     serialize_turns_for_game as serialize_turn_rows_for_game,
     team_label,
+    decode_hi_low_turn_result,
 )
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -138,6 +140,7 @@ class Game(db.Model):
     noughts_and_crosses_state = db.Column(db.Text, nullable=True)
     x01_state = db.Column(db.Text, nullable=True)
     halve_it_state = db.Column(db.Text, nullable=True)
+    hi_low_state = db.Column(db.Text, nullable=True)
     winner_team = db.Column(db.String(20), nullable=True)
     current_turn_position = db.Column(db.Integer, nullable=False, default=0)
     winner_player_id = db.Column(db.Integer, db.ForeignKey("players.id"), nullable=True)
@@ -410,6 +413,8 @@ def ensure_game_schema_columns() -> None:
         statements.append("ALTER TABLE games ADD COLUMN x01_state TEXT")
     if "halve_it_state" not in existing_columns:
         statements.append("ALTER TABLE games ADD COLUMN halve_it_state TEXT")
+    if "hi_low_state" not in existing_columns:
+        statements.append("ALTER TABLE games ADD COLUMN hi_low_state TEXT")
     if "winner_team" not in existing_columns:
         statements.append("ALTER TABLE games ADD COLUMN winner_team VARCHAR(20)")
     if "history_hidden" not in existing_columns:
@@ -479,7 +484,7 @@ def recompute_game_state(game: Game) -> None:
 
 
 def build_player_stats(player: Player) -> dict:
-    supported_game_types = ("x01", "55by5", "english_cricket", "noughts_and_crosses", "halve_it")
+    supported_game_types = ("x01", "55by5", "english_cricket", "noughts_and_crosses", "halve_it", "hi_low")
     by_game_type = {
         game_type: {
             "game_type": game_type,
@@ -680,6 +685,7 @@ def api_meta():
                 {"id": "english_cricket", "name": "English Cricket"},
                 {"id": "noughts_and_crosses", "name": "Noughts and Crosses"},
                 {"id": "halve_it", "name": "Halve It"},
+                {"id": "hi_low", "name": "Hi/Low"},
             ],
         }
     )
@@ -819,6 +825,14 @@ def create_game():
     x01_match_type = normalize_x01_match_type(payload.get("x01_match_type"), "best_of")
     x01_legs_value = normalize_x01_legs_value(payload.get("x01_legs_value"), 1)
     halve_it_variant = normalize_halve_it_variant(payload.get("halve_it_variant"), "standard")
+    hi_low_use_custom = bool(payload.get("hi_low_use_custom"))
+    hi_low_low, hi_low_high, hi_low_error = normalize_hi_low_start_bounds(
+        use_custom=hi_low_use_custom,
+        raw_low=payload.get("hi_low_low"),
+        raw_high=payload.get("hi_low_high"),
+    )
+    if game_type == "hi_low" and hi_low_error:
+        return jsonify({"error": hi_low_error}), 400
 
     ordered_player_ids, error = validate_ordered_player_ids(payload.get("ordered_player_ids") or [])
     if error:
@@ -851,7 +865,10 @@ def create_game():
         default=(str(ordered_player_ids[0]) if ordered_player_ids else "random"),
     )
 
-    initial_turn_position, cricket_state, noughts_and_crosses_state, x01_state, halve_it_state = build_new_game_start_state(
+    if game_type == "hi_low" and len(ordered_player_ids) < 2:
+        return jsonify({"error": "Hi/Low requires at least two players."}), 400
+
+    initial_turn_position, cricket_state, noughts_and_crosses_state, x01_state, halve_it_state, hi_low_state = build_new_game_start_state(
         game_type,
         ordered_player_ids,
         normalized_assignments,
@@ -862,6 +879,8 @@ def create_game():
         x01_legs_value,
         x01_starting_entity,
         halve_it_variant,
+        hi_low_low,
+        hi_low_high,
     )
 
     game = Game(
@@ -875,6 +894,7 @@ def create_game():
         noughts_and_crosses_state=noughts_and_crosses_state,
         x01_state=x01_state,
         halve_it_state=halve_it_state,
+        hi_low_state=hi_low_state,
         current_turn_position=initial_turn_position,
     )
     db.session.add(game)
@@ -969,6 +989,7 @@ def submit_turn(game_id: int):
                 "halve_it_round": int(turn.dart_2) if game.game_type == "halve_it" and turn.dart_2 else halve_it_round,
                 "halve_it_halved": bool(turn.dart_3) if game.game_type == "halve_it" else None,
                 "halve_it_target": halve_it_target,
+                "hi_low_result": decode_hi_low_turn_result(turn.dart_3) if game.game_type == "hi_low" else None,
             },
             "game": serialize_game_state(game),
         }

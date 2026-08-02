@@ -882,6 +882,7 @@ def test_player_stats_endpoint_summarizes_wins_losses_by_game_type(client_with_m
         "english_cricket",
         "noughts_and_crosses",
         "halve_it",
+        "hi_low",
     ]
 
     by_type = {item["game_type"]: item for item in payload["stats"]["by_game_type"]}
@@ -2062,6 +2063,161 @@ def test_create_x01_game_with_config(client):
     assert game["x01_state"]["starting_entity"] == str(p2)
     assert game["players"][0]["x01_remaining"] == 301
     assert game["active_player_id"] == p2
+
+
+def test_create_hi_low_game_with_defaults_and_custom_validation(client):
+    p1 = add_player(client, "Hi Low A")
+    p2 = add_player(client, "Hi Low B")
+
+    created = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2],
+            "game_type": "hi_low",
+        },
+    )
+    assert created.status_code == 201
+    game = created.get_json()["game"]
+    assert game["game_type"] == "hi_low"
+    assert game["hi_low_state"]["start_low"] == 26
+    assert game["hi_low_state"]["start_high"] == 45
+    assert game["hi_low_state"]["phase"] == "bounds"
+
+    closed = client.delete(f"/api/games/{game['id']}")
+    assert closed.status_code == 200
+
+    invalid = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2],
+            "game_type": "hi_low",
+            "hi_low_use_custom": True,
+            "hi_low_low": 70,
+            "hi_low_high": 40,
+        },
+    )
+    assert invalid.status_code == 400
+    assert invalid.get_json()["error"] == "Hi/Low custom values require low to be less than high."
+
+
+def test_hi_low_no_score_eliminates_player_and_can_finish_game(client):
+    p1 = add_player(client, "No Score A")
+    p2 = add_player(client, "No Score B")
+
+    game = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2],
+            "game_type": "hi_low",
+        },
+    ).get_json()["game"]
+
+    no_score = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": 0},
+    )
+    assert no_score.status_code == 200
+    payload = no_score.get_json()
+    assert payload["turn"]["hi_low_result"] == "eliminated"
+    assert payload["game"]["status"] == "finished"
+    assert payload["game"]["winner_player_id"] == p2
+
+
+def test_hi_low_elimination_flow_updates_target_and_skips_eliminated(client):
+    p1 = add_player(client, "Skip A")
+    p2 = add_player(client, "Skip B")
+    p3 = add_player(client, "Skip C")
+
+    game = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2, p3],
+            "game_type": "hi_low",
+        },
+    ).get_json()["game"]
+
+    first = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": 45},
+    )
+    assert first.status_code == 200
+    first_payload = first.get_json()
+    assert first_payload["turn"]["hi_low_result"] == "eliminated"
+    assert first_payload["game"]["active_player_id"] == p2
+
+    out_of_turn = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p3, "total_points": 60},
+    )
+    assert out_of_turn.status_code == 400
+    assert out_of_turn.get_json()["error"] == "It is not this player's turn."
+
+    second = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p2, "total_points": 50},
+    )
+    assert second.status_code == 200
+    second_payload = second.get_json()
+    assert second_payload["turn"]["hi_low_result"] == "success"
+    assert second_payload["game"]["hi_low_state"]["phase"] == "single_target"
+    assert second_payload["game"]["hi_low_state"]["current_target"] == 50
+    assert second_payload["game"]["active_player_id"] == p3
+
+    final = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p3, "total_points": 50},
+    )
+    assert final.status_code == 200
+    final_payload = final.get_json()
+    assert final_payload["turn"]["hi_low_result"] == "eliminated"
+    assert final_payload["game"]["status"] == "finished"
+    assert final_payload["game"]["winner_player_id"] == p2
+
+    players = {item["id"]: item for item in final_payload["game"]["players"]}
+    assert players[p1]["hi_low_eliminated"] is True
+    assert players[p3]["hi_low_eliminated"] is True
+    assert players[p2]["hi_low_eliminated"] is False
+
+
+def test_hi_low_team_mode_wins_by_last_team_with_active_players(client):
+    p1 = add_player(client, "Team A One")
+    p2 = add_player(client, "Team B One")
+    p3 = add_player(client, "Team A Two")
+    p4 = add_player(client, "Team B Two")
+
+    game = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2, p3, p4],
+            "game_type": "hi_low",
+            "team_mode": "teams",
+            "team_assignments": {
+                str(p1): "team_a",
+                str(p2): "team_b",
+                str(p3): "team_a",
+                str(p4): "team_b",
+            },
+        },
+    ).get_json()["game"]
+
+    turns = [
+        (p1, 50),
+        (p2, 50),
+        (p3, 40),
+        (p4, 40),
+    ]
+    last_payload = None
+    for player_id, score in turns:
+        response = client.post(
+            f"/api/games/{game['id']}/turn",
+            json={"player_id": player_id, "total_points": score},
+        )
+        assert response.status_code == 200
+        last_payload = response.get_json()
+
+    assert last_payload is not None
+    assert last_payload["game"]["status"] == "finished"
+    assert last_payload["game"]["winner_team"] == "team_a"
 
 
 def test_x01_first_to_legs_requires_multiple_leg_wins(client):
