@@ -86,7 +86,12 @@ const x01TurnPanelEl = document.getElementById("x01-turn-panel");
 const x01ActiveRemainingEl = document.getElementById("x01-active-remaining");
 const x01CheckoutHintEl = document.getElementById("x01-checkout-hint");
 const roundTargetTurnPanelEl = document.getElementById("round-target-turn-panel");
+const roundTargetTurnSummaryEl = document.getElementById("round-target-turn-summary");
+const roundTargetSinglePillEl = document.getElementById("round-target-single-pill");
 const roundTargetCurrentEl = document.getElementById("round-target-current");
+const hiLowTargetsEl = document.getElementById("hi-low-targets");
+const hiLowCurrentLowEl = document.getElementById("hi-low-current-low");
+const hiLowCurrentHighEl = document.getElementById("hi-low-current-high");
 const turnPlayerPanelEl = document.getElementById("turn-player-panel");
 const turnPlayerNameEl = document.getElementById("turn-player-name");
 const teamAListEl = document.getElementById("team-a-list");
@@ -987,7 +992,14 @@ async function submitScore(totalPoints) {
         if (t.hi_low_result === "eliminated") {
           showMessage(`${turnPlayerName} failed and is eliminated.`);
         } else {
-          showMessage(`${turnPlayerName} succeeded. Moving target is now ${t.total_points}.`);
+          const hiLowState = response.game.hi_low_state || {};
+          const low = Number.isFinite(Number(hiLowState.current_low))
+            ? Number(hiLowState.current_low)
+            : (Number(hiLowState.start_low) || 26);
+          const high = Number.isFinite(Number(hiLowState.current_high))
+            ? Number(hiLowState.current_high)
+            : (Number(hiLowState.start_high) || 45);
+          showMessage(`${turnPlayerName} succeeded. Bounds are now low ${low} and high ${high}.`);
         }
         return;
       }
@@ -1295,7 +1307,7 @@ function updateHeroCopy(game) {
 
   if (activeGameType === "hi_low") {
     heroTitleEl.textContent = "Hi/Low";
-    heroSubtitleEl.textContent = "Hit outside bounds, then keep the moving target alive while avoiding elimination.";
+    heroSubtitleEl.textContent = "Hit below low or above high to survive, and keep pushing the bounds apart.";
     return;
   }
 
@@ -2398,9 +2410,34 @@ function renderX01TurnPanel(game) {
 function renderRoundTargetTurnPanel(game) {
   if (!roundTargetTurnPanelEl || !roundTargetCurrentEl) return;
 
-  const isRoundTargetGame = game?.game_type === "halve_it";
+  const isHalveIt = game?.game_type === "halve_it";
+  const isHiLow = game?.game_type === "hi_low";
+  const isRoundTargetGame = isHalveIt || isHiLow;
   roundTargetTurnPanelEl.classList.toggle("hidden", !isRoundTargetGame);
   if (!isRoundTargetGame) return;
+
+  if (roundTargetTurnSummaryEl) {
+    roundTargetTurnSummaryEl.classList.toggle("is-hi-low", isHiLow);
+  }
+  if (roundTargetSinglePillEl) {
+    roundTargetSinglePillEl.classList.toggle("hidden", !isHalveIt);
+  }
+  if (hiLowTargetsEl) {
+    hiLowTargetsEl.classList.toggle("hidden", !isHiLow);
+  }
+
+  if (isHiLow) {
+    const hiLowState = game.hi_low_state || {};
+    const low = Number.isFinite(Number(hiLowState.current_low))
+      ? Number(hiLowState.current_low)
+      : (Number(hiLowState.start_low) || 26);
+    const high = Number.isFinite(Number(hiLowState.current_high))
+      ? Number(hiLowState.current_high)
+      : (Number(hiLowState.start_high) || 45);
+    if (hiLowCurrentLowEl) hiLowCurrentLowEl.textContent = String(low);
+    if (hiLowCurrentHighEl) hiLowCurrentHighEl.textContent = String(high);
+    return;
+  }
 
   const currentTarget = String(game.halve_it_state?.current_target || "20");
   roundTargetCurrentEl.textContent = currentTarget;
@@ -2443,15 +2480,11 @@ function renderHiLowScoreboard(game) {
       tr.classList.add("eliminated-row");
     }
 
-    const lastSuccess = Number.isFinite(Number(player.hi_low_last_success))
-      ? String(player.hi_low_last_success)
-      : "-";
     const statusLabel = isEliminated ? "Eliminated" : "Active";
 
     tr.innerHTML = `
       <td>${player.name}</td>
       <td>${statusLabel}</td>
-      <td>${lastSuccess}</td>
     `;
     scoreboardEl.appendChild(tr);
   }
@@ -2826,8 +2859,8 @@ function renderGame() {
   if (headers.length >= 4) {
     headers[0].textContent = "Player";
     headers[1].textContent = isX01 ? "Remaining" : (isHiLow ? "Status" : "Score");
-    headers[2].textContent = isX01 ? "Legs" : (isHalveIt ? "Round" : (isHiLow ? "Last Success" : "Points Required"));
-    headers[2].hidden = false;
+    headers[2].textContent = isX01 ? "Legs" : (isHalveIt ? "Round" : "Points Required");
+    headers[2].hidden = isHiLow;
     headers[3].textContent = isX01 ? "Target" : "";
     headers[3].hidden = !isX01;
   }
@@ -2835,7 +2868,7 @@ function renderGame() {
   if (standardTurnControlsEl) {
     standardTurnControlsEl.classList.toggle("hidden", isCricket || isNoughts || game.status !== "active");
     standardTurnControlsEl.classList.toggle("is-x01-layout", isX01 && game.status === "active");
-    standardTurnControlsEl.classList.toggle("is-target-layout", isHalveIt && game.status === "active");
+    standardTurnControlsEl.classList.toggle("is-target-layout", (isHalveIt || isHiLow) && game.status === "active");
   }
   if (turnPlayerPanelEl) {
     const showTurnPlayerPanel = isX01 && game.status === "active";
@@ -2874,13 +2907,13 @@ function renderGame() {
     activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong> · Round ${currentRound} (Target ${currentTarget})`;
   } else if (isHiLow) {
     const hiLowState = game.hi_low_state || {};
-    if (hiLowState.phase === "single_target" && Number.isFinite(Number(hiLowState.current_target))) {
-      activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong> · Moving target ${hiLowState.current_target} (must be different)`;
-    } else {
-      const low = Number(hiLowState.start_low) || 26;
-      const high = Number(hiLowState.start_high) || 45;
-      activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong> · Score lower than ${low} or higher than ${high}`;
-    }
+    const low = Number.isFinite(Number(hiLowState.current_low))
+      ? Number(hiLowState.current_low)
+      : (Number(hiLowState.start_low) || 26);
+    const high = Number.isFinite(Number(hiLowState.current_high))
+      ? Number(hiLowState.current_high)
+      : (Number(hiLowState.start_high) || 45);
+    activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong> · Score lower than ${low} or higher than ${high}`;
   } else if (isNoughts) {
     activeGameMetaEl.innerHTML = "<strong>Noughts and Crosses</strong>";
   } else if (isX01) {
@@ -2914,7 +2947,7 @@ function renderGame() {
     renderHalveItScoreboard(game);
   } else if (isHiLow) {
     renderX01TurnPanel({ game_type: null });
-    renderRoundTargetTurnPanel({ game_type: null });
+    renderRoundTargetTurnPanel(game);
     renderHiLowScoreboard(game);
   } else {
     renderX01TurnPanel({ game_type: null });
@@ -2942,7 +2975,7 @@ function renderGame() {
       : isHiLow
         ? (turn.hi_low_result === "eliminated"
           ? "eliminated"
-          : `set moving target to ${turn.total_points}`)
+          : "updated bounds")
       : isNoughts
         ? (turn.counted
           ? `${turn.noughts_marker || "Mark"} on ${turn.board_label || `square ${turn.board_index + 1}`}`

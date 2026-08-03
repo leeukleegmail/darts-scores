@@ -1023,6 +1023,37 @@ button:hover {
   gap: 0.7rem;
 }
 
+.round-target-turn-summary.is-hi-low {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.hi-low-targets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+  grid-column: 1 / -1;
+}
+
+.hi-low-target-pill--low {
+  border-color: rgba(74, 222, 128, 0.45);
+  background: rgba(17, 89, 46, 0.35);
+}
+
+.round-target-turn-pill.hi-low-target-pill--low span,
+.round-target-turn-pill.hi-low-target-pill--low strong {
+  color: #86efac;
+}
+
+.hi-low-target-pill--high {
+  border-color: rgba(248, 113, 113, 0.45);
+  background: rgba(111, 27, 27, 0.35);
+}
+
+.round-target-turn-pill.hi-low-target-pill--high span,
+.round-target-turn-pill.hi-low-target-pill--high strong {
+  color: #fca5a5;
+}
+
 .round-target-turn-pill {
   display: grid;
   gap: 0.3rem;
@@ -2164,6 +2195,10 @@ td {
   .x01-start-grid,
   .hi-low-start-grid,
   .x01-turn-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .hi-low-targets {
     grid-template-columns: 1fr;
   }
 

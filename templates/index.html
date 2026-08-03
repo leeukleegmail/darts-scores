@@ -179,10 +179,20 @@
               </div>
             </div>
             <div id="round-target-turn-panel" class="round-target-turn-panel hidden">
-              <div class="round-target-turn-summary">
-                <div class="round-target-turn-pill">
+              <div id="round-target-turn-summary" class="round-target-turn-summary">
+                <div id="round-target-single-pill" class="round-target-turn-pill">
                   <span>Target</span>
                   <strong id="round-target-current">1</strong>
+                </div>
+                <div id="hi-low-targets" class="hi-low-targets hidden" aria-label="Hi/Low bounds">
+                  <div class="round-target-turn-pill hi-low-target-pill hi-low-target-pill--low">
+                    <span>Low ↓</span>
+                    <strong id="hi-low-current-low">26</strong>
+                  </div>
+                  <div class="round-target-turn-pill hi-low-target-pill hi-low-target-pill--high">
+                    <span>High ↑</span>
+                    <strong id="hi-low-current-high">45</strong>
+                  </div>
                 </div>
               </div>
             </div>
@@ -310,6 +320,7 @@
               <h4>Halve It</h4>
               <ul class="help-points">
                 <li>Play runs for <strong>9 rounds</strong> on fixed targets: 15, 16, Any Double, 17, 18, Any Triple, 19, 20, Bullseye.</li>
+                <li><strong>Standard</strong> starts at <strong>20 points</strong>; <strong>Hardcore</strong> starts at <strong>0</strong>.</li>
                 <li>Each turn is <strong>3 darts</strong> for the round target.</li>
                 <li>Miss the round target completely and your total score is <strong>halved</strong> (rounded down).</li>
                 <li>Number rounds use <strong>hit count</strong> entry (0 to 9) and score target value per hit.</li>
@@ -326,7 +337,7 @@
               <ul class="help-points">
                 <li>Before start, choose default limits (<strong>low 26</strong>, <strong>high 45</strong>) or switch to custom values.</li>
                 <li>In bounds phase, your score must be <strong>lower than low</strong> or <strong>higher than high</strong> (equal does not count).</li>
-                <li>After a successful throw, the game uses a <strong>single moving target</strong>; the next player must avoid matching it exactly.</li>
+                <li>Successful throws update only the bound they beat: lower scores move <strong>Low</strong> down, higher scores move <strong>High</strong> up.</li>
                 <li><strong>No Score</strong> always eliminates the current player in this mode.</li>
                 <li>Eliminated players are crossed out and skipped in turn order.</li>
                 <li>Solo: last active player wins. Teams: the last team with active players wins.</li>

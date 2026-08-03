@@ -694,6 +694,8 @@ def build_initial_hi_low_state(low_bound: int = HI_LOW_DEFAULT_LOW, high_bound: 
     return {
         "start_low": normalized_low,
         "start_high": normalized_high,
+        "current_low": normalized_low,
+        "current_high": normalized_high,
         "phase": "bounds",
         "current_target": None,
         "eliminated_players": [],
@@ -718,10 +720,17 @@ def parse_hi_low_state(raw_value: str | None, ordered_player_ids: list[int]) -> 
         start_low = HI_LOW_DEFAULT_LOW
         start_high = HI_LOW_DEFAULT_HIGH
 
-    phase = "single_target" if decoded.get("phase") == "single_target" else "bounds"
-    current_target = decoded.get("current_target")
-    if not isinstance(current_target, int) or not (0 <= current_target <= MAX_TURN_TOTAL):
-        current_target = None
+    current_low = decoded.get("current_low")
+    if not isinstance(current_low, int) or not (0 <= current_low <= MAX_TURN_TOTAL):
+        current_low = start_low
+
+    current_high = decoded.get("current_high")
+    if not isinstance(current_high, int) or not (0 <= current_high <= MAX_TURN_TOTAL):
+        current_high = start_high
+
+    if current_low >= current_high:
+        current_low = start_low
+        current_high = start_high
 
     allowed_ids = set(ordered_player_ids)
     raw_eliminated = decoded.get("eliminated_players")
@@ -744,14 +753,13 @@ def parse_hi_low_state(raw_value: str | None, ordered_player_ids: list[int]) -> 
             if isinstance(raw_score, int) and 0 <= raw_score <= MAX_TURN_TOTAL:
                 last_success[str(player_id)] = raw_score
 
-    if phase == "single_target" and current_target is None:
-        phase = "bounds"
-
     return {
         "start_low": start_low,
         "start_high": start_high,
-        "phase": phase,
-        "current_target": current_target,
+        "current_low": current_low,
+        "current_high": current_high,
+        "phase": "bounds",
+        "current_target": None,
         "eliminated_players": eliminated_players,
         "last_success": last_success,
     }
@@ -831,20 +839,30 @@ def apply_hi_low_turn(
 
     start_low = int(hi_low_state.get("start_low", HI_LOW_DEFAULT_LOW))
     start_high = int(hi_low_state.get("start_high", HI_LOW_DEFAULT_HIGH))
-    phase = "single_target" if hi_low_state.get("phase") == "single_target" else "bounds"
-    current_target = hi_low_state.get("current_target")
+    current_low = hi_low_state.get("current_low")
+    if not isinstance(current_low, int) or not (0 <= current_low <= MAX_TURN_TOTAL):
+        current_low = start_low
+
+    current_high = hi_low_state.get("current_high")
+    if not isinstance(current_high, int) or not (0 <= current_high <= MAX_TURN_TOTAL):
+        current_high = start_high
+
+    if current_low >= current_high:
+        current_low = start_low
+        current_high = start_high
 
     score = int(turn.total_points)
     success = False
     if score != 0:
-        if phase == "single_target" and isinstance(current_target, int):
-            success = score != current_target
-        else:
-            success = score < start_low or score > start_high
+        success = score < current_low or score > current_high
 
     if success:
-        hi_low_state["phase"] = "single_target"
-        hi_low_state["current_target"] = score
+        if score < current_low:
+            hi_low_state["current_low"] = score
+        elif score > current_high:
+            hi_low_state["current_high"] = score
+        hi_low_state["phase"] = "bounds"
+        hi_low_state["current_target"] = None
         hi_low_state.setdefault("last_success", {})[str(turn.player_id)] = score
         turn.counted = True
         turn.fives_awarded = score
