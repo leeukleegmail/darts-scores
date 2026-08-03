@@ -2081,6 +2081,8 @@ def test_create_hi_low_game_with_defaults_and_custom_validation(client):
     assert game["game_type"] == "hi_low"
     assert game["hi_low_state"]["start_low"] == 26
     assert game["hi_low_state"]["start_high"] == 45
+    assert game["hi_low_state"]["current_low"] == 26
+    assert game["hi_low_state"]["current_high"] == 45
     assert game["hi_low_state"]["phase"] == "bounds"
 
     closed = client.delete(f"/api/games/{game['id']}")
@@ -2123,7 +2125,7 @@ def test_hi_low_no_score_eliminates_player_and_can_finish_game(client):
     assert payload["game"]["winner_player_id"] == p2
 
 
-def test_hi_low_elimination_flow_updates_target_and_skips_eliminated(client):
+def test_hi_low_elimination_flow_updates_bounds_and_skips_eliminated(client):
     p1 = add_player(client, "Skip A")
     p2 = add_player(client, "Skip B")
     p3 = add_player(client, "Skip C")
@@ -2159,8 +2161,8 @@ def test_hi_low_elimination_flow_updates_target_and_skips_eliminated(client):
     assert second.status_code == 200
     second_payload = second.get_json()
     assert second_payload["turn"]["hi_low_result"] == "success"
-    assert second_payload["game"]["hi_low_state"]["phase"] == "single_target"
-    assert second_payload["game"]["hi_low_state"]["current_target"] == 50
+    assert second_payload["game"]["hi_low_state"]["current_low"] == 26
+    assert second_payload["game"]["hi_low_state"]["current_high"] == 50
     assert second_payload["game"]["active_player_id"] == p3
 
     final = client.post(

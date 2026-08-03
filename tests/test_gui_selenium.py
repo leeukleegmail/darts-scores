@@ -156,7 +156,7 @@ def test_hi_low_custom_setup_starts_game_and_enables_inputs(live_server, browser
 
     headers = browser.find_elements(By.CSS_SELECTOR, "#scoreboard-table thead th")
     assert headers[1].text.strip() == "Status"
-    assert headers[2].text.strip() == "Last Success"
+    assert not headers[2].is_displayed()
 
     assert "lower than 20 or higher than 60" in browser.find_element(By.ID, "active-game-meta").text.lower()
 
@@ -887,7 +887,7 @@ def test_hi_low_solo_game_can_complete_end_to_end_with_eliminations(live_server,
     assert "eliminated-row" in ari_row.get_attribute("class")
 
     submit_standard_score_with_keypad(browser, 65)
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#2 Bea: total 65 (set moving target to 65)"))
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#2 Bea: total 65 (updated bounds)"))
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "Cal to Throw"))
 
     submit_standard_score_with_keypad(browser, 65)

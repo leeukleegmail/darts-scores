@@ -45,7 +45,7 @@ For **X01**, the start popup lets you choose `1001`, `501`, `301`, or `101`, the
 
 For **Halve It**, each player completes 9 target rounds. Hit the round target to score, or miss it entirely and your running score is halved (rounded down).
 
-For **Hi/Low**, the start popup uses default bounds (`low 26`, `high 45`) unless custom values are enabled. In the opening bounds phase, a turn must be strictly lower than the low bound or strictly higher than the high bound. After the first success, the game switches to a moving single target: matching that target exactly fails and eliminates the player. Failed turns (including `No Score`) eliminate the player, and the game skips eliminated players automatically.
+For **Hi/Low**, the start popup uses default bounds (`low 26`, `high 45`) unless custom values are enabled. Every turn must be strictly lower than the current low bound or strictly higher than the current high bound. Successful throws update only the bound they beat (low goes down or high goes up). Failed turns (including `No Score`) eliminate the player, and the game skips eliminated players automatically.
 
 For **Noughts and Crosses**, each game generates a fresh board of dart targets and players claim squares as `X` or `O` until one side completes three in a row.
 
@@ -55,6 +55,7 @@ For **Noughts and Crosses**, each game generates a fresh board of dart targets a
 - Hardcore round 8 shows all three exact target options at once, and any one matching hit scores that target's points.
 - Hardcore round 9 is Bullseye.
 - Halve It no-score entries are supported consistently across all rounds.
+- In-game help was updated to reflect current Halve It and Hi/Low behavior.
 - Verified with `pytest -q` (`175 passed`).
 
 ## Requirements
@@ -259,9 +260,9 @@ Notes:
 - Supports singles mode or 2-team mode.
 - Start popup supports default bounds (`low 26`, `high 45`) or custom bounds.
 - Custom bounds require `low < high`.
-- Bounds phase success: turn must be `< low` or `> high`.
+- Turn success: score must be `< current low` or `> current high`.
 - Equality never counts as success.
-- After first success, game enters moving-target phase where matching the target exactly fails.
+- Successful throws update only the bound they beat (low moves down or high moves up).
 - `No Score` always eliminates the current player.
 - Eliminated players are skipped in turn order.
 - Solo winner is the last active player.
