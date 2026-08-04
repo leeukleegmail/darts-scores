@@ -21,6 +21,8 @@ const state = {
   hiLowUseCustom: false,
   hiLowLow: 26,
   hiLowHigh: 45,
+  hiLowMatchType: "best_of",
+  hiLowLegsValue: 1,
   pendingNoughtsCellIndex: null,
   playerStats: null,
   loadingPlayerStatsId: null,
@@ -51,6 +53,7 @@ const selectablePlayersEl = document.getElementById("selectable-players");
 const orderListEl = document.getElementById("order-list");
 const orderSectionEl = document.getElementById("order-section");
 const activeGameMetaEl = document.getElementById("active-game-meta");
+const matchStatusSummaryEl = document.getElementById("match-status-summary");
 const scoreboardEl = document.getElementById("scoreboard");
 const turnsListEl = document.getElementById("turns-list");
 const historyListEl = document.getElementById("history-list");
@@ -74,14 +77,16 @@ const x01StartGameEl = document.getElementById("x01-start-game");
 const x01StartCancelEl = document.getElementById("x01-start-cancel");
 const x01MatchTypeEl = document.getElementById("x01-match-type");
 const x01LegsValueEl = document.getElementById("x01-legs-value");
-const x01LegsValueLabelEl = document.getElementById("x01-legs-value-label");
 const x01StartingEntityEl = document.getElementById("x01-starting-entity");
 const hiLowStartOverlayEl = document.getElementById("hi-low-start-overlay");
 const hiLowStartGameEl = document.getElementById("hi-low-start-game");
 const hiLowStartCancelEl = document.getElementById("hi-low-start-cancel");
 const hiLowCustomToggleEl = document.getElementById("hi-low-custom-toggle");
+const hiLowCustomTargetInputsEl = document.getElementById("hi-low-custom-target-inputs");
 const hiLowLowInputEl = document.getElementById("hi-low-low-input");
 const hiLowHighInputEl = document.getElementById("hi-low-high-input");
+const hiLowMatchTypeEl = document.getElementById("hi-low-match-type");
+const hiLowLegsValueEl = document.getElementById("hi-low-legs-value");
 const x01TurnPanelEl = document.getElementById("x01-turn-panel");
 const x01ActiveRemainingEl = document.getElementById("x01-active-remaining");
 const x01CheckoutHintEl = document.getElementById("x01-checkout-hint");
@@ -999,7 +1004,7 @@ async function submitScore(totalPoints) {
           const high = Number.isFinite(Number(hiLowState.current_high))
             ? Number(hiLowState.current_high)
             : (Number(hiLowState.start_high) || 45);
-          showMessage(`${turnPlayerName} succeeded. Bounds are now low ${low} and high ${high}.`);
+          showMessage(`${turnPlayerName} succeeded. Targets are now low ${low} and high ${high}.`);
         }
         return;
       }
@@ -1307,7 +1312,7 @@ function updateHeroCopy(game) {
 
   if (activeGameType === "hi_low") {
     heroTitleEl.textContent = "Hi/Low";
-    heroSubtitleEl.textContent = "Hit below low or above high to survive, and keep pushing the bounds apart.";
+    heroSubtitleEl.textContent = "Hit below low or above high to survive, and keep pushing the targets apart.";
     return;
   }
 
@@ -1434,6 +1439,8 @@ function syncStateFromGame(game) {
   ));
   state.hiLowLow = Number(game.hi_low_state?.start_low) || 26;
   state.hiLowHigh = Number(game.hi_low_state?.start_high) || 45;
+  state.hiLowMatchType = game.hi_low_state?.match_type === "first_to" ? "first_to" : "best_of";
+  state.hiLowLegsValue = Number(game.hi_low_state?.legs_value) || 1;
   state.halveItVariant = normalizeHalveItVariant(game.halve_it_state?.variant || state.halveItVariant);
   syncHalveItVariantControls(state.halveItVariant);
   syncHiLowStartControls();
@@ -1461,6 +1468,8 @@ function restoreLobbyStateFromGame(game) {
   ));
   state.hiLowLow = Number(game.hi_low_state?.start_low) || 26;
   state.hiLowHigh = Number(game.hi_low_state?.start_high) || 45;
+  state.hiLowMatchType = game.hi_low_state?.match_type === "first_to" ? "first_to" : "best_of";
+  state.hiLowLegsValue = Number(game.hi_low_state?.legs_value) || 1;
   state.halveItVariant = normalizeHalveItVariant(game.halve_it_state?.variant || state.halveItVariant);
   syncHalveItVariantControls(state.halveItVariant);
   syncHiLowStartControls();
@@ -1577,6 +1586,7 @@ function normalizeHiLowBoundValue(rawValue, fallback) {
 function syncHiLowStartControls() {
   if (hiLowCustomToggleEl instanceof HTMLInputElement) {
     hiLowCustomToggleEl.value = state.hiLowUseCustom ? "1" : "0";
+    hiLowCustomToggleEl.classList.toggle("is-custom", state.hiLowUseCustom);
   }
 
   const lowValue = normalizeHiLowBoundValue(state.hiLowLow, 26);
@@ -1591,6 +1601,19 @@ function syncHiLowStartControls() {
   if (hiLowHighInputEl instanceof HTMLInputElement) {
     hiLowHighInputEl.value = String(highValue);
     hiLowHighInputEl.disabled = !state.hiLowUseCustom;
+  }
+  if (hiLowCustomTargetInputsEl instanceof HTMLElement) {
+    hiLowCustomTargetInputsEl.classList.toggle("hidden", !state.hiLowUseCustom);
+  }
+
+  const safeLegsValue = Math.max(1, Math.min(9, Number(state.hiLowLegsValue) || 1));
+  state.hiLowLegsValue = safeLegsValue;
+  state.hiLowMatchType = state.hiLowMatchType === "first_to" ? "first_to" : "best_of";
+  if (hiLowMatchTypeEl instanceof HTMLSelectElement) {
+    hiLowMatchTypeEl.value = state.hiLowMatchType;
+  }
+  if (hiLowLegsValueEl instanceof HTMLInputElement) {
+    hiLowLegsValueEl.value = String(safeLegsValue);
   }
 }
 
@@ -1834,9 +1857,6 @@ function renderX01StartSelection() {
   if (x01LegsValueEl instanceof HTMLInputElement) {
     x01LegsValueEl.value = String(safeLegsValue);
   }
-  if (x01LegsValueLabelEl) {
-    x01LegsValueLabelEl.textContent = String(safeLegsValue);
-  }
 
   if (!(x01StartingEntityEl instanceof HTMLSelectElement)) {
     return;
@@ -2036,6 +2056,17 @@ function interleaveTeamOrder(teamAIds, teamBIds) {
   return ordered;
 }
 
+function uniqueIdsInOrder(ids) {
+  const seen = new Set();
+  const unique = [];
+  for (const id of ids) {
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    unique.push(id);
+  }
+  return unique;
+}
+
 function updateOrderFromTeamLists() {
   if (!teamAListEl || !teamBListEl) return;
   const teamAIds = Array.from(teamAListEl.querySelectorAll("li"))
@@ -2052,7 +2083,7 @@ function updateOrderFromTeamLists() {
     state.teamAssignments[id] = "team_b";
   }
 
-  state.orderedPlayerIds = interleaveTeamOrder(teamAIds, teamBIds);
+  state.orderedPlayerIds = uniqueIdsInOrder(interleaveTeamOrder(teamAIds, teamBIds));
   renderOrderList();
   renderCricketRoleSelection();
 }
@@ -2115,7 +2146,15 @@ function setupSortableLists(lists, onDrop) {
     list.addEventListener("dragstart", (event) => {
       if (!(event.target instanceof HTMLElement)) return;
       dragging = event.target.closest("li");
-      if (!dragging) return;
+      if (!dragging) {
+        event.preventDefault();
+        return;
+      }
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = "move";
+        const dragId = dragging.dataset.playerId || dragging.dataset.id || "";
+        event.dataTransfer.setData("text/plain", dragId);
+      }
       dragging.classList.add("dragging");
     });
 
@@ -2130,6 +2169,9 @@ function setupSortableLists(lists, onDrop) {
     list.addEventListener("dragover", (event) => {
       event.preventDefault();
       if (!dragging) return;
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = "move";
+      }
 
       const target = event.target instanceof HTMLElement ? event.target.closest("li") : null;
       if (!target || target === dragging) {
@@ -2144,7 +2186,9 @@ function setupSortableLists(lists, onDrop) {
       list.insertBefore(dragging, shouldInsertBefore ? target : target.nextSibling);
     });
 
-    list.addEventListener("drop", () => {
+    list.addEventListener("drop", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
       if (typeof onDrop === "function") {
         onDrop(list);
       }
@@ -2291,7 +2335,11 @@ function setupOrderTouchControls() {
 
 function setupDragAndDrop() {
   setupSortableLists([orderListEl], (list) => {
-    state.orderedPlayerIds = Array.from(list.querySelectorAll("li")).map((li) => Number(li.dataset.id));
+    state.orderedPlayerIds = uniqueIdsInOrder(
+      Array.from(list.querySelectorAll("li"))
+        .map((li) => Number(li.dataset.id))
+    );
+    renderOrderList();
     renderCricketRoleSelection();
   });
 }
@@ -2469,6 +2517,50 @@ function renderHiLowScoreboard(game) {
   scoreboardEl.innerHTML = "";
   const hiLowState = game.hi_low_state || {};
   const eliminated = new Set(Array.isArray(hiLowState.eliminated_players) ? hiLowState.eliminated_players : []);
+  const requiredLegs = Number(hiLowState.required_legs || 1);
+  const legsWon = hiLowState.legs_won || {};
+
+  if (game.team_mode === "teams") {
+    const grouped = groupPlayersByTeam(game.players);
+    for (const teamKey of ["team_a", "team_b"]) {
+      const members = grouped[teamKey];
+      if (!members.length) continue;
+
+      const label = teamInitialsLabel(teamDisplayName(teamKey, game.team_names), members);
+      const activeMembers = members.filter((player) => !eliminated.has(player.id)).length;
+      const teamRow = document.createElement("tr");
+      teamRow.className = "team-header-row";
+      teamRow.innerHTML = `
+        <td><strong>${label}</strong></td>
+        <td><strong>Active ${activeMembers}/${members.length}</strong></td>
+        <td><strong>${Number(legsWon[teamKey] || 0)}</strong></td>
+        <td><strong>${requiredLegs}</strong></td>
+      `;
+      scoreboardEl.appendChild(teamRow);
+
+      for (const player of members) {
+        const tr = document.createElement("tr");
+        const isEliminated = eliminated.has(player.id) || Boolean(player.hi_low_eliminated);
+        if (player.id === game.active_player_id && game.status === "active") {
+          tr.classList.add("active-row");
+        }
+        if (isEliminated) {
+          tr.classList.add("eliminated-row");
+        }
+
+        const statusLabel = isEliminated ? "Eliminated" : "Active";
+
+        tr.innerHTML = `
+          <td class="scoreboard-member">${player.name}</td>
+          <td>${statusLabel}</td>
+          <td></td>
+          <td></td>
+        `;
+        scoreboardEl.appendChild(tr);
+      }
+    }
+    return;
+  }
 
   for (const player of game.players) {
     const tr = document.createElement("tr");
@@ -2481,10 +2573,13 @@ function renderHiLowScoreboard(game) {
     }
 
     const statusLabel = isEliminated ? "Eliminated" : "Active";
+    const playerLegsWon = Number(legsWon[String(player.id)] || 0);
 
     tr.innerHTML = `
       <td>${player.name}</td>
       <td>${statusLabel}</td>
+      <td>${playerLegsWon}</td>
+      <td>${requiredLegs}</td>
     `;
     scoreboardEl.appendChild(tr);
   }
@@ -2496,6 +2591,33 @@ function x01LegsWonForEntity(x01State, entityKey) {
 
 function x01RequiredLegs(x01State) {
   return Number(x01State?.required_legs || 1);
+}
+
+function formatMatchStatusSummary(game) {
+  if (!game || (game.game_type !== "x01" && game.game_type !== "hi_low")) {
+    return "";
+  }
+
+  const isX01 = game.game_type === "x01";
+  const modeLabel = isX01 ? "X01" : "Hi/Low";
+  const stateSource = isX01 ? (game.x01_state || {}) : (game.hi_low_state || {});
+  const requiredLegs = Number(stateSource.required_legs || 1);
+  const legsWon = stateSource.legs_won || {};
+
+  if (game.team_mode === "teams") {
+    const teamALabel = teamDisplayName("team_a", game.team_names);
+    const teamBLabel = teamDisplayName("team_b", game.team_names);
+    const teamALegs = Number(legsWon.team_a || 0);
+    const teamBLegs = Number(legsWon.team_b || 0);
+    return `<strong>${modeLabel} Match:</strong> ${teamALabel} ${teamALegs} - ${teamBLegs} ${teamBLabel} (to ${requiredLegs})`;
+  }
+
+  const playerLegSummaries = game.players.map((player) => {
+    const playerLegs = Number(legsWon[String(player.id)] || 0);
+    return `${player.name} ${playerLegs}`;
+  });
+
+  return `<strong>${modeLabel} Match:</strong> ${playerLegSummaries.join(" | ")} (to ${requiredLegs})`;
 }
 
 function renderX01Scoreboard(game) {
@@ -2842,6 +2964,10 @@ function renderGame() {
     if (scoreboardSectionEl) {
       scoreboardSectionEl.classList.remove("hidden");
     }
+    if (matchStatusSummaryEl) {
+      matchStatusSummaryEl.textContent = "";
+      matchStatusSummaryEl.classList.add("hidden");
+    }
     return;
   }
 
@@ -2854,15 +2980,16 @@ function renderGame() {
   const scoreboardTable = document.getElementById("scoreboard-table");
   if (scoreboardTable) {
     scoreboardTable.classList.toggle("scoreboard-x01", isX01);
+    scoreboardTable.classList.toggle("scoreboard-match-format", isX01 || isHiLow);
   }
   const headers = Array.from(document.querySelectorAll("#scoreboard-table thead th"));
   if (headers.length >= 4) {
     headers[0].textContent = "Player";
     headers[1].textContent = isX01 ? "Remaining" : (isHiLow ? "Status" : "Score");
-    headers[2].textContent = isX01 ? "Legs" : (isHalveIt ? "Round" : "Points Required");
-    headers[2].hidden = isHiLow;
-    headers[3].textContent = isX01 ? "Target" : "";
-    headers[3].hidden = !isX01;
+    headers[2].textContent = (isX01 || isHiLow) ? "Legs" : (isHalveIt ? "Round" : "Points Required");
+    headers[2].hidden = false;
+    headers[3].textContent = (isX01 || isHiLow) ? "Target" : "";
+    headers[3].hidden = !(isX01 || isHiLow);
   }
 
   if (standardTurnControlsEl) {
@@ -2894,6 +3021,11 @@ function renderGame() {
   if (scoreboardSectionEl) {
     scoreboardSectionEl.classList.toggle("hidden", isCricket || isNoughts);
   }
+  if (matchStatusSummaryEl) {
+    const summaryHtml = formatMatchStatusSummary(game);
+    matchStatusSummaryEl.innerHTML = summaryHtml;
+    matchStatusSummaryEl.classList.toggle("hidden", !summaryHtml || isCricket || isNoughts);
+  }
 
   if (game.status === "finished") {
     closeNoughtsMarkOverlay();
@@ -2913,7 +3045,12 @@ function renderGame() {
     const high = Number.isFinite(Number(hiLowState.current_high))
       ? Number(hiLowState.current_high)
       : (Number(hiLowState.start_high) || 45);
-    activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong> · Score lower than ${low} or higher than ${high}`;
+    const requiredLegs = Number(hiLowState.required_legs || 1);
+    const legsWon = hiLowState.legs_won || {};
+    const progressText = game.team_mode === "teams"
+      ? `${Number(legsWon.team_a || 0)}-${Number(legsWon.team_b || 0)} (to ${requiredLegs})`
+      : `${Object.values(legsWon).reduce((sum, value) => sum + (Number(value) || 0), 0)} legs played (to ${requiredLegs})`;
+    activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong> · Score lower than ${low} or higher than ${high} · ${progressText}`;
   } else if (isNoughts) {
     activeGameMetaEl.innerHTML = "<strong>Noughts and Crosses</strong>";
   } else if (isX01) {
@@ -2975,7 +3112,7 @@ function renderGame() {
       : isHiLow
         ? (turn.hi_low_result === "eliminated"
           ? "eliminated"
-          : "updated bounds")
+          : "updated targets")
       : isNoughts
         ? (turn.counted
           ? `${turn.noughts_marker || "Mark"} on ${turn.board_label || `square ${turn.board_index + 1}`}`
@@ -3177,6 +3314,8 @@ async function startConfiguredGame() {
         hi_low_use_custom: state.gameType === "hi_low" ? state.hiLowUseCustom : undefined,
         hi_low_low: state.gameType === "hi_low" ? state.hiLowLow : undefined,
         hi_low_high: state.gameType === "hi_low" ? state.hiLowHigh : undefined,
+        hi_low_match_type: state.gameType === "hi_low" ? state.hiLowMatchType : undefined,
+        hi_low_legs_value: state.gameType === "hi_low" ? state.hiLowLegsValue : undefined,
       }),
     });
     syncStateFromGame(response.game);
@@ -3260,6 +3399,8 @@ async function startRematch() {
           : undefined,
         hi_low_low: gameType === "hi_low" ? finishedGame.hi_low_state?.start_low : undefined,
         hi_low_high: gameType === "hi_low" ? finishedGame.hi_low_state?.start_high : undefined,
+        hi_low_match_type: gameType === "hi_low" ? finishedGame.hi_low_state?.match_type : undefined,
+        hi_low_legs_value: gameType === "hi_low" ? finishedGame.hi_low_state?.legs_value : undefined,
       }),
     });
 
@@ -3494,9 +3635,13 @@ async function init() {
       if (!(target instanceof HTMLInputElement)) return;
       const value = Math.max(1, Math.min(9, Number(target.value) || 1));
       state.x01LegsValue = value;
-      if (x01LegsValueLabelEl) {
-        x01LegsValueLabelEl.textContent = String(value);
-      }
+    });
+    x01LegsValueEl.addEventListener("change", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement)) return;
+      const value = Math.max(1, Math.min(9, Number(target.value) || 1));
+      state.x01LegsValue = value;
+      target.value = String(value);
     });
   }
 
@@ -3599,6 +3744,8 @@ async function init() {
       state.hiLowUseCustom = false;
       state.hiLowLow = 26;
       state.hiLowHigh = 45;
+      state.hiLowMatchType = "best_of";
+      state.hiLowLegsValue = 1;
       updateTeamModeAvailability();
       applyLayoutMode(state.game);
       renderTeamAssignment();
@@ -3724,6 +3871,30 @@ async function init() {
       if (!(target instanceof HTMLInputElement)) return;
       state.hiLowHigh = normalizeHiLowBoundValue(target.value, 45);
       target.value = String(state.hiLowHigh);
+    });
+  }
+
+  if (hiLowMatchTypeEl instanceof HTMLSelectElement) {
+    hiLowMatchTypeEl.addEventListener("change", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLSelectElement)) return;
+      state.hiLowMatchType = target.value === "first_to" ? "first_to" : "best_of";
+    });
+  }
+
+  if (hiLowLegsValueEl instanceof HTMLInputElement) {
+    hiLowLegsValueEl.addEventListener("input", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement)) return;
+      const value = Math.max(1, Math.min(9, Number(target.value) || 1));
+      state.hiLowLegsValue = value;
+    });
+    hiLowLegsValueEl.addEventListener("change", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement)) return;
+      const value = Math.max(1, Math.min(9, Number(target.value) || 1));
+      state.hiLowLegsValue = value;
+      target.value = String(value);
     });
   }
 

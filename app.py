@@ -28,6 +28,8 @@ from game_logic import (
     normalize_cricket_team,
     normalize_game_type,
     normalize_hi_low_start_bounds,
+    normalize_hi_low_match_type,
+    normalize_hi_low_legs_value,
     normalize_noughts_marker,
     normalize_requested_team_assignments,
     normalize_requested_team_names,
@@ -826,6 +828,8 @@ def create_game():
     x01_legs_value = normalize_x01_legs_value(payload.get("x01_legs_value"), 1)
     halve_it_variant = normalize_halve_it_variant(payload.get("halve_it_variant"), "standard")
     hi_low_use_custom = bool(payload.get("hi_low_use_custom"))
+    hi_low_match_type = normalize_hi_low_match_type(payload.get("hi_low_match_type"), "best_of")
+    hi_low_legs_value = normalize_hi_low_legs_value(payload.get("hi_low_legs_value"), 1)
     hi_low_low, hi_low_high, hi_low_error = normalize_hi_low_start_bounds(
         use_custom=hi_low_use_custom,
         raw_low=payload.get("hi_low_low"),
@@ -881,6 +885,8 @@ def create_game():
         halve_it_variant,
         hi_low_low,
         hi_low_high,
+        hi_low_match_type,
+        hi_low_legs_value,
     )
 
     game = Game(

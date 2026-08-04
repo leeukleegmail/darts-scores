@@ -100,7 +100,7 @@ def test_halve_it_variant_slider_can_start_hardcore(live_server, browser):
 
 
 def test_hi_low_custom_setup_starts_game_and_enables_inputs(live_server, browser):
-    """Hi/Low start modal defaults to locked inputs and supports custom bounds via slider."""
+    """Hi/Low start modal supports custom targets and X01-style match format controls."""
     browser.get(live_server)
 
     add_player(browser, "Luca")
@@ -124,6 +124,12 @@ def test_hi_low_custom_setup_starts_game_and_enables_inputs(live_server, browser
     _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-hi-low"))).click()
     popup = _wait(browser).until(ec.visibility_of_element_located((By.ID, "hi-low-start-overlay")))
 
+    custom_inputs = popup.find_element(By.ID, "hi-low-custom-target-inputs")
+    assert not custom_inputs.is_displayed()
+
+    assert Select(popup.find_element(By.ID, "hi-low-match-type")).first_selected_option.get_attribute("value") == "best_of"
+    assert popup.find_element(By.ID, "hi-low-legs-value").get_attribute("value") == "1"
+
     low_input = popup.find_element(By.ID, "hi-low-low-input")
     high_input = popup.find_element(By.ID, "hi-low-high-input")
     assert low_input.get_attribute("disabled") is not None
@@ -142,6 +148,20 @@ def test_hi_low_custom_setup_starts_game_and_enables_inputs(live_server, browser
 
     _wait(browser).until(lambda d: d.find_element(By.ID, "hi-low-low-input").get_attribute("disabled") is None)
     _wait(browser).until(lambda d: d.find_element(By.ID, "hi-low-high-input").get_attribute("disabled") is None)
+    _wait(browser).until(lambda d: d.find_element(By.ID, "hi-low-custom-target-inputs").is_displayed())
+
+    Select(popup.find_element(By.ID, "hi-low-match-type")).select_by_value("first_to")
+    legs_input = popup.find_element(By.ID, "hi-low-legs-value")
+    browser.execute_script(
+        """
+        const input = arguments[0];
+        input.value = '3';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        """,
+        legs_input,
+    )
+    _wait(browser).until(lambda d: d.find_element(By.ID, "hi-low-legs-value").get_attribute("value") == "3")
 
     low_input = popup.find_element(By.ID, "hi-low-low-input")
     high_input = popup.find_element(By.ID, "hi-low-high-input")
@@ -156,7 +176,18 @@ def test_hi_low_custom_setup_starts_game_and_enables_inputs(live_server, browser
 
     headers = browser.find_elements(By.CSS_SELECTOR, "#scoreboard-table thead th")
     assert headers[1].text.strip() == "Status"
-    assert not headers[2].is_displayed()
+    assert headers[2].text.strip() == "Legs"
+    assert headers[3].text.strip() == "Target"
+
+    match_status = browser.find_element(By.ID, "match-status-summary")
+    assert match_status.is_displayed()
+    assert "Hi/Low Match:" in match_status.text
+    assert "to 3" in match_status.text
+
+    rows = browser.find_elements(By.CSS_SELECTOR, "#scoreboard tr")
+    first_row_cells = rows[0].find_elements(By.TAG_NAME, "td")
+    assert first_row_cells[2].text.strip() == "0"
+    assert first_row_cells[3].text.strip() == "3"
 
     assert "lower than 20 or higher than 60" in browser.find_element(By.ID, "active-game-meta").text.lower()
 
@@ -265,7 +296,74 @@ def test_noughts_and_crosses_board_allows_marking_x_and_o(live_server, browser):
     squares[1].click()
     chooser = _wait(browser).until(ec.visibility_of_element_located((By.ID, "noughts-mark-overlay")))
     chooser.find_element(By.CSS_SELECTOR, "[data-noughts-mark='O']").click()
-    _wait(browser).until(lambda d: "O" in d.find_elements(By.CSS_SELECTOR, "[data-board-index]")[1].text)
+
+    def _cell_one_has_o(driver):
+        try:
+            cells = driver.find_elements(By.CSS_SELECTOR, "[data-board-index]")
+            return len(cells) > 1 and "O" in cells[1].text
+        except StaleElementReferenceException:
+            return False
+
+    _wait(browser).until(_cell_one_has_o)
+
+
+def test_setup_drag_reorder_does_not_duplicate_names(live_server, browser):
+    """Dragging a selected player reorders the list without creating duplicate rows."""
+    browser.get(live_server)
+
+    for player_name in ("Drag A", "Drag B", "Drag C"):
+        add_player(browser, player_name)
+        player_checkbox = _wait(browser).until(
+            ec.presence_of_element_located(
+                (
+                    By.XPATH,
+                    f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
+                )
+            )
+        )
+        if not player_checkbox.is_selected():
+            player_checkbox.click()
+
+    _wait(browser).until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "#order-list li")) == 3)
+    order_items = browser.find_elements(By.CSS_SELECTOR, "#order-list li")
+    source = order_items[0]
+    target = order_items[1]
+
+    browser.execute_script(
+        """
+        const src = arguments[0];
+        const tgt = arguments[1];
+        const dt = new DataTransfer();
+
+        src.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }));
+        const rect = tgt.getBoundingClientRect();
+        tgt.dispatchEvent(new DragEvent('dragover', {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer: dt,
+          clientY: rect.top + 1,
+        }));
+        tgt.dispatchEvent(new DragEvent('drop', {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer: dt,
+          clientY: rect.top + 1,
+        }));
+        src.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true, dataTransfer: dt }));
+        """,
+        source,
+        target,
+    )
+
+    _wait(browser).until(
+        lambda d: len(d.find_elements(By.CSS_SELECTOR, "#order-list li .sortable-player-name")) == 3
+    )
+
+    names = [
+        item.text.strip() for item in browser.find_elements(By.CSS_SELECTOR, "#order-list li .sortable-player-name")
+    ]
+    assert set(names) == {"Drag A", "Drag B", "Drag C"}
+    assert len(names) == len(set(names)) == 3
 
 
 def test_logout_during_active_game_prompts_for_confirmation(live_server, browser):
@@ -853,7 +951,6 @@ def test_x01_shows_start_popup_with_defaults(live_server, browser):
     assert popup.find_element(By.CSS_SELECTOR, "input[name='x01-starting-score'][value='501']").is_selected()
     assert Select(popup.find_element(By.ID, "x01-match-type")).first_selected_option.get_attribute("value") == "best_of"
     assert popup.find_element(By.ID, "x01-legs-value").get_attribute("value") == "1"
-    assert popup.find_element(By.ID, "x01-legs-value-label").text.strip() == "1"
 
     starting_picker = Select(popup.find_element(By.ID, "x01-starting-entity"))
     option_labels = [option.text.strip() for option in starting_picker.options]
@@ -866,6 +963,11 @@ def test_x01_shows_start_popup_with_defaults(live_server, browser):
     headers = browser.find_elements(By.CSS_SELECTOR, "#scoreboard-table thead th")
     visible_headers = [header.text.strip() for header in headers if header.is_displayed()]
     assert visible_headers == ["Player", "Remaining", "Legs", "Target"]
+
+    match_status = browser.find_element(By.ID, "match-status-summary")
+    assert match_status.is_displayed()
+    assert "X01 Match:" in match_status.text
+    assert "to 1" in match_status.text
 
     first_row_cells = browser.find_elements(By.CSS_SELECTOR, "#scoreboard tr")[0].find_elements(By.TAG_NAME, "td")
     assert [cell.text.strip() for cell in first_row_cells] == ["X01 Starter", "501", "0", "1"]
@@ -887,11 +989,31 @@ def test_hi_low_solo_game_can_complete_end_to_end_with_eliminations(live_server,
     assert "eliminated-row" in ari_row.get_attribute("class")
 
     submit_standard_score_with_keypad(browser, 65)
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#2 Bea: total 65 (updated bounds)"))
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#2 Bea: total 65 (updated targets)"))
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "Cal to Throw"))
 
     submit_standard_score_with_keypad(browser, 65)
 
+    winner_overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
+    assert winner_overlay.is_displayed()
+    assert browser.find_element(By.ID, "winner-name").text.strip() == "Bea"
+
+
+def test_hi_low_first_to_two_requires_two_leg_wins_end_to_end(live_server, browser):
+    """Hi/Low first-to format does not finish until the configured leg target is reached."""
+    browser.get(live_server)
+    start_hi_low_game(browser, ["Ari", "Bea"], match_type="first_to", legs_value=2)
+
+    submit_standard_score_with_keypad(browser, 30)
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#1 Ari: total 30 (eliminated)"))
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "scoreboard"), "Bea"))
+    assert not browser.find_element(By.ID, "winner-overlay").is_displayed()
+
+    submit_standard_score_with_keypad(browser, 40)
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#2 Bea: total 40 (eliminated)"))
+    assert not browser.find_element(By.ID, "winner-overlay").is_displayed()
+
+    submit_standard_score_with_keypad(browser, 40)
     winner_overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
     assert winner_overlay.is_displayed()
     assert browser.find_element(By.ID, "winner-name").text.strip() == "Bea"

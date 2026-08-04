@@ -2083,6 +2083,10 @@ def test_create_hi_low_game_with_defaults_and_custom_validation(client):
     assert game["hi_low_state"]["start_high"] == 45
     assert game["hi_low_state"]["current_low"] == 26
     assert game["hi_low_state"]["current_high"] == 45
+    assert game["hi_low_state"]["match_type"] == "best_of"
+    assert game["hi_low_state"]["legs_value"] == 1
+    assert game["hi_low_state"]["required_legs"] == 1
+    assert game["hi_low_state"]["legs_won"] == {str(p1): 0, str(p2): 0}
     assert game["hi_low_state"]["phase"] == "bounds"
 
     closed = client.delete(f"/api/games/{game['id']}")
@@ -2220,6 +2224,58 @@ def test_hi_low_team_mode_wins_by_last_team_with_active_players(client):
     assert last_payload is not None
     assert last_payload["game"]["status"] == "finished"
     assert last_payload["game"]["winner_team"] == "team_a"
+
+
+def test_hi_low_first_to_two_requires_two_leg_wins(client):
+    p1 = add_player(client, "Hi A")
+    p2 = add_player(client, "Hi B")
+
+    game = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2],
+            "game_type": "hi_low",
+            "hi_low_match_type": "first_to",
+            "hi_low_legs_value": 2,
+        },
+    ).get_json()["game"]
+
+    assert game["hi_low_state"]["match_type"] == "first_to"
+    assert game["hi_low_state"]["legs_value"] == 2
+    assert game["hi_low_state"]["required_legs"] == 2
+
+    leg_one = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": 30},
+    )
+    assert leg_one.status_code == 200
+    leg_one_payload = leg_one.get_json()
+    assert leg_one_payload["turn"]["hi_low_result"] == "eliminated"
+    assert leg_one_payload["game"]["status"] == "active"
+    assert leg_one_payload["game"]["winner_player_id"] is None
+    assert leg_one_payload["game"]["hi_low_state"]["legs_won"][str(p2)] == 1
+    assert leg_one_payload["game"]["hi_low_state"]["eliminated_players"] == []
+
+    leg_two = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p2, "total_points": 40},
+    )
+    assert leg_two.status_code == 200
+    leg_two_payload = leg_two.get_json()
+    assert leg_two_payload["turn"]["hi_low_result"] == "eliminated"
+    assert leg_two_payload["game"]["status"] == "active"
+    assert leg_two_payload["game"]["hi_low_state"]["legs_won"][str(p1)] == 1
+
+    match_leg = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": 40},
+    )
+    assert match_leg.status_code == 200
+    match_payload = match_leg.get_json()
+    assert match_payload["turn"]["hi_low_result"] == "eliminated"
+    assert match_payload["game"]["status"] == "finished"
+    assert match_payload["game"]["winner_player_id"] == p2
+    assert match_payload["game"]["hi_low_state"]["legs_won"][str(p2)] == 2
 
 
 def test_x01_first_to_legs_requires_multiple_leg_wins(client):

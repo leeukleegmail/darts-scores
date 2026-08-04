@@ -135,6 +135,7 @@
 
         <div id="standard-scoreboard-section">
           <h3>Scoreboard</h3>
+          <p id="match-status-summary" class="match-status-summary hidden" aria-live="polite"></p>
           <table id="scoreboard-table">
             <thead>
               <tr>
@@ -184,7 +185,7 @@
                   <span>Target</span>
                   <strong id="round-target-current">1</strong>
                 </div>
-                <div id="hi-low-targets" class="hi-low-targets hidden" aria-label="Hi/Low bounds">
+                <div id="hi-low-targets" class="hi-low-targets hidden" aria-label="Hi/Low targets">
                   <div class="round-target-turn-pill hi-low-target-pill hi-low-target-pill--low">
                     <span>Low ↓</span>
                     <strong id="hi-low-current-low">26</strong>
@@ -335,9 +336,10 @@
             <section class="help-section" data-help-section="hi-low">
               <h4>Hi/Low</h4>
               <ul class="help-points">
-                <li>Before start, choose default limits (<strong>low 26</strong>, <strong>high 45</strong>) or switch to custom values.</li>
-                <li>In bounds phase, your score must be <strong>lower than low</strong> or <strong>higher than high</strong> (equal does not count).</li>
-                <li>Successful throws update only the bound they beat: lower scores move <strong>Low</strong> down, higher scores move <strong>High</strong> up.</li>
+                <li>Before start, choose default targets (<strong>low 26</strong>, <strong>high 45</strong>) or switch to custom values.</li>
+                <li>Match format works like X01: choose <strong>Best Of</strong> or <strong>First To</strong> and set leg target from 1 to 9.</li>
+                <li>Your score must be <strong>lower than low</strong> or <strong>higher than high</strong> (equal does not count).</li>
+                <li>Successful throws update only the target they beat: lower scores move <strong>Low</strong> down, higher scores move <strong>High</strong> up.</li>
                 <li><strong>No Score</strong> always eliminates the current player in this mode.</li>
                 <li>Eliminated players are crossed out and skipped in turn order.</li>
                 <li>Solo: last active player wins. Teams: the last team with active players wins.</li>
@@ -430,10 +432,8 @@
               <option value="first_to">First To</option>
             </select>
 
-            <label class="x01-field-label" for="x01-legs-value">
-              Legs: <strong id="x01-legs-value-label">1</strong>
-            </label>
-            <input id="x01-legs-value" type="range" min="1" max="9" step="1" value="1" />
+            <label class="x01-field-label" for="x01-legs-value">Legs</label>
+            <input id="x01-legs-value" class="x01-field-input" type="number" min="1" max="9" step="1" value="1" inputmode="numeric" />
 
             <label class="x01-field-label" for="x01-starting-entity">Starting Player</label>
             <select id="x01-starting-entity" class="x01-field-input"></select>
@@ -449,22 +449,33 @@
     <div id="hi-low-start-overlay" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="hi-low-start-title">
       <div class="modal-card hi-low-start-card">
         <h3 id="hi-low-start-title">Start Hi/Low</h3>
-        <p class="hint">Use default bounds or enable custom low/high starting numbers.</p>
+        <p class="hint">Use default targets or enable custom low/high starting numbers, then choose the match format.</p>
         <div class="hi-low-start-grid">
           <div class="hi-low-option-group">
-            <h4>Starting Bounds</h4>
+            <h4>Starting Targets</h4>
             <p class="hint hi-low-default-label">Default: lower than <strong>26</strong> or higher than <strong>45</strong>.</p>
-            <div class="hi-low-custom-switch-shell" aria-label="Hi/Low custom bounds toggle">
+            <div class="hi-low-custom-switch-shell" aria-label="Hi/Low custom targets toggle">
               <span class="hi-low-custom-label hi-low-custom-label--left">Default</span>
-              <input id="hi-low-custom-toggle" class="hi-low-custom-toggle" type="range" min="0" max="1" step="1" value="0" aria-label="Toggle custom Hi/Low bounds" />
+              <input id="hi-low-custom-toggle" class="hi-low-custom-toggle" type="range" min="0" max="1" step="1" value="0" aria-label="Toggle custom Hi/Low targets" />
               <span class="hi-low-custom-label hi-low-custom-label--right">Custom</span>
             </div>
           </div>
-          <div class="hi-low-option-group">
-            <label class="x01-field-label" for="hi-low-low-input">Low Bound</label>
+          <div id="hi-low-custom-target-inputs" class="hi-low-option-group hidden" aria-live="polite">
+            <label class="x01-field-label" for="hi-low-low-input">Low Target</label>
             <input id="hi-low-low-input" class="x01-field-input" type="number" min="0" max="180" step="1" value="26" disabled />
-            <label class="x01-field-label" for="hi-low-high-input">High Bound</label>
+            <label class="x01-field-label" for="hi-low-high-input">High Target</label>
             <input id="hi-low-high-input" class="x01-field-input" type="number" min="0" max="180" step="1" value="45" disabled />
+          </div>
+          <div class="hi-low-option-group">
+            <h4>Match Format</h4>
+            <label class="x01-field-label" for="hi-low-match-type">Play Format</label>
+            <select id="hi-low-match-type" class="x01-field-input">
+              <option value="best_of" selected>Best Of</option>
+              <option value="first_to">First To</option>
+            </select>
+
+            <label class="x01-field-label" for="hi-low-legs-value">Legs</label>
+            <input id="hi-low-legs-value" class="x01-field-input" type="number" min="1" max="9" step="1" value="1" inputmode="numeric" />
           </div>
         </div>
         <div class="modal-actions">

@@ -403,8 +403,8 @@ body {
 }
 
 .halve-it-variant-switch.is-hardcore {
-  background: linear-gradient(180deg, #f5a64a 0%, #df6d18 100%);
-  border-color: rgba(255, 232, 208, 0.72);
+  background: linear-gradient(180deg, #ef5555 0%, var(--accent) 100%);
+  border-color: rgba(255, 220, 220, 0.72);
 }
 
 .halve-it-variant-switch::-webkit-slider-runnable-track {
@@ -1321,6 +1321,13 @@ td {
   text-align: center;
 }
 
+#scoreboard-table.scoreboard-match-format th:nth-child(3),
+#scoreboard-table.scoreboard-match-format th:nth-child(4),
+#scoreboard-table.scoreboard-match-format td:nth-child(3),
+#scoreboard-table.scoreboard-match-format td:nth-child(4) {
+  text-align: center;
+}
+
 .active-row {
   background: var(--accent-soft);
 }
@@ -2048,7 +2055,7 @@ td {
 
 .hi-low-start-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1rem;
   margin-top: 1rem;
 }
@@ -2063,13 +2070,17 @@ td {
   gap: 0.55rem;
 }
 
+.hi-low-option-group.hidden {
+  display: none;
+}
+
 .hi-low-default-label {
   margin: 0;
 }
 
 .hi-low-custom-switch-shell {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto 62px auto;
   align-items: center;
   gap: 0.6rem;
 }
@@ -2082,8 +2093,60 @@ td {
   letter-spacing: 0.05em;
 }
 
+.hi-low-custom-label--right {
+  color: var(--accent);
+}
+
 .hi-low-custom-toggle {
-  width: 100%;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 62px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: linear-gradient(180deg, #24cf63 0%, #11ab47 100%);
+  cursor: pointer;
+  outline: none;
+  position: relative;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.hi-low-custom-toggle.is-custom {
+  background: linear-gradient(180deg, #ef5555 0%, var(--accent) 100%);
+  border-color: rgba(255, 220, 220, 0.72);
+}
+
+.hi-low-custom-toggle::-webkit-slider-runnable-track {
+  height: 32px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.hi-low-custom-toggle::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: #ffffff;
+  margin-top: 2px;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.25);
+}
+
+.hi-low-custom-toggle::-moz-range-track {
+  height: 32px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.hi-low-custom-toggle::-moz-range-thumb {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: #ffffff;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.25);
 }
 
 .x01-field-label {
@@ -2098,6 +2161,22 @@ td {
 
 .x01-field-input {
   min-height: 2.3rem;
+}
+
+#hi-low-low-input,
+#hi-low-high-input,
+#hi-low-match-type {
+  height: 2.3rem;
+}
+
+.match-status-summary {
+  margin: 0 0 0.55rem;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+
+.match-status-summary strong {
+  color: #f6ead2;
 }
 
 .cricket-start-prompt {

@@ -45,7 +45,7 @@ For **X01**, the start popup lets you choose `1001`, `501`, `301`, or `101`, the
 
 For **Halve It**, each player completes 9 target rounds. Hit the round target to score, or miss it entirely and your running score is halved (rounded down).
 
-For **Hi/Low**, the start popup uses default bounds (`low 26`, `high 45`) unless custom values are enabled. Every turn must be strictly lower than the current low bound or strictly higher than the current high bound. Successful throws update only the bound they beat (low goes down or high goes up). Failed turns (including `No Score`) eliminate the player, and the game skips eliminated players automatically.
+For **Hi/Low**, the start popup uses default targets (`low 26`, `high 45`) unless custom values are enabled. Every turn must be strictly lower than the current low target or strictly higher than the current high target. Successful throws update only the target they beat (low goes down or high goes up). Failed turns (including `No Score`) eliminate the player, and the game skips eliminated players automatically.
 
 For **Noughts and Crosses**, each game generates a fresh board of dart targets and players claim squares as `X` or `O` until one side completes three in a row.
 
@@ -200,7 +200,7 @@ Sessions expire after 30 minutes of inactivity. Logging out during an active gam
 7. For X01, choose the starting score in the popup, then click `Start Game`.
 8. For English Cricket, a popup lets Team A choose whether to `Bat` or `Bowl`, then click `Start Game`.
 9. For `55 by 5`, `Halve It`, and `Noughts and Crosses`, click the game button once to begin the match.
-10. For `Hi/Low`, choose default or custom bounds in the popup, then click `Start Game`.
+10. For `Hi/Low`, choose default or custom targets in the popup, then click `Start Game`.
 11. In Live Game, use the on-screen keypad to enter the active player's score, or click board squares in Noughts and Crosses.
 12. Use `Submit Score`, `No Score`, or `Undo` as needed.
 13. Review completed games in Recent Games.
@@ -258,11 +258,11 @@ Notes:
 ### Hi/Low
 
 - Supports singles mode or 2-team mode.
-- Start popup supports default bounds (`low 26`, `high 45`) or custom bounds.
-- Custom bounds require `low < high`.
-- Turn success: score must be `< current low` or `> current high`.
+- Start popup supports default targets (`low 26`, `high 45`) or custom targets.
+- Custom targets require `low < high`.
+- Turn success: score must be `< current low target` or `> current high target`.
 - Equality never counts as success.
-- Successful throws update only the bound they beat (low moves down or high moves up).
+- Successful throws update only the target they beat (low moves down or high moves up).
 - `No Score` always eliminates the current player.
 - Eliminated players are skipped in turn order.
 - Solo winner is the last active player.

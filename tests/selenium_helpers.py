@@ -9,7 +9,13 @@ from urllib.request import urlopen
 
 import pytest
 from selenium import webdriver
-from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException, WebDriverException
+from selenium.common.exceptions import (
+    ElementClickInterceptedException,
+    NoSuchElementException,
+    StaleElementReferenceException,
+    TimeoutException,
+    WebDriverException,
+)
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.support.ui import Select, WebDriverWait
@@ -169,19 +175,35 @@ def add_player(browser, name: str):
     close_player_manager(browser)
 
 
+def _select_player_checkbox(browser, player_name: str) -> None:
+    xpath = (
+        f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input"
+    )
+
+    for _ in range(4):
+        try:
+            checkbox = _wait(browser).until(ec.element_to_be_clickable((By.XPATH, xpath)))
+            if checkbox.is_selected():
+                return
+            try:
+                checkbox.click()
+            except (StaleElementReferenceException, ElementClickInterceptedException):
+                browser.execute_script("arguments[0].click();", checkbox)
+
+            _wait(browser, timeout=6).until(
+                lambda d: d.find_element(By.XPATH, xpath).is_selected()
+            )
+            return
+        except (StaleElementReferenceException, TimeoutException, WebDriverException):
+            time.sleep(0.1)
+
+    raise AssertionError(f"Unable to select player checkbox for {player_name}")
+
+
 def start_single_player_game(browser, player_name: str):
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "setup-panel")))
     add_player(browser, player_name)
-    player_checkbox = _wait(browser).until(
-        ec.presence_of_element_located(
-            (
-                By.XPATH,
-                f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
-            )
-        )
-    )
-    if not player_checkbox.is_selected():
-        player_checkbox.click()
+    _select_player_checkbox(browser, player_name)
     _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-55by5"))).click()
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
     _wait(browser).until(ec.visibility_of_element_located((By.CSS_SELECTOR, "#active-game-meta .current-player")))
@@ -192,16 +214,7 @@ def start_cricket_game(browser, first_player: str, second_player: str, starting_
 
     for player_name in (first_player, second_player):
         add_player(browser, player_name)
-        player_checkbox = _wait(browser).until(
-            ec.presence_of_element_located(
-                (
-                    By.XPATH,
-                    f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
-                )
-            )
-        )
-        if not player_checkbox.is_selected():
-            player_checkbox.click()
+        _select_player_checkbox(browser, player_name)
 
     _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-english-cricket"))).click()
     popup = _wait(browser).until(ec.visibility_of_element_located((By.ID, "cricket-start-overlay")))
@@ -222,16 +235,7 @@ def start_noughts_game(browser, first_player: str, second_player: str):
 
     for player_name in (first_player, second_player):
         add_player(browser, player_name)
-        player_checkbox = _wait(browser).until(
-            ec.presence_of_element_located(
-                (
-                    By.XPATH,
-                    f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
-                )
-            )
-        )
-        if not player_checkbox.is_selected():
-            player_checkbox.click()
+        _select_player_checkbox(browser, player_name)
 
     _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-noughts-and-crosses"))).click()
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
@@ -243,16 +247,7 @@ def start_halve_it_game(browser, player_names):
 
     for player_name in player_names:
         add_player(browser, player_name)
-        player_checkbox = _wait(browser).until(
-            ec.presence_of_element_located(
-                (
-                    By.XPATH,
-                    f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
-                )
-            )
-        )
-        if not player_checkbox.is_selected():
-            player_checkbox.click()
+        _select_player_checkbox(browser, player_name)
 
     _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-halve-it"))).click()
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
@@ -272,16 +267,7 @@ def start_x01_game(
 
     for player_name in player_names:
         add_player(browser, player_name)
-        player_checkbox = _wait(browser).until(
-            ec.presence_of_element_located(
-                (
-                    By.XPATH,
-                    f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
-                )
-            )
-        )
-        if not player_checkbox.is_selected():
-            player_checkbox.click()
+        _select_player_checkbox(browser, player_name)
 
     if team_mode == "teams":
         team_mode_toggle = _wait(browser).until(ec.element_to_be_clickable((By.ID, "team-mode-teams")))
@@ -298,16 +284,16 @@ def start_x01_game(
 
     Select(popup.find_element(By.ID, "x01-match-type")).select_by_value(match_type)
 
-    slider = popup.find_element(By.ID, "x01-legs-value")
+    legs_input = popup.find_element(By.ID, "x01-legs-value")
     browser.execute_script(
         """
-        const slider = arguments[0];
+        const input = arguments[0];
         const value = String(arguments[1]);
-        slider.value = value;
-        slider.dispatchEvent(new Event('input', { bubbles: true }));
-        slider.dispatchEvent(new Event('change', { bubbles: true }));
+        input.value = value;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
         """,
-        slider,
+        legs_input,
         int(legs_value),
     )
 
@@ -320,21 +306,12 @@ def start_x01_game(
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
 
 
-def start_hi_low_game(browser, player_names, custom_bounds=None):
+def start_hi_low_game(browser, player_names, custom_bounds=None, match_type="best_of", legs_value=1):
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "setup-panel")))
 
     for player_name in player_names:
         add_player(browser, player_name)
-        player_checkbox = _wait(browser).until(
-            ec.presence_of_element_located(
-                (
-                    By.XPATH,
-                    f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
-                )
-            )
-        )
-        if not player_checkbox.is_selected():
-            player_checkbox.click()
+        _select_player_checkbox(browser, player_name)
 
     _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-hi-low"))).click()
     popup = _wait(browser).until(ec.visibility_of_element_located((By.ID, "hi-low-start-overlay")))
@@ -359,6 +336,21 @@ def start_hi_low_game(browser, player_names, custom_bounds=None):
         high_input.clear()
         high_input.send_keys(str(high_value))
 
+    Select(popup.find_element(By.ID, "hi-low-match-type")).select_by_value(match_type)
+
+    legs_input = popup.find_element(By.ID, "hi-low-legs-value")
+    browser.execute_script(
+        """
+        const input = arguments[0];
+        const value = String(arguments[1]);
+        input.value = value;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        """,
+        legs_input,
+        int(legs_value),
+    )
+
     popup.find_element(By.ID, "hi-low-start-game").click()
     _wait(browser).until(ec.invisibility_of_element_located((By.ID, "hi-low-start-overlay")))
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
@@ -379,16 +371,7 @@ def start_noughts_team_game(browser, team_a_players: list, team_b_players: list)
     all_players = team_a_players + team_b_players
     for player_name in all_players:
         add_player(browser, player_name)
-        player_checkbox = _wait(browser).until(
-            ec.presence_of_element_located(
-                (
-                    By.XPATH,
-                    f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
-                )
-            )
-        )
-        if not player_checkbox.is_selected():
-            player_checkbox.click()
+        _select_player_checkbox(browser, player_name)
 
     team_mode = _wait(browser).until(ec.element_to_be_clickable((By.ID, "team-mode-teams")))
     if not team_mode.is_selected():
@@ -409,9 +392,13 @@ def noughts_click_cell(browser, cell_index: int, mark: str) -> None:
     cell.click()
     chooser = _wait(browser).until(ec.visibility_of_element_located((By.ID, "noughts-mark-overlay")))
     chooser.find_element(By.CSS_SELECTOR, f"[data-noughts-mark='{mark}']").click()
-    _wait(browser).until(
-        lambda d: d.find_elements(By.CSS_SELECTOR, f"[data-board-index='{cell_index}'].is-marked")
-    )
+    def _cell_marked(driver):
+        try:
+            return bool(driver.find_elements(By.CSS_SELECTOR, f"[data-board-index='{cell_index}'].is-marked"))
+        except StaleElementReferenceException:
+            return False
+
+    _wait(browser).until(_cell_marked)
 
 
 def submit_standard_score_with_keypad(browser, value: int):
