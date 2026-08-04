@@ -525,7 +525,12 @@ button {
   font: inherit;
 }
 
-input {
+input[type="text"],
+input[type="password"],
+input[type="number"],
+input[type="search"],
+select,
+textarea {
   padding: 0.45rem;
   border: 1px solid rgba(255, 255, 255, 0.25);
   border-radius: 8px;
