@@ -2063,6 +2063,7 @@ td {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1rem;
   margin-top: 1rem;
+  align-items: start;
 }
 
 .x01-option-group {
@@ -2073,6 +2074,11 @@ td {
 .hi-low-option-group {
   display: grid;
   gap: 0.55rem;
+  align-content: start;
+}
+
+.hi-low-option-group--fields {
+  gap: 0.65rem;
 }
 
 .hi-low-option-group.hidden {
