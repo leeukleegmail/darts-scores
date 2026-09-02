@@ -292,7 +292,7 @@ def build_halve_it_hardcore_rounds() -> list[dict[str, Any]]:
         },
         {
             "round": 5,
-            "target": "Score 17" if round_5_kind == "number" else f"Exact {round_5_value}",
+            "target": "Score 17" if round_5_kind == "number" else f"Target {round_5_value}",
             "kind": round_5_kind,
             "entry_mode": "hits" if round_5_kind == "number" else "points",
             "number": 17 if round_5_kind == "number" else None,
@@ -307,7 +307,7 @@ def build_halve_it_hardcore_rounds() -> list[dict[str, Any]]:
         {"round": 7, "target": "Any Treble", "kind": "triple", "entry_mode": "points"},
         {
             "round": 8,
-            "target": f"Exact {round_8_exact_targets[0]} / {round_8_exact_targets[1]} / {round_8_exact_targets[2]}",
+            "target": f"Target {round_8_exact_targets[0]} / {round_8_exact_targets[1]} / {round_8_exact_targets[2]}",
             "kind": "exact_total",
             "entry_mode": "points",
             "exact_totals": round_8_exact_targets,

@@ -1264,7 +1264,7 @@ def test_halve_it_hardcore_variant_generates_custom_rounds(client):
     round_8 = halve_state["rounds"][7]
     assert round_8["kind"] == "exact_total"
     assert round_8["exact_totals"] == [41, 101, 123]
-    assert "Exact 41 / 101 / 123" in round_8["target"]
+    assert "Target 41 / 101 / 123" in round_8["target"]
 
 
 def test_halve_it_hardcore_round_9_is_bullseye(client):
@@ -1818,7 +1818,7 @@ def test_halve_it_hardcore_exact_round_shows_all_targets_and_scores_one_hit(clie
     state_before = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
     round_8 = state_before["halve_it_state"]["rounds"][7]
     assert round_8["exact_totals"] == [41, 101, 123]
-    assert "Exact 41 / 101 / 123" in round_8["target"]
+    assert "Target 41 / 101 / 123" in round_8["target"]
 
     score_before = next(player for player in state_before["players"] if player["id"] == p1)["fives"]
     chosen_target = 123

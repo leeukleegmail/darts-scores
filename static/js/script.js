@@ -2460,7 +2460,8 @@ function renderRoundTargetTurnPanel(game) {
 
   const isHalveIt = game?.game_type === "halve_it";
   const isHiLow = game?.game_type === "hi_low";
-  const isRoundTargetGame = isHalveIt || isHiLow;
+  const is55By5 = game?.game_type === "55by5";
+  const isRoundTargetGame = isHalveIt || isHiLow || is55By5;
   roundTargetTurnPanelEl.classList.toggle("hidden", !isRoundTargetGame);
   if (!isRoundTargetGame) return;
 
@@ -2468,7 +2469,12 @@ function renderRoundTargetTurnPanel(game) {
     roundTargetTurnSummaryEl.classList.toggle("is-hi-low", isHiLow);
   }
   if (roundTargetSinglePillEl) {
-    roundTargetSinglePillEl.classList.toggle("hidden", !isHalveIt);
+    roundTargetSinglePillEl.classList.toggle("hidden", !isHalveIt && !is55By5);
+    // Update label for 55by5
+    const labelSpan = roundTargetSinglePillEl.querySelector("span");
+    if (labelSpan) {
+      labelSpan.textContent = is55By5 ? "Points Required" : "Target";
+    }
   }
   if (hiLowTargetsEl) {
     hiLowTargetsEl.classList.toggle("hidden", !isHiLow);
@@ -2484,6 +2490,14 @@ function renderRoundTargetTurnPanel(game) {
       : (Number(hiLowState.start_high) || 45);
     if (hiLowCurrentLowEl) hiLowCurrentLowEl.textContent = String(low);
     if (hiLowCurrentHighEl) hiLowCurrentHighEl.textContent = String(high);
+    return;
+  }
+
+  if (is55By5) {
+    const activePlayer = game.players.find((p) => p.id === game.active_player_id);
+    const currentFives = activePlayer?.fives || 0;
+    const pointsRequired = Math.max((55 - currentFives) * 5, 0);
+    roundTargetCurrentEl.textContent = String(pointsRequired);
     return;
   }
 
@@ -2995,7 +3009,7 @@ function renderGame() {
   if (standardTurnControlsEl) {
     standardTurnControlsEl.classList.toggle("hidden", isCricket || isNoughts || game.status !== "active");
     standardTurnControlsEl.classList.toggle("is-x01-layout", isX01 && game.status === "active");
-    standardTurnControlsEl.classList.toggle("is-target-layout", (isHalveIt || isHiLow) && game.status === "active");
+    standardTurnControlsEl.classList.toggle("is-target-layout", (isHalveIt || isHiLow || game.game_type === "55by5") && game.status === "active");
   }
   if (turnPlayerPanelEl) {
     const showTurnPlayerPanel = isX01 && game.status === "active";
@@ -3056,6 +3070,9 @@ function renderGame() {
   } else if (isX01) {
     const checkoutText = game.x01_state?.active_checkout ? `<span class="hint">Checkout: ${game.x01_state.active_checkout}</span>` : "";
     activeGameMetaEl.innerHTML = checkoutText;
+  } else if (game.game_type === "55by5") {
+    const pointsRequired = Math.max((55 - (activePlayer?.fives || 0)) * 5, 0);
+    activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong><br><span class="hint">Points Required: ${pointsRequired}</span>`;
   } else {
     activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong>`;
   }
@@ -3086,6 +3103,10 @@ function renderGame() {
     renderX01TurnPanel({ game_type: null });
     renderRoundTargetTurnPanel(game);
     renderHiLowScoreboard(game);
+  } else if (game.game_type === "55by5") {
+    renderX01TurnPanel({ game_type: null });
+    renderRoundTargetTurnPanel(game);
+    renderStandardScoreboard(game);
   } else {
     renderX01TurnPanel({ game_type: null });
     renderRoundTargetTurnPanel({ game_type: null });
