@@ -238,6 +238,8 @@ def normalize_game_type(raw_type: str | None) -> str:
         return "hi_low"
     if game_type in {"halve_it", "halve-it", "halveit"}:
         return "halve_it"
+    if game_type == "killer":
+        return "killer"
     if game_type in {"noughts_and_crosses", "noughts-and-crosses", "noughts", "tic_tac_toe", "tic-tac-toe", "tic tac toe"}:
         return "noughts_and_crosses"
     return "55by5"
@@ -1523,6 +1525,10 @@ def recompute_game_state(
         assignments,
         game.team_mode,
     )
+    stored_killer_state = parse_killer_state(
+        getattr(game, "killer_state", None),
+        [player["id"] for player in ordered_players],
+    )
 
     if game.game_type == "english_cricket":
         cricket_state = build_initial_cricket_state(stored_cricket_state["starting_batting_team"])
@@ -1572,6 +1578,14 @@ def recompute_game_state(
     else:
         hi_low_state = stored_hi_low_state
 
+    if game.game_type == "killer":
+        killer_state = build_initial_killer_state(
+            stored_killer_state["starting_lives"],
+            [player["id"] for player in ordered_players],
+        )
+    else:
+        killer_state = stored_killer_state
+
     halve_it_state = stored_halve_it_state
 
     player_rounds = {player["id"]: 0 for player in ordered_players}
@@ -1617,6 +1631,8 @@ def recompute_game_state(
                     finish_game(game)
         elif game.game_type == "hi_low":
             apply_hi_low_turn(game, turn, ordered_players, score_row, assignments, hi_low_state)
+        elif game.game_type == "killer":
+            apply_killer_turn(game, turn, ordered_players, score_row, killer_state)
         else:
             apply_standard_turn(game, turn, score_row, assignments, team_totals)
 
@@ -1626,6 +1642,12 @@ def recompute_game_state(
                     game.current_turn_position,
                     ordered_players,
                     hi_low_state,
+                )
+            elif game.game_type == "killer":
+                game.current_turn_position = next_active_killer_turn_position(
+                    game.current_turn_position,
+                    ordered_players,
+                    killer_state,
                 )
             else:
                 game.current_turn_position = (game.current_turn_position + 1) % len(ordered_players)
@@ -1640,6 +1662,8 @@ def recompute_game_state(
         game.halve_it_state = json.dumps(halve_it_state)
     if game.game_type == "hi_low":
         game.hi_low_state = json.dumps(hi_low_state)
+    if game.game_type == "killer":
+        game.killer_state = json.dumps(killer_state)
 
 
 def active_player_id_for_game(game: Any, ordered_players: list[dict[str, Any]]) -> int | None:
@@ -1752,6 +1776,10 @@ def build_game_state_payload(
         assignments,
         game.team_mode,
     )
+    killer_state = parse_killer_state(
+        getattr(game, "killer_state", None),
+        [player["id"] for player in ordered_players],
+    )
 
     if game.game_type == "noughts_and_crosses":
         noughts_state["x_name"] = noughts_side_name(ordered_players, assignments, team_names, TEAM_A, game.team_mode)
@@ -1812,6 +1840,7 @@ def build_game_state_payload(
         "hi_low_state": hi_low_state if game.game_type == "hi_low" else None,
         "halve_it_state": halve_it_state,
         "noughts_and_crosses_state": noughts_state if game.game_type == "noughts_and_crosses" else None,
+        "killer_state": killer_state if game.game_type == "killer" else None,
         "players": serialize_players_for_game(ordered_players, scores, assignments, game, x01_state, hi_low_state),
         "turns": serialize_turns_for_game(turn_rows, game),
     }
@@ -1827,6 +1856,8 @@ def game_type_label(game_type: str | None) -> str:
         return "Hi/Low"
     if normalized == "halve_it":
         return "Halve It"
+    if normalized == "killer":
+        return "Killer"
     if normalized == "noughts_and_crosses":
         return "Noughts and Crosses"
     return "55 by 5"
@@ -1899,6 +1930,116 @@ def normalize_requested_team_assignments(
     return normalized_assignments, None
 
 
+def build_initial_killer_state(starting_lives: int, ordered_player_ids: list[int]) -> dict[str, Any]:
+    starting_lives = starting_lives if starting_lives in (5, 10) else 5
+    return {
+        "starting_lives": starting_lives,
+        "player_lives": {str(player_id): starting_lives for player_id in ordered_player_ids},
+        "current_target": 26,
+        "last_scorer_id": None,
+        "last_scores": {str(player_id): None for player_id in ordered_player_ids},
+        "eliminated_players": [],
+    }
+
+
+def parse_killer_state(raw_value: str | None, ordered_player_ids: list[int]) -> dict[str, Any]:
+    default_state = build_initial_killer_state(5, ordered_player_ids)
+    if not raw_value:
+        return default_state
+
+    try:
+        state = json.loads(raw_value) if isinstance(raw_value, str) else raw_value
+        if not isinstance(state, dict):
+            return default_state
+
+        starting_lives = state.get("starting_lives", 5)
+        if starting_lives not in (5, 10):
+            starting_lives = 5
+
+        player_lives = state.get("player_lives", {})
+        if not isinstance(player_lives, dict):
+            player_lives = {}
+        for player_id in ordered_player_ids:
+            str_id = str(player_id)
+            if not isinstance(player_lives.get(str_id), int) or not 0 <= player_lives[str_id] <= starting_lives:
+                player_lives[str_id] = starting_lives
+
+        current_target = state.get("current_target", 26)
+        if not isinstance(current_target, int) or current_target < 0 or current_target > 180:
+            current_target = 26
+
+        eliminated_players = [
+            player_id for player_id in ordered_player_ids if player_lives[str(player_id)] == 0
+        ]
+        last_scores = state.get("last_scores") if isinstance(state.get("last_scores"), dict) else {}
+        return {
+            "starting_lives": starting_lives,
+            "player_lives": player_lives,
+            "current_target": current_target,
+            "last_scorer_id": state.get("last_scorer_id") if state.get("last_scorer_id") in ordered_player_ids else None,
+            "last_scores": {
+                str(player_id): last_scores.get(str(player_id))
+                if isinstance(last_scores.get(str(player_id)), int) and 0 <= last_scores[str(player_id)] <= MAX_TURN_TOTAL
+                else None
+                for player_id in ordered_player_ids
+            },
+            "eliminated_players": eliminated_players,
+        }
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return default_state
+
+
+def apply_killer_turn(
+    game: Any,
+    turn: Any,
+    ordered_players: list[dict[str, Any]],
+    score_row: Any,
+    killer_state: dict[str, Any],
+) -> None:
+    player_id_str = str(turn.player_id)
+    current_target = killer_state.get("current_target", 26)
+    turn_score = int(turn.total_points or 0)
+    killer_state["last_scores"][player_id_str] = turn_score
+
+    if turn_score > current_target:
+        turn.counted = True
+        turn.fives_awarded = turn_score
+        killer_state["current_target"] = turn_score
+        killer_state["last_scorer_id"] = turn.player_id
+    else:
+        turn.counted = False
+        turn.fives_awarded = 0
+        current_lives = killer_state.get("player_lives", {}).get(player_id_str, 0)
+        current_lives = max(0, current_lives - 1)
+        killer_state["player_lives"][player_id_str] = current_lives
+        killer_state["current_target"] = 26
+
+    killer_state["eliminated_players"] = [
+        player["id"]
+        for player in ordered_players
+        if killer_state["player_lives"].get(str(player["id"]), 0) == 0
+    ]
+    remaining_players = [
+        player["id"] for player in ordered_players
+        if player["id"] not in killer_state["eliminated_players"]
+    ]
+    if len(remaining_players) == 1:
+        finish_game(game, winner_player_id=remaining_players[0])
+
+
+def next_active_killer_turn_position(
+    current_position: int,
+    ordered_players: list[dict[str, Any]],
+    killer_state: dict[str, Any],
+) -> int:
+    for offset in range(1, len(ordered_players) + 1):
+        position = (current_position + offset) % len(ordered_players)
+        player_id = ordered_players[position]["id"]
+        if player_id not in killer_state["eliminated_players"]:
+            return position
+    return current_position
+
+
 def build_new_game_start_state(
     game_type: str,
     ordered_player_ids: list[int],
@@ -1914,7 +2055,8 @@ def build_new_game_start_state(
     hi_low_start_high: int = HI_LOW_DEFAULT_HIGH,
     hi_low_match_type: str = "best_of",
     hi_low_legs_value: int = 1,
-) -> tuple[int, str | None, str | None, str | None, str | None, str | None]:
+    killer_starting_lives: int = 5,
+) -> tuple[int, str | None, str | None, str | None, str | None, str | None, str | None]:
     if game_type == "english_cricket":
         opening_state = build_initial_cricket_state(starting_batting_team)
         ordered_for_start = [{"id": player_id} for player_id in ordered_player_ids]
@@ -1923,7 +2065,7 @@ def build_new_game_start_state(
             normalized_assignments,
             opening_state["bowling_team"],
         )
-        return initial_turn_position, json.dumps(opening_state), None, None, None, None
+        return initial_turn_position, json.dumps(opening_state), None, None, None, None, None
 
     if game_type == "x01":
         initial_turn_position = x01_starting_turn_position(
@@ -1948,13 +2090,13 @@ def build_new_game_start_state(
             x01_starting_entity,
             initial_turn_position,
         )
-        return initial_turn_position, None, None, json.dumps(x01_state), None, None
+        return initial_turn_position, None, None, json.dumps(x01_state), None, None, None
 
     if game_type == "noughts_and_crosses":
-        return 0, None, json.dumps(build_initial_noughts_and_crosses_state()), None, None, None
+        return 0, None, json.dumps(build_initial_noughts_and_crosses_state()), None, None, None, None
 
     if game_type == "halve_it":
-        return 0, None, None, None, json.dumps(build_initial_halve_it_state(halve_it_variant)), None
+        return 0, None, None, None, json.dumps(build_initial_halve_it_state(halve_it_variant)), None, None
 
     if game_type == "hi_low":
         hi_low_state = build_initial_hi_low_state(
@@ -1966,6 +2108,11 @@ def build_new_game_start_state(
             hi_low_match_type,
             hi_low_legs_value,
         )
-        return 0, None, None, None, None, json.dumps(hi_low_state)
+        return 0, None, None, None, None, json.dumps(hi_low_state), None
 
-    return 0, None, None, None, None, None
+    if game_type == "killer":
+        return 0, None, None, None, None, None, json.dumps(
+            build_initial_killer_state(killer_starting_lives, ordered_player_ids)
+        )
+
+    return 0, None, None, None, None, None, None

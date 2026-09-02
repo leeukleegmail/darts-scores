@@ -883,6 +883,7 @@ def test_player_stats_endpoint_summarizes_wins_losses_by_game_type(client_with_m
         "noughts_and_crosses",
         "halve_it",
         "hi_low",
+        "killer",
     ]
 
     by_type = {item["game_type"]: item for item in payload["stats"]["by_game_type"]}
@@ -2104,6 +2105,109 @@ def test_create_hi_low_game_with_defaults_and_custom_validation(client):
     )
     assert invalid.status_code == 400
     assert invalid.get_json()["error"] == "Hi/Low custom values require low to be less than high."
+
+
+def test_killer_tracks_lives_targets_and_last_scores(client):
+    p1 = add_player(client, "Killer A")
+    p2 = add_player(client, "Killer B")
+
+    created = client.post(
+        "/api/games",
+        json={
+            "ordered_player_ids": [p1, p2],
+            "game_type": "killer",
+            "killer_starting_lives": 10,
+        },
+    )
+    assert created.status_code == 201
+    game = created.get_json()["game"]
+    assert game["killer_state"]["starting_lives"] == 10
+    assert game["killer_state"]["current_target"] == 26
+
+    successful = client.post(
+        f"/api/games/{game['id']}/turn",
+        json={"player_id": p1, "total_points": 60},
+    ).get_json()
+    assert successful["turn"]["counted"] is True
+    assert successful["game"]["killer_state"]["current_target"] == 60
+    assert successful["game"]["killer_state"]["last_scores"][str(p1)] == 60
+
+    missed = client.post(
+        f"/api/games/{game['id']}/turn",
+            json={"player_id": p2, "total_points": 60},
+    ).get_json()
+    assert missed["turn"]["counted"] is False
+    assert missed["game"]["killer_state"]["player_lives"][str(p2)] == 9
+    assert missed["game"]["killer_state"]["current_target"] == 26
+    assert missed["game"]["killer_state"]["last_scores"][str(p2)] == 60
+
+
+def test_killer_eliminates_players_skips_turns_and_finishes(client):
+    p1 = add_player(client, "Killer Skip A")
+    p2 = add_player(client, "Killer Skip B")
+    p3 = add_player(client, "Killer Skip C")
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1, p2, p3], "game_type": "killer", "killer_starting_lives": 5},
+    ).get_json()["game"]
+
+    for _ in range(5):
+        response = client.post(
+            f"/api/games/{game['id']}/turn",
+            json={"player_id": p1, "total_points": 0},
+        )
+        assert response.status_code == 200
+        state = response.get_json()["game"]
+        if state["status"] == "active":
+            response = client.post(
+                f"/api/games/{game['id']}/turn",
+                json={"player_id": p2, "total_points": 27},
+            )
+            assert response.status_code == 200
+            response = client.post(
+                f"/api/games/{game['id']}/turn",
+                json={"player_id": p3, "total_points": 28},
+            )
+            assert response.status_code == 200
+            game = response.get_json()["game"]
+
+    state = client.get(f"/api/games/{game['id']}/state").get_json()["game"]
+    assert p1 in state["killer_state"]["eliminated_players"]
+    assert state["active_player_id"] == p2
+
+    for _ in range(5):
+        response = client.post(
+            f"/api/games/{game['id']}/turn",
+            json={"player_id": p2, "total_points": 0},
+        )
+        assert response.status_code == 200
+        game = response.get_json()["game"]
+        if game["status"] == "active":
+            response = client.post(
+                f"/api/games/{game['id']}/turn",
+                json={"player_id": p3, "total_points": 27},
+            )
+            assert response.status_code == 200
+            game = response.get_json()["game"]
+
+    assert game["status"] == "finished"
+    assert game["winner_player_id"] == p3
+
+
+def test_killer_requires_singles_and_two_players(client):
+    p1 = add_player(client, "Killer Solo")
+    p2 = add_player(client, "Killer Team")
+
+    solo = client.post("/api/games", json={"ordered_player_ids": [p1], "game_type": "killer"})
+    assert solo.status_code == 400
+    assert solo.get_json()["error"] == "Killer requires at least two players."
+
+    teams = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1, p2], "game_type": "killer", "team_mode": "teams"},
+    )
+    assert teams.status_code == 400
+    assert teams.get_json()["error"] == "Killer requires singles mode only."
 
 
 def test_hi_low_no_score_eliminates_player_and_can_finish_game(client):

@@ -35,6 +35,7 @@ The app supports any number of players in the roster. After login, you set up pl
 - **English Cricket**
 - **Halve It**
 - **Hi/Low**
+- **Killer**
 - **Noughts and Crosses**
 
 For each new game, you select who is playing and drag players into the desired turn order. You can play in singles mode or in two teams with drag-and-drop team assignment.
@@ -47,6 +48,8 @@ For **Halve It**, each player completes 9 target rounds. Hit the round target to
 
 For **Hi/Low**, the start popup uses default targets (`low 26`, `high 45`) unless custom values are enabled. Every turn must be strictly lower than the current low target or strictly higher than the current high target. Successful throws update only the target they beat (low goes down or high goes up). Failed turns (including `No Score`) eliminate the player, and the game skips eliminated players automatically.
 
+For **Killer**, choose 5 or 10 starting lives in the start popup. The opening player must beat 26, then each player must beat the previous successful score. A failed score loses one life and resets the target to 26. Eliminated players are skipped, and the last player with lives remaining wins. Killer is singles-only.
+
 For **Noughts and Crosses**, each game generates a fresh board of dart targets and players claim squares as `X` or `O` until one side completes three in a row.
 
 ## Recent Release Notes
@@ -56,6 +59,7 @@ For **Noughts and Crosses**, each game generates a fresh board of dart targets a
 - Hardcore round 9 is Bullseye.
 - Halve It no-score entries are supported consistently across all rounds.
 - In-game help was updated to reflect current Halve It and Hi/Low behavior.
+- Added Killer with configurable lives, target-chasing scoring, and elimination play.
 - Verified with `pytest -q` (`175 passed`).
 
 ## Requirements

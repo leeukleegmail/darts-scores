@@ -23,6 +23,7 @@ const state = {
   hiLowHigh: 45,
   hiLowMatchType: "best_of",
   hiLowLegsValue: 1,
+  killerStartingLives: 5,
   pendingNoughtsCellIndex: null,
   playerStats: null,
   loadingPlayerStatsId: null,
@@ -87,6 +88,11 @@ const hiLowLowInputEl = document.getElementById("hi-low-low-input");
 const hiLowHighInputEl = document.getElementById("hi-low-high-input");
 const hiLowMatchTypeEl = document.getElementById("hi-low-match-type");
 const hiLowLegsValueEl = document.getElementById("hi-low-legs-value");
+const killerStartOverlayEl = document.getElementById("killer-start-overlay");
+const killerStartGameEl = document.getElementById("killer-start-game");
+const killerStartCancelEl = document.getElementById("killer-start-cancel");
+const killerStartingLivesEl = document.getElementById("killer-starting-lives");
+const killerStartingLivesValueEl = document.getElementById("killer-starting-lives-value");
 const x01TurnPanelEl = document.getElementById("x01-turn-panel");
 const x01ActiveRemainingEl = document.getElementById("x01-active-remaining");
 const x01CheckoutHintEl = document.getElementById("x01-checkout-hint");
@@ -422,6 +428,11 @@ function showMessage(text, isError = false) {
   messageEl.className = isError ? "message error" : "message";
 }
 
+function clearMessage() {
+  messageEl.textContent = "";
+  messageEl.className = "message";
+}
+
 // Keeps a speech-event context alive across the async API call so that the
 // real announcement can be delivered from an onend callback (which iOS treats
 // as a valid speech context, unlike async callbacks after await).
@@ -617,8 +628,7 @@ async function undoLastTurn() {
     state.cricketSelectedMarks = [];
     state.cricketPendingMarks = 0;
     renderGame();
-    // Undo cannot finish a game; history is unchanged, no need to refresh.
-    showMessage("Last turn undone.");
+    clearMessage();
   } catch (err) {
     showMessage(err.message, true);
   }
@@ -873,7 +883,6 @@ async function submitScore(totalPoints) {
     if (!state.game || state.game.status !== "active") return;
 
     const numericTotal = Number.isFinite(Number(totalPoints)) ? Number(totalPoints) : 0;
-    const submittingGameType = state.game.game_type;
     if (state.game.game_type === "55by5" && numericTotal % 5 !== 0) {
       showScoreWarningBanner("Total scored must be divisible by 5.");
     }
@@ -908,8 +917,6 @@ async function submitScore(totalPoints) {
       const is55By5Bust = response.game.game_type === "55by5" && !t.counted && t.total_points % 5 === 0;
       const isX01Bust = response.game.game_type === "x01"
         && (t.x01_result === "bust_overshoot" || t.x01_result === "bust_leave_one");
-      const isHalveItHalved = submittingGameType === "halve_it" && Boolean(t.halve_it_halved);
-
       if (is55By5Bust || isX01Bust) {
         showBustBanner("Bust");
         if (isX01Bust) {
@@ -921,6 +928,7 @@ async function submitScore(totalPoints) {
 
       state.suppressX01CheckoutAnnouncementOnce = response.game.game_type === "x01" && response.game.status === "active";
       renderGame();
+      clearMessage();
       // History only lists finished games; skip the round-trip while the game is
       // still active and only refresh it once the game ends.
       if (response.game.status === "finished") {
@@ -951,73 +959,24 @@ async function submitScore(totalPoints) {
         } else {
           announceX01CheckoutIfNeeded(response.game);
         }
-        showMessage(
-          t.counted
-            ? `Turn saved: ${t.total_points} scored, ${remaining} remaining.`
-            : `Turn saved: ${t.total_points} with no change.`,
-        );
         return;
       }
 
       if (response.game.game_type === "english_cricket") {
-        const resultLabel = t.counted
-          ? t.total_points <= 6
-            ? `${t.fives_awarded} wicket mark${t.fives_awarded === 1 ? "" : "s"}`
-            : `${t.fives_awarded} run${t.fives_awarded === 1 ? "" : "s"}`
-          : "no score";
-        showMessage(
-          t.counted
-            ? `Cricket turn saved: ${resultLabel}.`
-            : `Cricket turn saved: ${t.total_points} with no score.`
-        );
         return;
       }
 
       if (response.game.game_type === "noughts_and_crosses") {
-        showMessage(
-          t.counted
-            ? `${t.noughts_marker || "Move"} claimed ${t.board_label || `square ${t.board_index + 1}`}.`
-            : `${t.board_label || "That square"} is already claimed.`
-        );
         return;
       }
 
       if (response.game.game_type === "halve_it") {
-        showMessage(
-          isHalveItHalved
-            ? `Missed ${t.halve_it_target || "target"}. Score halved.`
-            : `Halve It turn saved: +${t.fives_awarded} on ${t.halve_it_target || "target"}.`
-        );
         return;
       }
 
       if (response.game.game_type === "hi_low") {
-        const turnPlayer = response.game.players.find((player) => player.id === t.player_id);
-        const turnPlayerName = turnPlayer?.name || "Player";
-        if (t.hi_low_result === "eliminated") {
-          showMessage(`${turnPlayerName} failed and is eliminated.`);
-        } else {
-          const hiLowState = response.game.hi_low_state || {};
-          const low = Number.isFinite(Number(hiLowState.current_low))
-            ? Number(hiLowState.current_low)
-            : (Number(hiLowState.start_low) || 26);
-          const high = Number.isFinite(Number(hiLowState.current_high))
-            ? Number(hiLowState.current_high)
-            : (Number(hiLowState.start_high) || 45);
-          showMessage(`${turnPlayerName} succeeded. Targets are now low ${low} and high ${high}.`);
-        }
         return;
       }
-
-      const isBust = response.game.game_type === "55by5" && !t.counted && t.total_points % 5 === 0;
-
-      showMessage(
-        t.counted
-          ? `Turn counted: ${t.total_points} points = +${t.fives_awarded} fives.`
-          : isBust
-            ? `Bust: ${t.total_points} would exceed 55 and does not count.`
-            : `Turn not counted: ${t.total_points} is not divisible by 5.`
-      );
     } catch (err) {
       showMessage(err.message, true);
     }
@@ -1044,6 +1003,7 @@ async function submitNoughtsMove(cellIndex, marker) {
       closeNoughtsMarkOverlay();
       syncStateFromGame(response.game);
       renderGame();
+      clearMessage();
       if (response.game.status === "finished") {
         await loadHistory();
       }
@@ -1054,12 +1014,6 @@ async function submitNoughtsMove(cellIndex, marker) {
         return;
       }
 
-      const turn = response.turn;
-      showMessage(
-        turn.counted
-          ? `${turn.noughts_marker || marker} claimed ${turn.board_label || `square ${cellIndex + 1}`}.`
-          : `${turn.board_label || "That square"} is already claimed.`
-      );
     } catch (err) {
       showMessage(err.message, true);
     }
@@ -1362,7 +1316,7 @@ function updateTeamModeAvailability() {
   const teamModeSoloEl = document.getElementById("team-mode-solo");
   const teamModeTeamsEl = document.getElementById("team-mode-teams");
   const teamsChip = teamModeTeamsEl instanceof HTMLInputElement ? teamModeTeamsEl.closest(".chip") : null;
-  const disableTeams = state.gameType === "halve_it";
+  const disableTeams = state.gameType === "halve_it" || state.gameType === "killer";
 
   if (teamModeTeamsEl instanceof HTMLInputElement) {
     teamModeTeamsEl.disabled = disableTeams;
@@ -1441,6 +1395,7 @@ function syncStateFromGame(game) {
   state.hiLowHigh = Number(game.hi_low_state?.start_high) || 45;
   state.hiLowMatchType = game.hi_low_state?.match_type === "first_to" ? "first_to" : "best_of";
   state.hiLowLegsValue = Number(game.hi_low_state?.legs_value) || 1;
+  state.killerStartingLives = game.killer_state?.starting_lives === 10 ? 10 : 5;
   state.halveItVariant = normalizeHalveItVariant(game.halve_it_state?.variant || state.halveItVariant);
   syncHalveItVariantControls(state.halveItVariant);
   syncHiLowStartControls();
@@ -1628,6 +1583,25 @@ function closeHiLowStartOverlay() {
   if (hiLowStartOverlayEl) {
     hiLowStartOverlayEl.classList.remove("visible");
   }
+}
+
+function syncKillerStartControls() {
+  state.killerStartingLives = state.killerStartingLives === 10 ? 10 : 5;
+  if (killerStartingLivesEl instanceof HTMLInputElement) {
+    killerStartingLivesEl.value = String(state.killerStartingLives);
+  }
+  if (killerStartingLivesValueEl) {
+    killerStartingLivesValueEl.textContent = String(state.killerStartingLives);
+  }
+}
+
+function openKillerStartOverlay() {
+  syncKillerStartControls();
+  killerStartOverlayEl?.classList.add("visible");
+}
+
+function closeKillerStartOverlay() {
+  killerStartOverlayEl?.classList.remove("visible");
 }
 
 function resetX01TurnFlags() {
@@ -2461,7 +2435,8 @@ function renderRoundTargetTurnPanel(game) {
   const isHalveIt = game?.game_type === "halve_it";
   const isHiLow = game?.game_type === "hi_low";
   const is55By5 = game?.game_type === "55by5";
-  const isRoundTargetGame = isHalveIt || isHiLow || is55By5;
+  const isKiller = game?.game_type === "killer";
+  const isRoundTargetGame = isHalveIt || isHiLow || is55By5 || isKiller;
   roundTargetTurnPanelEl.classList.toggle("hidden", !isRoundTargetGame);
   if (!isRoundTargetGame) return;
 
@@ -2469,11 +2444,11 @@ function renderRoundTargetTurnPanel(game) {
     roundTargetTurnSummaryEl.classList.toggle("is-hi-low", isHiLow);
   }
   if (roundTargetSinglePillEl) {
-    roundTargetSinglePillEl.classList.toggle("hidden", !isHalveIt && !is55By5);
+    roundTargetSinglePillEl.classList.toggle("hidden", !isHalveIt && !is55By5 && !isKiller);
     // Update label for 55by5
     const labelSpan = roundTargetSinglePillEl.querySelector("span");
     if (labelSpan) {
-      labelSpan.textContent = is55By5 ? "Points Required" : "Target";
+      labelSpan.textContent = is55By5 ? "Points Required" : isKiller ? "Score To Beat" : "Target";
     }
   }
   if (hiLowTargetsEl) {
@@ -2498,6 +2473,11 @@ function renderRoundTargetTurnPanel(game) {
     const currentFives = activePlayer?.fives || 0;
     const pointsRequired = Math.max((55 - currentFives) * 5, 0);
     roundTargetCurrentEl.textContent = String(pointsRequired);
+    return;
+  }
+
+  if (isKiller) {
+    roundTargetCurrentEl.textContent = String(game.killer_state?.current_target || 26);
     return;
   }
 
@@ -2598,6 +2578,30 @@ function renderHiLowScoreboard(game) {
     scoreboardEl.appendChild(tr);
   }
 }
+
+function renderKillerScoreboard(game) {
+  scoreboardEl.innerHTML = "";
+  const killerState = game.killer_state || {};
+  const livesByPlayer = killerState.player_lives || {};
+  const lastScores = killerState.last_scores || {};
+  const eliminated = new Set(Array.isArray(killerState.eliminated_players) ? killerState.eliminated_players : []);
+
+  for (const player of game.players) {
+    const tr = document.createElement("tr");
+    const isEliminated = eliminated.has(player.id) || Number(livesByPlayer[String(player.id)]) === 0;
+    if (player.id === game.active_player_id && game.status === "active") tr.classList.add("active-row");
+    if (isEliminated) tr.classList.add("eliminated-row");
+    const lastScore = lastScores[String(player.id)];
+    tr.innerHTML = `
+      <td>${player.name}</td>
+      <td>${Math.max(0, Number(livesByPlayer[String(player.id)]) || 0)}</td>
+      <td>${isEliminated ? "-" : Number(killerState.current_target || 26)}</td>
+      <td>${Number.isFinite(Number(lastScore)) ? lastScore : "-"}</td>
+    `;
+    scoreboardEl.appendChild(tr);
+  }
+}
+
 
 function x01LegsWonForEntity(x01State, entityKey) {
   return Number(x01State?.legs_won?.[String(entityKey)] || 0);
@@ -2989,27 +2993,28 @@ function renderGame() {
   const isX01 = game.game_type === "x01";
   const isHalveIt = game.game_type === "halve_it";
   const isHiLow = game.game_type === "hi_low";
+  const isKiller = game.game_type === "killer";
   const isNoughts = game.game_type === "noughts_and_crosses";
   const activePlayer = game.players.find((p) => p.id === game.active_player_id);
   const scoreboardTable = document.getElementById("scoreboard-table");
   if (scoreboardTable) {
     scoreboardTable.classList.toggle("scoreboard-x01", isX01);
-    scoreboardTable.classList.toggle("scoreboard-match-format", isX01 || isHiLow);
+    scoreboardTable.classList.toggle("scoreboard-match-format", isX01 || isHiLow || isKiller);
   }
   const headers = Array.from(document.querySelectorAll("#scoreboard-table thead th"));
   if (headers.length >= 4) {
     headers[0].textContent = "Player";
-    headers[1].textContent = isX01 ? "Remaining" : (isHiLow ? "Status" : "Score");
-    headers[2].textContent = (isX01 || isHiLow) ? "Legs" : (isHalveIt ? "Round" : "Points Required");
+    headers[1].textContent = isX01 ? "Remaining" : (isHiLow ? "Status" : (isKiller ? "Lives" : "Score"));
+    headers[2].textContent = (isX01 || isHiLow) ? "Legs" : (isKiller ? "Target" : (isHalveIt ? "Round" : "Points Required"));
     headers[2].hidden = false;
-    headers[3].textContent = (isX01 || isHiLow) ? "Target" : "";
-    headers[3].hidden = !(isX01 || isHiLow);
+    headers[3].textContent = (isX01 || isHiLow) ? "Target" : (isKiller ? "Last Score" : "");
+    headers[3].hidden = !(isX01 || isHiLow || isKiller);
   }
 
   if (standardTurnControlsEl) {
     standardTurnControlsEl.classList.toggle("hidden", isCricket || isNoughts || game.status !== "active");
     standardTurnControlsEl.classList.toggle("is-x01-layout", isX01 && game.status === "active");
-    standardTurnControlsEl.classList.toggle("is-target-layout", (isHalveIt || isHiLow || game.game_type === "55by5") && game.status === "active");
+    standardTurnControlsEl.classList.toggle("is-target-layout", (isHalveIt || isHiLow || isKiller || game.game_type === "55by5") && game.status === "active");
   }
   if (turnPlayerPanelEl) {
     const showTurnPlayerPanel = isX01 && game.status === "active";
@@ -3050,7 +3055,7 @@ function renderGame() {
   } else if (isHalveIt) {
     const currentTarget = String(game.halve_it_state?.current_target || "20");
     const currentRound = Number(game.halve_it_state?.current_round || 1);
-    activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong> · Round ${currentRound} (Target ${currentTarget})`;
+    activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong><br><span class="hint">Round ${currentRound} (Target ${currentTarget})</span>`;
   } else if (isHiLow) {
     const hiLowState = game.hi_low_state || {};
     const low = Number.isFinite(Number(hiLowState.current_low))
@@ -3064,7 +3069,9 @@ function renderGame() {
     const progressText = game.team_mode === "teams"
       ? `${Number(legsWon.team_a || 0)}-${Number(legsWon.team_b || 0)} (to ${requiredLegs})`
       : `${Object.values(legsWon).reduce((sum, value) => sum + (Number(value) || 0), 0)} legs played (to ${requiredLegs})`;
-    activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong> · Score lower than ${low} or higher than ${high} · ${progressText}`;
+    activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong><br><span class="hint">Score lower than ${low} or higher than ${high}<br>${progressText}</span>`;
+  } else if (isKiller) {
+    activeGameMetaEl.innerHTML = `<strong class="current-player">${activePlayer?.name || "Unknown"} to Throw</strong><br><span class="hint">Beat ${Number(game.killer_state?.current_target || 26)}</span>`;
   } else if (isNoughts) {
     activeGameMetaEl.innerHTML = "<strong>Noughts and Crosses</strong>";
   } else if (isX01) {
@@ -3103,6 +3110,10 @@ function renderGame() {
     renderX01TurnPanel({ game_type: null });
     renderRoundTargetTurnPanel(game);
     renderHiLowScoreboard(game);
+  } else if (isKiller) {
+    renderX01TurnPanel({ game_type: null });
+    renderRoundTargetTurnPanel(game);
+    renderKillerScoreboard(game);
   } else if (game.game_type === "55by5") {
     renderX01TurnPanel({ game_type: null });
     renderRoundTargetTurnPanel(game);
@@ -3138,6 +3149,8 @@ function renderGame() {
         ? (turn.counted
           ? `${turn.noughts_marker || "Mark"} on ${turn.board_label || `square ${turn.board_index + 1}`}`
           : `${turn.board_label || "square"} already taken`)
+      : isKiller
+        ? (turn.counted ? `beat target with ${turn.total_points}` : "lost a life; target reset")
         : turn.counted
           ? `+${turn.fives_awarded} fives`
           : turn.total_points % 5 === 0
@@ -3287,8 +3300,9 @@ async function startConfiguredGame() {
   }
 
   state.teamMode = getTeamMode();
-  if (state.gameType === "halve_it" && state.teamMode === "teams") {
-    showBustBanner("Halve It does not support teams. Switch to Singles.");
+  if ((state.gameType === "halve_it" || state.gameType === "killer") && state.teamMode === "teams") {
+    const gameLabel = state.gameType === "killer" ? "Killer" : "Halve It";
+    showBustBanner(`${gameLabel} does not support teams. Switch to Singles.`);
     return;
   }
   let teamAssignments = undefined;
@@ -3337,12 +3351,13 @@ async function startConfiguredGame() {
         hi_low_high: state.gameType === "hi_low" ? state.hiLowHigh : undefined,
         hi_low_match_type: state.gameType === "hi_low" ? state.hiLowMatchType : undefined,
         hi_low_legs_value: state.gameType === "hi_low" ? state.hiLowLegsValue : undefined,
+        killer_starting_lives: state.gameType === "killer" ? state.killerStartingLives : undefined,
       }),
     });
     syncStateFromGame(response.game);
     renderGame();
     await loadHistory();
-    showMessage("Game started.");
+    clearMessage();
     if (response.game.game_type === "x01") {
       primeSpeechSynthesisIfNeeded();
       announceX01LegStartIfNeeded(response.game);
@@ -3428,7 +3443,7 @@ async function startRematch() {
     syncStateFromGame(response.game);
     renderGame();
     await loadHistory();
-    showMessage("Rematch started with swapped starting positions.");
+    clearMessage();
   } catch (err) {
     showMessage(err.message, true);
   }
@@ -3456,6 +3471,7 @@ async function init() {
   const chooseCricketBtn = document.getElementById("choose-english-cricket");
   const chooseHalveItBtn = document.getElementById("choose-halve-it");
   const chooseHiLowBtn = document.getElementById("choose-hi-low");
+  const chooseKillerBtn = document.getElementById("choose-killer");
   const chooseNoughtsBtn = document.getElementById("choose-noughts-and-crosses");
   const teamModeSoloEl = document.getElementById("team-mode-solo");
   const teamModeTeamsEl = document.getElementById("team-mode-teams");
@@ -3774,6 +3790,23 @@ async function init() {
     });
   }
 
+  if (chooseKillerBtn) {
+    chooseKillerBtn.addEventListener("click", () => {
+      closeCricketStartOverlay();
+      closeX01StartOverlay();
+      closeHiLowStartOverlay();
+      closeNoughtsMarkOverlay();
+      closePlayerStats();
+      state.gameType = "killer";
+      state.teamMode = "solo";
+      state.killerStartingLives = 5;
+      updateTeamModeAvailability();
+      applyLayoutMode(state.game);
+      renderTeamAssignment();
+      openKillerStartOverlay();
+    });
+  }
+
   if (chooseNoughtsBtn) {
     chooseNoughtsBtn.addEventListener("click", async () => {
       closeCricketStartOverlay();
@@ -3812,6 +3845,10 @@ async function init() {
     });
   }
 
+  if (killerStartCancelEl) {
+    killerStartCancelEl.addEventListener("click", closeKillerStartOverlay);
+  }
+
   if (x01StartGameEl) {
     x01StartGameEl.addEventListener("click", async () => {
       closeX01StartOverlay();
@@ -3844,6 +3881,17 @@ async function init() {
     });
   }
 
+  if (killerStartGameEl) {
+    killerStartGameEl.addEventListener("click", async () => {
+      closeKillerStartOverlay();
+      try {
+        await startConfiguredGame();
+      } catch (err) {
+        showMessage(err.message, true);
+      }
+    });
+  }
+
   if (cricketStartOverlayEl) {
     cricketStartOverlayEl.addEventListener("click", (event) => {
       if (event.target === cricketStartOverlayEl) {
@@ -3865,6 +3913,21 @@ async function init() {
       if (event.target === hiLowStartOverlayEl) {
         closeHiLowStartOverlay();
       }
+    });
+  }
+
+  if (killerStartOverlayEl) {
+    killerStartOverlayEl.addEventListener("click", (event) => {
+      if (event.target === killerStartOverlayEl) closeKillerStartOverlay();
+    });
+  }
+
+  if (killerStartingLivesEl instanceof HTMLInputElement) {
+    killerStartingLivesEl.addEventListener("input", (event) => {
+      const input = event.target;
+      if (!(input instanceof HTMLInputElement)) return;
+      state.killerStartingLives = Number(input.value) === 10 ? 10 : 5;
+      syncKillerStartControls();
     });
   }
 
@@ -4158,11 +4221,11 @@ async function init() {
       }
       state.game = null;
       state.gameType = null;
+      clearMessage();
       renderGame();
       restoreLobbyStateFromGame(previousGame);
       await loadPlayers();
       await loadHistory();
-      showMessage("Game quit.");
     } catch (err) {
       showMessage(err.message, true);
     }
@@ -4176,6 +4239,7 @@ async function init() {
       winnerOverlayEl.classList.remove("visible");
       state.game = null;
       state.gameType = null;
+      clearMessage();
       renderGame();
       restoreLobbyStateFromGame(previousGame);
       await loadPlayers();

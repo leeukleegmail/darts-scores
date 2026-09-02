@@ -120,9 +120,12 @@
               </div>
             </div>
           </div>
-          <button type="button" id="choose-hi-low" class="mode-btn mode-btn--new">
-            <span class="mode-btn-sticker">New</span>
+          <button type="button" id="choose-hi-low" class="mode-btn">
             Hi/Low ↕
+          </button>
+          <button type="button" id="choose-killer" class="mode-btn mode-btn--new">
+            <span class="mode-btn-sticker">New</span>
+            Killer
           </button>
           <button type="button" id="choose-noughts-and-crosses" class="mode-btn">
             Noughts and Crosses
@@ -277,6 +280,7 @@
             <button type="button" class="help-nav-btn" data-help-section="55by5">55 by 5</button>
             <button type="button" class="help-nav-btn" data-help-section="halve-it">Halve It</button>
             <button type="button" class="help-nav-btn" data-help-section="hi-low">Hi/Low</button>
+            <button type="button" class="help-nav-btn" data-help-section="killer">Killer</button>
             <button type="button" class="help-nav-btn" data-help-section="cricket">English Cricket</button>
             <button type="button" class="help-nav-btn" data-help-section="noughts">Noughts and Crosses</button>
             <button type="button" class="help-nav-btn" data-help-section="admin">Accounts & History</button>
@@ -343,6 +347,18 @@
                 <li><strong>No Score</strong> always eliminates the current player in this mode.</li>
                 <li>Eliminated players are crossed out and skipped in turn order.</li>
                 <li>Solo: last active player wins. Teams: the last team with active players wins.</li>
+              </ul>
+            </section>
+
+            <section class="help-section" data-help-section="killer">
+              <h4>Killer</h4>
+              <ul class="help-points">
+                <li>Choose <strong>5</strong> or <strong>10</strong> starting lives before the game begins.</li>
+                <li>The first player must score more than <strong>26</strong>.</li>
+                <li>After a successful turn, every following player must beat that score.</li>
+                <li>Failing to beat the target costs one life and resets the target to <strong>26</strong>.</li>
+                <li>Eliminated players are crossed out and skipped in turn order.</li>
+                <li>The last player with lives remaining wins. Killer supports <strong>Singles</strong> only.</li>
               </ul>
             </section>
 
@@ -482,6 +498,22 @@
         <div class="modal-actions">
           <button id="hi-low-start-cancel" type="button" class="btn-ghost">Cancel</button>
           <button id="hi-low-start-game" type="button">Start Game</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="killer-start-overlay" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="killer-start-title">
+      <div class="modal-card killer-start-card">
+        <h3 id="killer-start-title">Start Killer</h3>
+        <p class="hint">Beat 26 first, then beat the previous successful score. Missing costs a life and resets the target.</p>
+        <div class="killer-lives-picker" aria-label="Starting lives">
+          <span>Lives</span>
+          <input id="killer-starting-lives" type="range" min="5" max="10" step="5" value="5" aria-label="Starting lives" />
+          <strong id="killer-starting-lives-value">5</strong>
+        </div>
+        <div class="modal-actions">
+          <button id="killer-start-cancel" type="button" class="btn-ghost">Cancel</button>
+          <button id="killer-start-game" type="button">Start Game</button>
         </div>
       </div>
     </div>

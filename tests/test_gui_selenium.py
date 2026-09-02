@@ -192,6 +192,46 @@ def test_hi_low_custom_setup_starts_game_and_enables_inputs(live_server, browser
     assert "lower than 20 or higher than 60" in browser.find_element(By.ID, "active-game-meta").text.lower()
 
 
+def test_killer_setup_starts_singles_game_with_lives_and_target(live_server, browser):
+    """Killer starts from its lives dialog and updates the score-to-beat display."""
+    browser.get(live_server)
+
+    for player_name in ("Kira", "Lars"):
+        add_player(browser, player_name)
+        checkbox = _wait(browser).until(
+            ec.element_to_be_clickable(
+                (By.XPATH, f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input")
+            )
+        )
+        if not checkbox.is_selected():
+            checkbox.click()
+
+    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-killer"))).click()
+    popup = _wait(browser).until(ec.visibility_of_element_located((By.ID, "killer-start-overlay")))
+    slider = popup.find_element(By.ID, "killer-starting-lives")
+    browser.execute_script(
+        """
+        const slider = arguments[0];
+        slider.value = '10';
+        slider.dispatchEvent(new Event('input', { bubbles: true }));
+        """,
+        slider,
+    )
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "killer-starting-lives-value"), "10"))
+
+    popup.find_element(By.ID, "killer-start-game").click()
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
+    assert browser.find_element(By.ID, "round-target-current").text.strip() == "26"
+    headers = browser.find_elements(By.CSS_SELECTOR, "#scoreboard-table thead th")
+    assert [header.text.strip() for header in headers if header.is_displayed()] == ["Player", "Lives", "Target", "Last Score"]
+    assert "Kira" in browser.find_element(By.ID, "scoreboard").text
+    assert "10" in browser.find_element(By.ID, "scoreboard").text
+
+    submit_standard_score_with_keypad(browser, 60)
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#1 Kira: total 60 (beat target with 60)"))
+    assert browser.find_element(By.ID, "round-target-current").text.strip() == "60"
+
+
 def test_active_game_hides_select_game_panel_and_change_game_button(live_server, browser):
     """An active game hides the setup game picker and change-game control."""
     browser.get(live_server)
@@ -405,6 +445,14 @@ def test_help_button_opens_user_manual_in_header(live_server, browser):
     halve_it_help = browser.find_element(By.CSS_SELECTOR, ".help-section[data-help-section='halve-it']").text
     assert "9 rounds" in halve_it_help
     assert "score is halved" in halve_it_help
+
+    browser.find_element(By.CSS_SELECTOR, "#help-nav [data-help-section='killer']").click()
+    _wait(browser).until(
+        lambda d: "active" in d.find_element(By.CSS_SELECTOR, ".help-section[data-help-section='killer']").get_attribute("class")
+    )
+    killer_help = browser.find_element(By.CSS_SELECTOR, ".help-section[data-help-section='killer']").text
+    assert "starting lives" in killer_help.lower()
+    assert "singles" in killer_help.lower()
 
 
 def test_team_assignment_can_be_configured_before_choosing_game(live_server, browser):
@@ -814,6 +862,7 @@ def test_55_by_5_individual_game_can_complete_end_to_end(live_server, browser):
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "hero-title"), "Set Up Your Darts Game"))
     assert "Pick your players" in browser.find_element(By.ID, "hero-subtitle").text
     assert browser.find_element(By.ID, "selected-game-label").text.strip() == ""
+    assert browser.find_element(By.ID, "message").text.strip() == ""
     finn_checkbox = browser.find_element(
         By.XPATH,
         "//div[@id='selectable-players']//label[.//span[normalize-space()='Finn']]//input",
@@ -1363,8 +1412,8 @@ def test_english_cricket_live_view_uses_two_panels(live_server, browser):
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "Jules to Throw"))
     browser.find_element(By.ID, "cricket-undo-turn").click()
 
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "message"), "Last turn undone."))
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "Ivy to Throw"))
+    assert browser.find_element(By.ID, "message").text.strip() == ""
     updated_bowling_panel = browser.find_element(By.ID, "cricket-bowling-panel")
     assert "is-inactive" in updated_bowling_panel.get_attribute("class")
 
@@ -1431,12 +1480,12 @@ def test_quit_requires_confirmation(live_server, browser):
     browser.execute_script("window.confirm = function () { return true; };")
     browser.find_element(By.ID, "quit-game").click()
 
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "message"), "Game quit."))
     _wait(browser).until(lambda d: not d.find_element(By.ID, "live-panel").is_displayed())
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "hero-title"), "Set Up Your Darts Game"))
     assert "Pick your players" in browser.find_element(By.ID, "hero-subtitle").text
     assert browser.find_element(By.ID, "selected-game-label").text.strip() == ""
     assert browser.find_element(By.ID, "setup-panel").is_displayed()
+    assert browser.find_element(By.ID, "message").text.strip() == ""
 
 
 def test_quit_restores_selected_players_in_setup(live_server, browser):
@@ -1462,8 +1511,8 @@ def test_quit_restores_selected_players_in_setup(live_server, browser):
     browser.execute_script("window.confirm = function () { return true; };")
     browser.find_element(By.ID, "quit-game").click()
 
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "message"), "Game quit."))
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "setup-panel")))
+    assert browser.find_element(By.ID, "message").text.strip() == ""
 
     selected_names = [
         item.text.strip() for item in browser.find_elements(By.CSS_SELECTOR, "#order-list li .sortable-player-name")
@@ -1580,12 +1629,12 @@ def test_noughts_individual_undo_button_is_visible_and_functional(live_server, b
     assert undo_btn.is_displayed()
     undo_btn.click()
 
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "message"), "Last turn undone."))
     # Cell should be unclaimed again
     cell = _wait(browser).until(
         lambda d: d.find_element(By.CSS_SELECTOR, "[data-board-index='4']")
     )
     _wait(browser).until(lambda d: "is-marked" not in d.find_element(By.CSS_SELECTOR, "[data-board-index='4']").get_attribute("class"))
+    assert browser.find_element(By.ID, "message").text.strip() == ""
 
 
 def test_noughts_individual_undo_preserves_other_cells(live_server, browser):
@@ -1599,12 +1648,12 @@ def test_noughts_individual_undo_preserves_other_cells(live_server, browser):
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#2 Leo:"))
 
     browser.find_element(By.ID, "cricket-undo-turn").click()
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "message"), "Last turn undone."))
 
     # Cell 0 (first move) must still be claimed
     _wait(browser).until(lambda d: "is-marked" in d.find_element(By.CSS_SELECTOR, "[data-board-index='0']").get_attribute("class"))
     # Cell 1 (undone move) must be unclaimed
     _wait(browser).until(lambda d: "is-marked" not in d.find_element(By.CSS_SELECTOR, "[data-board-index='1']").get_attribute("class"))
+    assert browser.find_element(By.ID, "message").text.strip() == ""
 
 
 def test_noughts_individual_winning_line_shows_winner_overlay(live_server, browser):
@@ -1667,9 +1716,9 @@ def test_noughts_individual_quit_returns_to_setup(live_server, browser):
     browser.execute_script("window.confirm = function () { return true; };")
     browser.find_element(By.ID, "quit-game").click()
 
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "message"), "Game quit."))
     _wait(browser).until(lambda d: not d.find_element(By.ID, "live-panel").is_displayed())
     assert browser.find_element(By.ID, "setup-panel").is_displayed()
+    assert browser.find_element(By.ID, "message").text.strip() == ""
 
 
 # ---------------------------------------------------------------------------
@@ -1728,11 +1777,11 @@ def test_noughts_team_undo_restores_cell(live_server, browser):
     _wait(browser).until(lambda d: "#1" in d.find_element(By.ID, "turns-list").text)
 
     browser.find_element(By.ID, "cricket-undo-turn").click()
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "message"), "Last turn undone."))
 
     _wait(browser).until(lambda d: "is-marked" not in d.find_element(By.CSS_SELECTOR, "[data-board-index='0']").get_attribute("class"))
     restored_label = browser.find_element(By.CSS_SELECTOR, "[data-board-index='0'] .noughts-cell-label").text.strip()
     assert restored_label == original_label
+    assert browser.find_element(By.ID, "message").text.strip() == ""
 
 
 def test_noughts_team_winning_line_shows_winner_overlay(live_server, browser):
@@ -1770,6 +1819,6 @@ def test_noughts_team_quit_returns_to_setup(live_server, browser):
     browser.execute_script("window.confirm = function () { return true; };")
     browser.find_element(By.ID, "quit-game").click()
 
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "message"), "Game quit."))
     _wait(browser).until(lambda d: not d.find_element(By.ID, "live-panel").is_displayed())
     assert browser.find_element(By.ID, "setup-panel").is_displayed()
+    assert browser.find_element(By.ID, "message").text.strip() == ""
