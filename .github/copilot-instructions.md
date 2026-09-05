@@ -1,10 +1,10 @@
 # Project Guidelines
 
 ## Architecture
-- This is a single-app Flask project centered in app.py.
-- Keep backend behavior in app.py API routes/models, UI structure in templates/index.html and templates/login.html, client logic in static/js/script.js, and styling in static/css/style.css.
+- This is a single-app Flask project. Keep database models, API routes, and request/auth behavior in app.py; keep scoring constants, normalization, replay/state construction, and per-game rules in game_logic.py.
+- Keep UI structure in templates/index.html and templates/login.html, client state/rendering in static/js/script.js, and styling in static/css/style.css.
 - Maintain the current server-rendered + vanilla JS architecture. Do not introduce frontend frameworks unless explicitly requested.
-- For scoring changes or new game types, extend the small replay helpers in `app.py` (for example `recompute_game_state()` and the per-game apply helpers) rather than scattering rule changes across routes.
+- For scoring changes or new game types, extend the small replay helpers in game_logic.py, especially `recompute_game_state()` and the per-game apply helpers, then keep app.py route wrappers thin. Update matching API tests and GUI tests when applicable.
 
 ## Build and Test
 - Local setup and run:
@@ -14,6 +14,8 @@
   - python app.py
 - Primary backend tests:
   - python -m pytest tests/test_app.py -q
+- GUI tests (requires a compatible Chrome or Firefox/WebDriver):
+  - python -m pytest tests/test_gui_selenium.py -q
 - Full test suite (includes Selenium):
   - python -m pytest -q
 - Container run:
@@ -33,10 +35,13 @@
 
 ## Data and Environment Gotchas
 - SQLite path matters in Docker. Use a writable mounted directory and a file URI (see docker-compose.yml SQLALCHEMY_DATABASE_URI).
+- Use .env.example as the template for local configuration; never commit secrets or a local .env file.
+- Game state is persisted across the Game, GamePlayerOrder, GameScore, Turn, and game-specific JSON state columns. Preserve replay/state serialization compatibility when changing rules.
 - Keep local and container port assumptions aligned:
   - local python app.py uses 5000 by default
   - Docker maps host 5010 to container 5000
 - macOS urllib3/OpenSSL warning is handled via urllib3<2 in requirements.txt; do not upgrade this casually without validating local compatibility.
 
 ## Documentation Links
-- See README.md for full setup, auth configuration, API endpoint list, and troubleshooting.
+- See [README.md](../README.md) for full setup, authentication, game rules, API endpoint list, project layout, persistence, and troubleshooting.
+- See [polish/SKILL.md](skills/polish/SKILL.md) for the production-polish workflow and release-readiness checks.

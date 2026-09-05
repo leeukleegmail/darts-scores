@@ -25,7 +25,8 @@ Trigger this skill for requests like:
 
 This repository is a single-app Flask project:
 
-- Backend and game rules live in `app.py`
+- Database models, API routes, and request/auth behavior live in `app.py`
+- Scoring constants, normalization, replay/state construction, and per-game rules live in `game_logic.py`
 - UI templates live in `templates/`
 - Client logic lives in `static/js/script.js`
 - Styling lives in `static/css/style.css`
@@ -52,7 +53,7 @@ Important conventions to preserve:
    - Avoid introducing frameworks or large architectural rewrites unless explicitly requested
 
 3. **Polish the backend**
-   - Simplify replay/scoring logic in `app.py`
+   - Simplify replay/scoring logic in `game_logic.py`, keeping app.py route wrappers thin
    - Centralize validation, creation, and serialization helpers
    - Keep `55 by 5` and `English Cricket` rules unchanged unless the user requested behavior changes
    - Preserve auth, admin gating, and SQLite persistence behavior
