@@ -232,6 +232,43 @@ def test_killer_setup_starts_singles_game_with_lives_and_target(live_server, bro
     assert browser.find_element(By.ID, "round-target-current").text.strip() == "60"
 
 
+def test_killer_game_appears_in_history_with_correct_label(live_server, browser):
+    """A finished Killer game is recorded in Recent Games labeled as Killer, not 55 by 5."""
+    browser.get(live_server)
+
+    for player_name in ("Killer Hist A", "Killer Hist B"):
+        add_player(browser, player_name)
+        checkbox = _wait(browser).until(
+            ec.element_to_be_clickable(
+                (By.XPATH, f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input")
+            )
+        )
+        if not checkbox.is_selected():
+            checkbox.click()
+
+    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-killer"))).click()
+    popup = _wait(browser).until(ec.visibility_of_element_located((By.ID, "killer-start-overlay")))
+    popup.find_element(By.ID, "killer-start-game").click()
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
+
+    # Killer Hist B misses five times in a row (0 starting lives left) while
+    # Killer Hist A keeps beating the reset target, ending the game.
+    for _ in range(5):
+        _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "Killer Hist A to Throw"))
+        submit_standard_score_with_keypad(browser, 27)
+        _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "Killer Hist B to Throw"))
+        submit_standard_score_with_keypad(browser, 0)
+
+    winner_overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
+    assert winner_overlay.is_displayed()
+    assert browser.find_element(By.ID, "winner-name").text.strip() == "Killer Hist A"
+
+    history_text = browser.find_element(By.ID, "history-list").text
+    assert "[Killer]" in history_text
+    assert "Winner Killer Hist A" in history_text
+    assert "[55 by 5]" not in history_text
+
+
 def test_active_game_hides_select_game_panel_and_change_game_button(live_server, browser):
     """An active game hides the setup game picker and change-game control."""
     browser.get(live_server)
@@ -404,6 +441,53 @@ def test_setup_drag_reorder_does_not_duplicate_names(live_server, browser):
     ]
     assert set(names) == {"Drag A", "Drag B", "Drag C"}
     assert len(names) == len(set(names)) == 3
+
+
+def test_shuffle_order_button_randomizes_selected_players(live_server, browser):
+    """The shuffle control reorders the Selected Players list without losing or duplicating names."""
+    browser.get(live_server)
+
+    player_names = ("Shuffle A", "Shuffle B", "Shuffle C", "Shuffle D")
+    for player_name in player_names:
+        add_player(browser, player_name)
+        player_checkbox = _wait(browser).until(
+            ec.presence_of_element_located(
+                (
+                    By.XPATH,
+                    f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
+                )
+            )
+        )
+        if not player_checkbox.is_selected():
+            player_checkbox.click()
+
+    _wait(browser).until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "#order-list li")) == 4)
+
+    def _current_order(driver):
+        return [
+            item.text.strip()
+            for item in driver.find_elements(By.CSS_SELECTOR, "#order-list li .sortable-player-name")
+        ]
+
+    original_order = _current_order(browser)
+    shuffle_button = browser.find_element(By.ID, "shuffle-order-btn")
+
+    seen_orders = {tuple(original_order)}
+    for _ in range(20):
+        shuffle_button.click()
+        current_order = _current_order(browser)
+        assert set(current_order) == set(player_names)
+        assert len(current_order) == len(player_names)
+        seen_orders.add(tuple(current_order))
+        if len(seen_orders) > 1:
+            break
+
+    assert len(seen_orders) > 1, "Shuffle button never produced a different player order"
+
+    # The control must remain clickable multiple times in a row without errors.
+    for _ in range(3):
+        shuffle_button.click()
+    _wait(browser).until(lambda d: len(_current_order(d)) == 4)
 
 
 def test_logout_during_active_game_prompts_for_confirmation(live_server, browser):
@@ -873,6 +957,37 @@ def test_55_by_5_individual_game_can_complete_end_to_end(live_server, browser):
     ]
     assert selected_names == ["Finn"]
 
+
+def test_winner_overlay_view_summary_shows_final_standings(live_server, browser):
+    """The winner popup offers a final score summary listing standings for the finished game."""
+    browser.get(live_server)
+    start_single_player_game(browser, "Summary Finn")
+
+    turn_values = (75, 75, 75, 50)
+    for value in turn_values:
+        submit_standard_score_with_keypad(browser, value)
+
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
+
+    summary_button = _wait(browser).until(ec.element_to_be_clickable((By.ID, "winner-view-summary")))
+    summary_button.click()
+
+    summary_overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "game-summary-overlay")))
+    assert summary_overlay.is_displayed()
+    assert "Winner: Summary Finn" in browser.find_element(By.ID, "game-summary-overlay").text
+    summary_scoreboard_rows = browser.find_elements(By.CSS_SELECTOR, "#game-summary-body table tbody tr")
+    assert len(summary_scoreboard_rows) == 1
+    assert "Summary Finn" in summary_scoreboard_rows[0].text
+    assert "55" in summary_scoreboard_rows[0].text
+
+    browser.find_element(By.ID, "game-summary-close").click()
+    _wait(browser).until(lambda d: not d.find_element(By.ID, "game-summary-overlay").is_displayed())
+
+    # The winner overlay should still be visible/functional after closing the summary.
+    winner_overlay = browser.find_element(By.ID, "winner-overlay")
+    assert winner_overlay.is_displayed()
+    browser.find_element(By.ID, "winner-continue").click()
+    _wait(browser).until(lambda d: not d.find_element(By.ID, "winner-overlay").is_displayed())
 
 
 def test_55_by_5_team_game_can_complete_end_to_end(live_server, browser):

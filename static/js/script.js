@@ -53,6 +53,7 @@ const playerManagerSearchEl = document.getElementById("player-manager-search");
 const selectablePlayersEl = document.getElementById("selectable-players");
 const orderListEl = document.getElementById("order-list");
 const orderSectionEl = document.getElementById("order-section");
+const shuffleOrderBtnEl = document.getElementById("shuffle-order-btn");
 const activeGameMetaEl = document.getElementById("active-game-meta");
 const matchStatusSummaryEl = document.getElementById("match-status-summary");
 const scoreboardEl = document.getElementById("scoreboard");
@@ -121,6 +122,8 @@ const noughtsMarkCancelEl = document.getElementById("noughts-mark-cancel");
 const scoreboardSectionEl = document.getElementById("standard-scoreboard-section");
 const historyPanelEl = document.getElementById("history-panel");
 const winnerOverlayEl = document.getElementById("winner-overlay");
+const gameSummaryOverlayEl = document.getElementById("game-summary-overlay");
+const gameSummaryBodyEl = document.getElementById("game-summary-body");
 const bustBannerEl = document.getElementById("bust-banner");
 const scoreWarningBannerEl = document.getElementById("score-warning-banner");
 const currentUserEl = document.getElementById("current-user");
@@ -421,6 +424,64 @@ function showWinnerOverlay(winnerName) {
   winnerNameEl.textContent = winnerName;
   winnerOverlayEl.classList.add("visible");
   stopFireworks = launchFireworks(fireworksCanvas);
+}
+
+function stripElementIds(root) {
+  if (root.id) {
+    root.removeAttribute("id");
+  }
+  root.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
+}
+
+function showGameSummaryOverlay() {
+  const game = state.game;
+  if (!gameSummaryOverlayEl || !gameSummaryBodyEl || !game) return;
+
+  gameSummaryBodyEl.innerHTML = "";
+
+  const winnerName = winnerDisplayName(game, "Tie");
+  const winnerLine = document.createElement("p");
+  winnerLine.className = "game-summary-winner";
+  winnerLine.textContent = `Winner: ${winnerName}`;
+  gameSummaryBodyEl.appendChild(winnerLine);
+
+  const sourceEl = game.game_type === "english_cricket"
+    ? cricketDashboardEl
+    : game.game_type === "noughts_and_crosses"
+    ? noughtsDashboardEl
+    : scoreboardSectionEl;
+
+  if (sourceEl) {
+    const clone = sourceEl.cloneNode(true);
+    clone.classList.remove("hidden");
+    stripElementIds(clone);
+    gameSummaryBodyEl.appendChild(clone);
+  }
+
+  gameSummaryOverlayEl.classList.add("visible");
+}
+
+function hideGameSummaryOverlay() {
+  if (!gameSummaryOverlayEl) return;
+  gameSummaryOverlayEl.classList.remove("visible");
+}
+
+function setupGameSummaryOverlay() {
+  const viewSummaryBtn = document.getElementById("winner-view-summary");
+  const closeBtn = document.getElementById("game-summary-close");
+  if (viewSummaryBtn) {
+    viewSummaryBtn.addEventListener("click", showGameSummaryOverlay);
+  }
+  if (closeBtn) {
+    closeBtn.addEventListener("click", hideGameSummaryOverlay);
+  }
+  if (gameSummaryOverlayEl) {
+    gameSummaryOverlayEl.addEventListener("click", (event) => {
+      if (event.target === gameSummaryOverlayEl) {
+        hideGameSummaryOverlay();
+      }
+    });
+  }
 }
 
 function showMessage(text, isError = false) {
@@ -1306,6 +1367,10 @@ function syncHalveItVariantControls(variant = state.halveItVariant) {
   if (halveItVariantEl instanceof HTMLInputElement) {
     halveItVariantEl.value = normalized === "hardcore" ? "1" : "0";
     halveItVariantEl.classList.toggle("is-hardcore", normalized === "hardcore");
+    const shellEl = halveItVariantEl.closest(".halve-it-variant-switch-shell");
+    if (shellEl) {
+      shellEl.classList.toggle("is-hardcore", normalized === "hardcore");
+    }
   }
   if (halveItVariantLabelEl) {
     halveItVariantLabelEl.textContent = normalized === "hardcore" ? "Hardcore" : "Standard";
@@ -2318,6 +2383,25 @@ function setupDragAndDrop() {
   });
 }
 
+function shuffleOrderedPlayerIds() {
+  const shuffled = [...state.orderedPlayerIds];
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  state.orderedPlayerIds = shuffled;
+  renderOrderList();
+  renderCricketRoleSelection();
+}
+
+function setupShuffleOrderControl() {
+  if (!shuffleOrderBtnEl) return;
+  shuffleOrderBtnEl.addEventListener("click", () => {
+    if (state.orderedPlayerIds.length < 2) return;
+    shuffleOrderedPlayerIds();
+  });
+}
+
 function groupPlayersByTeam(players) {
   return {
     team_a: players.filter((player) => player.team === "team_a"),
@@ -3226,7 +3310,7 @@ async function loadHistory() {
   for (const game of games) {
     const li = document.createElement("li");
     const names = game.participants.map((p) => p.name).join(" -> ");
-    const modeLabel = game.game_type === "x01"
+    const modeLabel = game.game_type_label || (game.game_type === "x01"
       ? "X01"
       : game.game_type === "english_cricket"
       ? "English Cricket"
@@ -3234,9 +3318,11 @@ async function loadHistory() {
       ? "Hi/Low"
       : game.game_type === "halve_it"
       ? "Halve It"
+      : game.game_type === "killer"
+      ? "Killer"
       : game.game_type === "noughts_and_crosses"
       ? "Noughts and Crosses"
-      : "55 by 5";
+      : "55 by 5");
     const winner = game.team_mode === "teams"
       ? teamInitialsLabel(
         game.winner_team_name || game.winner_name || "Unknown",
@@ -3414,6 +3500,7 @@ async function startRematch() {
     if (winnerOverlayEl) {
       winnerOverlayEl.classList.remove("visible");
     }
+    hideGameSummaryOverlay();
 
     // Create rematch game
     const response = await api("/api/games", {
@@ -3457,6 +3544,8 @@ async function init() {
   setupDragAndDrop();
   setupTeamDragAndDrop();
   setupOrderTouchControls();
+  setupShuffleOrderControl();
+  setupGameSummaryOverlay();
   setupTeamTouchOrderingControls();
   await loadAuthUser();
   setHelpSection(activeHelpSection);
@@ -4219,6 +4308,7 @@ async function init() {
       if (winnerOverlayEl) {
         winnerOverlayEl.classList.remove("visible");
       }
+      hideGameSummaryOverlay();
       state.game = null;
       state.gameType = null;
       clearMessage();
@@ -4237,6 +4327,7 @@ async function init() {
       const previousGame = state.game;
       if (stopFireworks) { stopFireworks(); stopFireworks = null; }
       winnerOverlayEl.classList.remove("visible");
+      hideGameSummaryOverlay();
       state.game = null;
       state.gameType = null;
       clearMessage();

@@ -294,7 +294,7 @@ def build_halve_it_hardcore_rounds() -> list[dict[str, Any]]:
         },
         {
             "round": 5,
-            "target": "Score 17" if round_5_kind == "number" else f"Target {round_5_value}",
+            "target": "17" if round_5_kind == "number" else f"Target {round_5_value}",
             "kind": round_5_kind,
             "entry_mode": "hits" if round_5_kind == "number" else "points",
             "number": 17 if round_5_kind == "number" else None,

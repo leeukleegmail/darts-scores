@@ -88,7 +88,10 @@
           </div>
         </div>
         <div id="order-section">
-          <h3>Selected Players</h3>
+          <div class="panel-header panel-header-inline-actions">
+            <h3>Selected Players</h3>
+            <button type="button" id="shuffle-order-btn" class="btn-ghost" aria-label="Randomize player order" title="Randomize player order">🔀 Shuffle</button>
+          </div>
           <ul id="order-list" class="list order-list"></ul>
         </div>
       </section>
@@ -113,9 +116,9 @@
               <div class="halve-it-variant-track">
                 <span id="halve-it-variant-label" class="visually-hidden">Standard</span>
                 <div class="halve-it-variant-switch-shell" aria-hidden="true">
-                  <span class="halve-it-variant-glyph halve-it-variant-glyph--left">S</span>
+                  <span class="halve-it-variant-glyph halve-it-variant-glyph--left">Soft</span>
                   <input id="halve-it-variant" class="halve-it-variant-switch" type="range" min="0" max="1" step="1" value="0" aria-label="Halve It variant toggle" />
-                  <span class="halve-it-variant-glyph halve-it-variant-glyph--right">H</span>
+                  <span class="halve-it-variant-glyph halve-it-variant-glyph--right">Hard</span>
                 </div>
               </div>
             </div>
@@ -536,7 +539,18 @@
         <p id="winner-name" class="winner-name"></p>
         <div class="winner-overlay__actions">
           <button id="winner-rematch" type="button" class="btn-primary">Rematch</button>
+          <button id="winner-view-summary" type="button" class="btn-ghost">View Final Summary</button>
           <button id="winner-continue" type="button" class="btn-ghost">Continue</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="game-summary-overlay" class="modal-overlay game-summary-overlay" role="dialog" aria-modal="true" aria-labelledby="game-summary-title">
+      <div class="modal-card game-summary-card">
+        <h3 id="game-summary-title">Final Summary</h3>
+        <div id="game-summary-body" class="game-summary-body"></div>
+        <div class="modal-actions">
+          <button id="game-summary-close" type="button" class="btn-ghost">Close</button>
         </div>
       </div>
     </div>

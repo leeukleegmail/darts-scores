@@ -351,28 +351,40 @@ body {
 
 .halve-it-variant-switch-shell {
   position: relative;
-  width: 62px;
+  width: 104px;
   height: 32px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: linear-gradient(180deg, #24cf63 0%, #11ab47 100%);
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.halve-it-variant-switch-shell.is-hardcore {
+  background: linear-gradient(180deg, #ef5555 0%, var(--accent) 100%);
+  border-color: rgba(255, 220, 220, 0.72);
 }
 
 .halve-it-variant-glyph {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 0.72rem;
+  font-size: 0.62rem;
   font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
   line-height: 1;
-  color: rgba(0, 70, 24, 0.72);
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   pointer-events: none;
   z-index: 1;
 }
 
 .halve-it-variant-glyph--left {
-  left: 9px;
+  left: 10px;
 }
 
 .halve-it-variant-glyph--right {
-  right: 9px;
+  right: 10px;
 }
 
 .visually-hidden {
@@ -390,21 +402,15 @@ body {
 .halve-it-variant-switch {
   -webkit-appearance: none;
   appearance: none;
-  width: 62px;
+  width: 104px;
   height: 32px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  background: linear-gradient(180deg, #24cf63 0%, #11ab47 100%);
+  border: none;
+  background: transparent;
   position: relative;
   cursor: pointer;
   outline: none;
-  transition: background 0.2s ease, border-color 0.2s ease;
   z-index: 2;
-}
-
-.halve-it-variant-switch.is-hardcore {
-  background: linear-gradient(180deg, #ef5555 0%, var(--accent) 100%);
-  border-color: rgba(255, 220, 220, 0.72);
 }
 
 .halve-it-variant-switch::-webkit-slider-runnable-track {
@@ -2281,6 +2287,32 @@ td {
   margin-top: 1.75rem;
 }
 
+.game-summary-overlay {
+  z-index: 150;
+}
+
+.game-summary-card {
+  width: min(560px, 94vw);
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.game-summary-body {
+  margin-top: 0.5rem;
+}
+
+.game-summary-body #standard-scoreboard-section,
+.game-summary-body .cricket-dashboard,
+.game-summary-body .noughts-dashboard {
+  margin: 0;
+}
+
+.game-summary-winner {
+  margin: 0 0 0.75rem;
+  font-weight: 700;
+  color: #ffd93d;
+}
+
 @media (max-width: 640px) {
   .x01-start-grid,
   .hi-low-start-grid,
@@ -2328,12 +2360,14 @@ td {
 }
 
 #winner-rematch,
+#winner-view-summary,
 #winner-continue {
   font-size: 1.05rem;
   padding: 0.85rem 2rem;
   border-radius: 6px;
   font-weight: 600;
   transition: all 0.2s ease;
+  width: 100%;
 }
 
 #winner-rematch {
@@ -2353,6 +2387,7 @@ td {
   transform: translateY(0);
 }
 
+#winner-view-summary,
 #winner-continue {
   background: transparent;
   color: rgba(255, 255, 255, 0.8);
@@ -2360,6 +2395,7 @@ td {
   cursor: pointer;
 }
 
+#winner-view-summary:hover,
 #winner-continue:hover {
   background: rgba(255, 255, 255, 0.08);
   border-color: rgba(255, 255, 255, 0.4);

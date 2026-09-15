@@ -197,7 +197,7 @@ Sessions expire after 30 minutes of inactivity. Logging out during an active gam
 
 1. Use **Manage Players** in **Select Players** to open the player manager and add players.
 2. Check the players who will play in **Select Players**.
-3. Drag players in Selected Players to set the sequence.
+3. Drag players in Selected Players to set the sequence, or click the shuffle (🔀) button next to the **Selected Players** heading to randomize the order.
 4. Choose `Singles` or `Teams` mode.
 5. If using `Teams`, drag players between Team A and Team B.
 6. In the separate **Select Game** panel, choose `X01`, `55 by 5`, `English Cricket`, `Halve It`, `Hi/Low`, or `Noughts and Crosses`.
@@ -208,6 +208,7 @@ Sessions expire after 30 minutes of inactivity. Logging out during an active gam
 11. In Live Game, use the on-screen keypad to enter the active player's score, or click board squares in Noughts and Crosses.
 12. Use `Submit Score`, `No Score`, or `Undo` as needed.
 13. Review completed games in Recent Games.
+14. When a game ends, use `View Final Summary` on the winner popup to see the final standings/scoreboard for the game, available for every game type.
 
 Notes:
 
@@ -257,7 +258,7 @@ Notes:
 - Double/Triple challenge rounds use points entry.
 - Miss a round target and your running score is halved (rounded down).
 - Standard and Hardcore variants are available via the game selection slider.
-- Hardcore rounds are 20, Any Double, 19 or 16, Three Different Colors, Score 17 or Exact 41/101/123, Black-White-Black, Any Treble, Exact 41/101/123 (all shown, score one if hit), and Bullseye.
+- Hardcore rounds are 20, Any Double, 19 or 16, Three Different Colors, 17 or Target 41/101/123, Black-White-Black, Any Treble, Exact 41/101/123 (all shown, score one if hit), and Bullseye.
 
 ### Hi/Low
 

@@ -1267,6 +1267,14 @@ def test_halve_it_hardcore_variant_generates_custom_rounds(client):
     assert round_8["exact_totals"] == [41, 101, 123]
     assert "Target 41 / 101 / 123" in round_8["target"]
 
+    round_5 = halve_state["rounds"][4]
+    if round_5["kind"] == "number":
+        assert round_5["number"] == 17
+        assert round_5["target"] == "17"
+    else:
+        assert round_5["kind"] == "exact_total"
+        assert round_5["target"].startswith("Target ")
+
 
 def test_halve_it_hardcore_round_9_is_bullseye(client):
     p1 = add_player(client, "Hardcore Final Round Bull")
@@ -2192,6 +2200,12 @@ def test_killer_eliminates_players_skips_turns_and_finishes(client):
 
     assert game["status"] == "finished"
     assert game["winner_player_id"] == p3
+
+    history = client.get("/api/games/history?limit=10").get_json()
+    killer_entry = next(entry for entry in history if entry["id"] == game["id"])
+    assert killer_entry["game_type"] == "killer"
+    assert killer_entry["game_type_label"] == "Killer"
+    assert killer_entry["winner_player_id"] == p3
 
 
 def test_killer_requires_singles_and_two_players(client):

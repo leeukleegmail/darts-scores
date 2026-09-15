@@ -1085,6 +1085,7 @@ def games_history():
                 "id": game.id,
                 "sequence_number": total - index,
                 "game_type": game.game_type,
+                "game_type_label": game_type_label(game.game_type),
                 "team_mode": game.team_mode,
                 "winner_team": game.winner_team,
                 "winner_team_name": team_label(game.winner_team, parse_team_names(game.team_names)),
