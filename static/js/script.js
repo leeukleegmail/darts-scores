@@ -1357,13 +1357,16 @@ function createPotdRecord(title, record, suffix = "") {
   label.textContent = title;
   card.appendChild(label);
 
-  if (record) {
+  if (record && Number.isFinite(Number(record.value))) {
     const value = document.createElement("strong");
     value.className = "potd-record-value";
     value.textContent = `${record.value}${suffix}`;
     const detail = document.createElement("span");
     detail.textContent = [record.player_name, record.game_type].filter(Boolean).join(" · ");
-    card.append(value, detail);
+    card.appendChild(value);
+    if (detail.textContent) {
+      card.appendChild(detail);
+    }
   } else {
     const empty = document.createElement("span");
     empty.className = "hint";
