@@ -547,7 +547,7 @@ def test_logging_out_one_user_does_not_abandon_another_users_active_game(multi_a
         assert stored_viewer_game.status == "active"
 
 
-def test_users_only_see_their_own_games_and_history(multi_auth_clients):
+def test_users_share_completed_history_but_not_other_users_game_state(multi_auth_clients):
     admin_client, player_client, _app_module = multi_auth_clients
 
     login_user(admin_client, "admin")
@@ -569,13 +569,14 @@ def test_users_only_see_their_own_games_and_history(multi_auth_clients):
     login_user(player_client, "viewer", "viewerpass")
     hidden_state = player_client.get(f"/api/games/{admin_game['id']}/state")
     assert hidden_state.status_code == 404
-    hidden_history_detail = player_client.get(f"/api/games/{admin_game['id']}/history")
-    assert hidden_history_detail.status_code == 404
+    shared_history_detail = player_client.get(f"/api/games/{admin_game['id']}/history")
+    assert shared_history_detail.status_code == 200
+    assert shared_history_detail.get_json()["game"]["id"] == admin_game["id"]
 
     viewer_history = player_client.get("/api/games/history")
     assert viewer_history.status_code == 200
     viewer_entries = viewer_history.get_json()
-    assert all(entry["id"] != admin_game["id"] for entry in viewer_entries)
+    assert any(entry["id"] == admin_game["id"] for entry in viewer_entries)
 
     login_user(admin_client, "admin")
     own_history_detail = admin_client.get(f"/api/games/{admin_game['id']}/history")

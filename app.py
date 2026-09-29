@@ -300,6 +300,22 @@ def get_game_for_request(game_id: int) -> Game | None:
     return None
 
 
+def get_history_game_for_request(game_id: int) -> Game | None:
+    user = get_current_user()
+    if not user and not app.config.get("TESTING"):
+        return None
+
+    history_game = Game.query.filter_by(
+        id=game_id,
+        status="finished",
+        history_hidden=False,
+    ).first()
+    if history_game:
+        return history_game
+
+    return get_game_for_request(game_id)
+
+
 def abandon_active_games(user: AppUser | None = None) -> int:
     games = active_games_query(user).all()
     return abandon_games(games)
@@ -1173,7 +1189,7 @@ def games_history():
     limit = request.args.get("limit", default=20, type=int)
     limit = max(1, min(100, limit))
 
-    base_query = visible_games_query().filter_by(status="finished", history_hidden=False)
+    base_query = Game.query.filter_by(status="finished", history_hidden=False)
     total = base_query.count()
 
     games = (
@@ -1245,7 +1261,7 @@ def game_state(game_id: int):
 
 @app.get("/api/games/<int:game_id>/history")
 def game_history_detail(game_id: int):
-    game = get_game_for_request(game_id)
+    game = get_history_game_for_request(game_id)
     if not game:
         return jsonify({"error": "Game not found."}), 404
 
