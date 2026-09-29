@@ -1173,7 +1173,7 @@ def games_history():
     limit = request.args.get("limit", default=20, type=int)
     limit = max(1, min(100, limit))
 
-    base_query = Game.query.filter_by(status="finished", history_hidden=False)
+    base_query = visible_games_query().filter_by(status="finished", history_hidden=False)
     total = base_query.count()
 
     games = (

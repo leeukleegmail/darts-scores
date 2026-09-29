@@ -569,11 +569,18 @@ def test_users_only_see_their_own_games_and_history(multi_auth_clients):
     login_user(player_client, "viewer", "viewerpass")
     hidden_state = player_client.get(f"/api/games/{admin_game['id']}/state")
     assert hidden_state.status_code == 404
+    hidden_history_detail = player_client.get(f"/api/games/{admin_game['id']}/history")
+    assert hidden_history_detail.status_code == 404
 
     viewer_history = player_client.get("/api/games/history")
     assert viewer_history.status_code == 200
     viewer_entries = viewer_history.get_json()
-    assert any(entry["id"] == admin_game["id"] for entry in viewer_entries)
+    assert all(entry["id"] != admin_game["id"] for entry in viewer_entries)
+
+    login_user(admin_client, "admin")
+    own_history_detail = admin_client.get(f"/api/games/{admin_game['id']}/history")
+    assert own_history_detail.status_code == 200
+    assert own_history_detail.get_json()["game"]["id"] == admin_game["id"]
 
 
 def test_admin_login_can_create_user(auth_client):
