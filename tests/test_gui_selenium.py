@@ -943,6 +943,13 @@ def test_55_by_5_individual_game_can_complete_end_to_end(live_server, browser):
 
     browser.find_element(By.ID, "winner-continue").click()
     _wait(browser).until(lambda d: not d.find_element(By.ID, "winner-overlay").is_displayed())
+
+    browser.find_element(By.CSS_SELECTOR, "#history-list [data-history-game-id]").click()
+    summary_overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "game-summary-overlay")))
+    assert "Winner: Summary Finn" in summary_overlay.text
+    summary_scoreboard_rows = browser.find_elements(By.CSS_SELECTOR, "#game-summary-body table tbody tr")
+    assert len(summary_scoreboard_rows) == 1
+    assert "55" in summary_scoreboard_rows[0].text
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "hero-title"), "Set Up Your Darts Game"))
     assert "Pick your players" in browser.find_element(By.ID, "hero-subtitle").text
     assert browser.find_element(By.ID, "selected-game-label").text.strip() == ""

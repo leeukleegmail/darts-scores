@@ -466,6 +466,24 @@ function hideGameSummaryOverlay() {
   gameSummaryOverlayEl.classList.remove("visible");
 }
 
+async function showHistoryGameSummary(gameId) {
+  const previousState = { ...state };
+  try {
+    const response = await api(`/api/games/${gameId}/history`);
+    syncStateFromGame(response.game);
+    renderGame();
+    showGameSummaryOverlay();
+  } catch (err) {
+    showMessage(err.message, true);
+  } finally {
+    Object.assign(state, previousState);
+    setTeamNames(previousState.teamNames);
+    syncHalveItVariantControls(state.halveItVariant);
+    syncHiLowStartControls();
+    renderGame();
+  }
+}
+
 function setupGameSummaryOverlay() {
   const viewSummaryBtn = document.getElementById("winner-view-summary");
   const closeBtn = document.getElementById("game-summary-close");
@@ -3309,6 +3327,10 @@ async function loadHistory() {
   historyListEl.innerHTML = "";
   for (const game of games) {
     const li = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "history-game-button";
+    button.dataset.historyGameId = String(game.id);
     const names = game.participants.map((p) => p.name).join(" -> ");
     const modeLabel = game.game_type_label || (game.game_type === "x01"
       ? "X01"
@@ -3329,7 +3351,8 @@ async function loadHistory() {
         inferHistoryTeamMembers(game, game.winner_team || "team_a")
       )
       : (game.winner_team_name || game.winner_name || "Unknown");
-    li.textContent = `[${modeLabel}] Game #${game.sequence_number}: Winner ${winner}, ${game.turn_count} turns. Order: ${names}`;
+    button.textContent = `[${modeLabel}] Game #${game.sequence_number}: Winner ${winner}, ${game.turn_count} turns. Order: ${names}`;
+    li.appendChild(button);
     historyListEl.appendChild(li);
   }
 }
@@ -4238,6 +4261,16 @@ async function init() {
       }
     });
   }
+
+  historyListEl.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const button = target.closest("[data-history-game-id]");
+    if (!(button instanceof HTMLButtonElement)) return;
+    const gameId = Number(button.dataset.historyGameId);
+    if (!gameId) return;
+    void showHistoryGameSummary(gameId);
+  });
 
   if (userAccountsListEl) {
     userAccountsListEl.addEventListener("click", (event) => {
