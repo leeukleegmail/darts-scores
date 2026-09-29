@@ -433,6 +433,42 @@ function stripElementIds(root) {
   root.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
 }
 
+function prioritizeSummaryWinnerRows(root, game) {
+  const tbody = root.querySelector("tbody");
+  if (!tbody) return;
+
+  const rows = Array.from(tbody.rows);
+  if (game.team_mode === "teams" && game.winner_team) {
+    const members = game.players.filter((player) => player.team === game.winner_team);
+    const winnerTeamLabel = teamInitialsLabel(
+      teamDisplayName(game.winner_team, game.team_names),
+      members
+    );
+    const winnerTeamIndex = rows.findIndex((row) =>
+      row.classList.contains("team-header-row") && row.cells[0]?.textContent.trim() === winnerTeamLabel
+    );
+    if (winnerTeamIndex < 0) return;
+
+    const winnerRows = [rows[winnerTeamIndex]];
+    for (let index = winnerTeamIndex + 1; index < rows.length; index += 1) {
+      if (rows[index].classList.contains("team-header-row")) break;
+      winnerRows.push(rows[index]);
+    }
+
+    const fragment = document.createDocumentFragment();
+    winnerRows.forEach((row) => fragment.appendChild(row));
+    tbody.insertBefore(fragment, tbody.firstChild);
+    return;
+  }
+
+  const winner = game.players.find((player) => player.id === game.winner_player_id);
+  if (!winner) return;
+  const winnerRow = rows.find((row) =>
+    !row.classList.contains("team-header-row") && row.cells[0]?.textContent.trim() === winner.name
+  );
+  if (winnerRow) tbody.insertBefore(winnerRow, tbody.firstChild);
+}
+
 function showGameSummaryOverlay() {
   const game = state.game;
   if (!gameSummaryOverlayEl || !gameSummaryBodyEl || !game) return;
@@ -455,6 +491,7 @@ function showGameSummaryOverlay() {
     const clone = sourceEl.cloneNode(true);
     clone.classList.remove("hidden");
     stripElementIds(clone);
+    prioritizeSummaryWinnerRows(clone, game);
     gameSummaryBodyEl.appendChild(clone);
   }
 

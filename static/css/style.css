@@ -620,7 +620,7 @@ button:hover {
 }
 
 .player-stats-modal-card {
-  width: min(680px, 94vw);
+  width: min(900px, 94vw);
   max-height: min(36rem, calc(100vh - 3rem));
   padding: 0;
   overflow: hidden;
@@ -771,7 +771,7 @@ button:hover {
   }
 
   .player-stats-modal-card {
-    width: min(94vw, 680px);
+    width: 94vw;
     max-height: min(32rem, calc(100vh - 2rem));
   }
 }

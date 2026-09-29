@@ -972,24 +972,40 @@ def test_55_by_5_individual_game_can_complete_end_to_end(live_server, browser):
 def test_winner_overlay_view_summary_shows_final_standings(live_server, browser):
     """The winner popup offers a final score summary listing standings for the finished game."""
     browser.get(live_server)
-    start_single_player_game(browser, "Summary Finn")
+    for player_name in ("Summary Finn", "Summary Winner"):
+        add_player(browser, player_name)
+        player_checkbox = _wait(browser).until(
+            ec.element_to_be_clickable(
+                (
+                    By.XPATH,
+                    f"//div[@id='selectable-players']//label[.//span[normalize-space()='{player_name}']]//input",
+                )
+            )
+        )
+        if not player_checkbox.is_selected():
+            player_checkbox.click()
 
-    turn_values = (75, 75, 75, 50)
+    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-55by5"))).click()
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
+
+    turn_values = (0, 100, 0, 100, 0, 75)
     for value in turn_values:
         submit_standard_score_with_keypad(browser, value)
 
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
+    assert browser.find_element(By.ID, "winner-name").text.strip() == "Summary Winner"
 
     summary_button = _wait(browser).until(ec.element_to_be_clickable((By.ID, "winner-view-summary")))
     summary_button.click()
 
     summary_overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "game-summary-overlay")))
     assert summary_overlay.is_displayed()
-    assert "Winner: Summary Finn" in browser.find_element(By.ID, "game-summary-overlay").text
+    assert "Winner: Summary Winner" in browser.find_element(By.ID, "game-summary-overlay").text
     summary_scoreboard_rows = browser.find_elements(By.CSS_SELECTOR, "#game-summary-body table tbody tr")
-    assert len(summary_scoreboard_rows) == 1
-    assert "Summary Finn" in summary_scoreboard_rows[0].text
+    assert len(summary_scoreboard_rows) == 2
+    assert "Summary Winner" in summary_scoreboard_rows[0].text
     assert "55" in summary_scoreboard_rows[0].text
+    assert "Summary Finn" in summary_scoreboard_rows[1].text
 
     browser.find_element(By.ID, "game-summary-close").click()
     _wait(browser).until(lambda d: not d.find_element(By.ID, "game-summary-overlay").is_displayed())
