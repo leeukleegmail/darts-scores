@@ -732,6 +732,123 @@ def get_player_stats(player_id: int):
     )
 
 
+@app.get("/api/games/potd")
+def get_player_of_the_day():
+    today = datetime.now(timezone.utc).date()
+    day_start = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
+    day_end = day_start + timedelta(days=1)
+    games = (
+        Game.query
+        .filter(
+            Game.status == "finished",
+            Game.started_at >= day_start,
+            Game.started_at < day_end,
+        )
+        .order_by(Game.id.asc())
+        .all()
+    )
+    game_by_id = {game.id: game for game in games}
+    game_ids = list(game_by_id)
+    player_orders = (
+        GamePlayerOrder.query
+        .filter(GamePlayerOrder.game_id.in_(game_ids))
+        .order_by(GamePlayerOrder.position.asc())
+        .all()
+        if game_ids else []
+    )
+    player_ids = {row.player_id for row in player_orders}
+    players_by_id = {
+        player.id: player
+        for player in Player.query.filter(Player.id.in_(player_ids)).all()
+    } if player_ids else {}
+    daily_players = {
+        player_id: {
+            "id": player_id,
+            "name": players_by_id[player_id].name,
+            "games_played": 0,
+            "games_won": 0,
+            "win_rate": 0.0,
+        }
+        for player_id in player_ids
+        if player_id in players_by_id
+    }
+
+    for row in player_orders:
+        stats = daily_players.get(row.player_id)
+        game = game_by_id.get(row.game_id)
+        if not stats or not game:
+            continue
+        stats["games_played"] += 1
+        if player_outcome_for_game(game, row.player_id) == "won":
+            stats["games_won"] += 1
+
+    for stats in daily_players.values():
+        stats["win_rate"] = round(stats["games_won"] / stats["games_played"] * 100, 1)
+
+    ranked_players = sorted(
+        daily_players.values(),
+        key=lambda player: (
+            -(player["games_won"] / player["games_played"]),
+            -player["games_won"],
+            -player["games_played"],
+            player["name"].casefold(),
+        ),
+    )
+    top_player_ids = []
+    if ranked_players:
+        top = ranked_players[0]
+        top_player_ids = [
+            player["id"]
+            for player in ranked_players
+            if player["games_won"] * top["games_played"] == top["games_won"] * player["games_played"]
+            and player["games_won"] == top["games_won"]
+            and player["games_played"] == top["games_played"]
+        ]
+
+    highest_score = None
+    lowest_score = None
+    highest_checkout = None
+    turns = Turn.query.filter(Turn.game_id.in_(game_ids)).order_by(Turn.id.asc()).all() if game_ids else []
+    for turn in turns:
+        game = game_by_id[turn.game_id]
+        player = players_by_id.get(turn.player_id)
+        if not player:
+            continue
+
+        if game.game_type != "noughts_and_crosses":
+            score_record = {
+                "value": turn.total_points,
+                "player_name": player.name,
+                "game_type": game_type_label(game.game_type),
+            }
+            if highest_score is None or turn.total_points > highest_score["value"]:
+                highest_score = score_record
+            if lowest_score is None or turn.total_points < lowest_score["value"]:
+                lowest_score = score_record
+
+        if game.game_type == "x01" and turn.dart_2:
+            checkout_record = {
+                "value": turn.total_points,
+                "player_name": player.name,
+            }
+            if highest_checkout is None or turn.total_points > highest_checkout["value"]:
+                highest_checkout = checkout_record
+
+    return jsonify(
+        {
+            "date": today.isoformat(),
+            "games_played": len(games),
+            "players": ranked_players,
+            "top_player_ids": top_player_ids,
+            "records": {
+                "highest_score": highest_score,
+                "lowest_score": lowest_score,
+                "highest_checkout": highest_checkout,
+            },
+        }
+    )
+
+
 @app.post("/api/players")
 def create_player():
     payload = request.get_json(silent=True) or {}

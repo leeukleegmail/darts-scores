@@ -49,7 +49,10 @@
       <section class="panel" id="setup-panel">
         <div class="panel-header panel-header-inline-actions">
           <h2>Select Players</h2>
-          <button type="button" id="player-manager-open" class="btn-ghost player-manager-open-btn" aria-haspopup="dialog" aria-controls="player-manager-overlay">Manage Players</button>
+          <div class="setup-panel-actions">
+            <button type="button" id="player-manager-open" class="btn-ghost player-manager-open-btn" aria-haspopup="dialog" aria-controls="player-manager-overlay">Manage Players</button>
+            <button type="button" id="potd-open" class="btn-ghost player-manager-open-btn" aria-label="Stats Of The Day" title="Stats Of The Day" aria-haspopup="dialog" aria-controls="potd-overlay">SOTP</button>
+          </div>
         </div>
         <p id="selected-game-label" class="hint"></p>
         <div class="inline-form">
@@ -239,6 +242,19 @@
     <div id="player-stats-overlay" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="player-stats-title">
       <div class="modal-card player-stats-modal-card">
         <div id="player-stats-panel" class="player-stats-card" aria-live="polite"></div>
+      </div>
+    </div>
+
+    <div id="potd-overlay" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="potd-title">
+      <div class="modal-card potd-card">
+        <div class="panel-header">
+          <div>
+            <h3 id="potd-title">Stats Of The Day</h3>
+            <p id="potd-date" class="hint"></p>
+          </div>
+          <button id="potd-close" type="button" class="btn-ghost">Close</button>
+        </div>
+        <div id="potd-content" aria-live="polite"></div>
       </div>
     </div>
 

@@ -48,6 +48,11 @@ const playerManagerOpenEl = document.getElementById("player-manager-open");
 const playerManagerCloseEl = document.getElementById("player-manager-close");
 const playerStatsOverlayEl = document.getElementById("player-stats-overlay");
 const playerStatsPanelEl = document.getElementById("player-stats-panel");
+const potdOverlayEl = document.getElementById("potd-overlay");
+const potdOpenEl = document.getElementById("potd-open");
+const potdCloseEl = document.getElementById("potd-close");
+const potdDateEl = document.getElementById("potd-date");
+const potdContentEl = document.getElementById("potd-content");
 const playerSelectionSearchEl = document.getElementById("player-selection-search");
 const playerManagerSearchEl = document.getElementById("player-manager-search");
 const selectablePlayersEl = document.getElementById("selectable-players");
@@ -1342,6 +1347,112 @@ async function loadPlayerStats(playerId) {
   } finally {
     state.loadingPlayerStatsId = null;
     renderPlayers();
+  }
+}
+
+function createPotdRecord(title, record, suffix = "") {
+  const card = document.createElement("section");
+  card.className = "potd-record";
+  const label = document.createElement("h4");
+  label.textContent = title;
+  card.appendChild(label);
+
+  if (record) {
+    const value = document.createElement("strong");
+    value.className = "potd-record-value";
+    value.textContent = `${record.value}${suffix}`;
+    const detail = document.createElement("span");
+    detail.textContent = [record.player_name, record.game_type].filter(Boolean).join(" · ");
+    card.append(value, detail);
+  } else {
+    const empty = document.createElement("span");
+    empty.className = "hint";
+    empty.textContent = "No record yet";
+    card.appendChild(empty);
+  }
+
+  return card;
+}
+
+function renderPlayerOfTheDay(data) {
+  if (!potdDateEl || !potdContentEl) return;
+  const date = new Date(`${data.date}T00:00:00Z`);
+  potdDateEl.textContent = `${date.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  })}`;
+  potdContentEl.innerHTML = "";
+
+  if (!data.games_played) {
+    const empty = document.createElement("p");
+    empty.className = "hint potd-empty";
+    empty.textContent = "No completed games today yet.";
+    potdContentEl.appendChild(empty);
+  } else {
+    const tableWrap = document.createElement("div");
+    tableWrap.className = "potd-table-wrap";
+    const table = document.createElement("table");
+    table.className = "potd-table";
+    table.innerHTML = `
+      <thead><tr><th>Rank</th><th>Player</th><th>Games</th><th>Won</th><th>Win rate</th></tr></thead>
+      <tbody></tbody>
+    `;
+    const body = table.querySelector("tbody");
+    const topPlayerIds = new Set(data.top_player_ids || []);
+
+    data.players.forEach((player, index) => {
+      const row = document.createElement("tr");
+      const rank = document.createElement("td");
+      rank.textContent = String(index + 1);
+      const name = document.createElement("td");
+      name.textContent = player.name;
+      if (topPlayerIds.has(player.id)) {
+        row.classList.add("potd-top-player");
+        const badge = document.createElement("span");
+        badge.className = "potd-badge";
+        badge.textContent = "👑";
+        badge.setAttribute("role", "img");
+        badge.setAttribute("aria-label", "Stats Of The Day leader");
+        badge.title = "Stats Of The Day leader";
+        name.append(" ", badge);
+      }
+      const played = document.createElement("td");
+      played.textContent = String(player.games_played);
+      const won = document.createElement("td");
+      won.textContent = String(player.games_won);
+      const rate = document.createElement("td");
+      rate.textContent = `${Number(player.win_rate).toFixed(1)}%`;
+      row.append(rank, name, played, won, rate);
+      body.appendChild(row);
+    });
+
+    tableWrap.appendChild(table);
+    potdContentEl.appendChild(tableWrap);
+  }
+
+  const records = data.records || {};
+  const recordGrid = document.createElement("div");
+  recordGrid.className = "potd-records";
+  recordGrid.append(
+    createPotdRecord("Highest individual score", records.highest_score),
+    createPotdRecord("Lowest individual score", records.lowest_score),
+    createPotdRecord("Highest X01 checkout", records.highest_checkout, " points")
+  );
+  potdContentEl.appendChild(recordGrid);
+}
+
+async function openPlayerOfTheDay() {
+  if (!potdOverlayEl || !potdDateEl || !potdContentEl) return;
+  potdOverlayEl.classList.add("visible");
+  potdDateEl.textContent = "Loading today's results...";
+  potdContentEl.innerHTML = "";
+  try {
+    const data = await api("/api/games/potd");
+    renderPlayerOfTheDay(data);
+  } catch (err) {
+    potdContentEl.textContent = err.message;
   }
 }
 
@@ -3677,6 +3788,26 @@ async function init() {
   if (playerManagerOpenEl) {
     playerManagerOpenEl.addEventListener("click", () => {
       openPlayerManager();
+    });
+  }
+
+  if (potdOpenEl) {
+    potdOpenEl.addEventListener("click", () => {
+      void openPlayerOfTheDay();
+    });
+  }
+
+  if (potdCloseEl) {
+    potdCloseEl.addEventListener("click", () => {
+      potdOverlayEl?.classList.remove("visible");
+    });
+  }
+
+  if (potdOverlayEl) {
+    potdOverlayEl.addEventListener("click", (event) => {
+      if (event.target === potdOverlayEl) {
+        potdOverlayEl.classList.remove("visible");
+      }
     });
   }
 

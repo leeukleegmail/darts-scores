@@ -968,6 +968,88 @@ def test_player_stats_endpoint_counts_draws_in_totals(client_with_module):
     assert by_type["noughts_and_crosses"]["drawn"] == 1
 
 
+def test_player_of_the_day_ranks_daily_games_and_reports_score_records(client_with_module):
+    client, app_module = client_with_module
+    alpha = add_player(client, "Alpha POTD")
+    beta = add_player(client, "Beta POTD")
+    today = datetime.now(timezone.utc)
+    yesterday = today - timedelta(days=1)
+
+    with app_module.app.app_context():
+        games = [
+            app_module.Game(
+                status="finished", game_type="55by5", team_mode="solo", winner_player_id=alpha,
+                started_at=today, finished_at=today,
+            ),
+            app_module.Game(
+                status="finished", game_type="x01", team_mode="solo", winner_player_id=beta,
+                started_at=today, finished_at=today,
+            ),
+            app_module.Game(
+                status="finished", game_type="55by5", team_mode="solo", winner_player_id=beta,
+                started_at=today, finished_at=today,
+            ),
+            app_module.Game(
+                status="finished", game_type="55by5", team_mode="solo", winner_player_id=alpha,
+                started_at=yesterday, finished_at=yesterday,
+            ),
+        ]
+        app_module.db.session.add_all(games)
+        app_module.db.session.flush()
+
+        for game in games:
+            app_module.db.session.add_all(
+                [
+                    app_module.GamePlayerOrder(game_id=game.id, player_id=alpha, position=0),
+                    app_module.GamePlayerOrder(game_id=game.id, player_id=beta, position=1),
+                ]
+            )
+
+        turn_data = [
+            (games[0], alpha, 100, 0),
+            (games[0], beta, 0, 0),
+            (games[1], alpha, 180, 0),
+            (games[1], beta, 121, 1),
+            (games[2], alpha, 5, 0),
+            (games[2], beta, 150, 0),
+            (games[3], alpha, 999, 0),
+        ]
+        app_module.db.session.add_all(
+            [
+                app_module.Turn(
+                    game_id=game.id,
+                    player_id=player_id,
+                    turn_number=index,
+                    dart_1=score,
+                    dart_2=marker,
+                    dart_3=0,
+                    total_points=score,
+                )
+                for index, (game, player_id, score, marker) in enumerate(turn_data, start=1)
+            ]
+        )
+        app_module.db.session.commit()
+
+    response = client.get("/api/games/potd")
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["games_played"] == 3
+    assert [player["name"] for player in payload["players"]] == ["Beta POTD", "Alpha POTD"]
+    assert payload["players"][0]["games_played"] == 3
+    assert payload["players"][0]["games_won"] == 2
+    assert payload["players"][0]["win_rate"] == 66.7
+    assert payload["players"][1]["games_won"] == 1
+    assert payload["top_player_ids"] == [beta]
+    assert payload["records"]["highest_score"] == {
+        "value": 180,
+        "player_name": "Alpha POTD",
+        "game_type": "X01",
+    }
+    assert payload["records"]["lowest_score"]["value"] == 0
+    assert payload["records"]["lowest_score"]["player_name"] == "Beta POTD"
+    assert payload["records"]["highest_checkout"] == {"value": 121, "player_name": "Beta POTD"}
+
+
 def test_delete_player_not_found_and_active_game_block(client):
     missing = client.delete("/api/players/9999")
     assert missing.status_code == 404

@@ -156,6 +156,13 @@ body {
   line-height: 1;
 }
 
+.setup-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
 .admin-form {
   display: grid;
   gap: 0.55rem;
@@ -637,6 +644,105 @@ button:hover {
   overflow: hidden;
 }
 
+.potd-card {
+  width: min(860px, 94vw);
+  max-height: min(42rem, calc(100vh - 3rem));
+  overflow-y: auto;
+}
+
+#potd-overlay {
+  z-index: 110;
+}
+
+#potd-title {
+  margin: 0;
+}
+
+#potd-date {
+  margin: 0.25rem 0 0;
+}
+
+#potd-content {
+  display: grid;
+  gap: 1rem;
+}
+
+.potd-empty {
+  margin: 0;
+  padding: 1rem 0;
+}
+
+.potd-table-wrap {
+  overflow-x: auto;
+}
+
+.potd-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.potd-table th,
+.potd-table td {
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.potd-table th:nth-child(3),
+.potd-table td:nth-child(3),
+.potd-table th:nth-child(4),
+.potd-table td:nth-child(4) {
+  text-align: center;
+}
+
+.potd-table th:nth-child(5),
+.potd-table td:nth-child(5) {
+  text-align: right;
+}
+
+.potd-top-player {
+  background: rgba(107, 203, 119, 0.1);
+}
+
+.potd-badge {
+  display: inline-block;
+  margin-left: 0.35rem;
+  color: #f5c542;
+  font-size: 1.1rem;
+  vertical-align: middle;
+}
+
+.potd-records {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.potd-record {
+  display: grid;
+  align-content: start;
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.potd-record h4 {
+  margin: 0;
+  font-size: 0.84rem;
+}
+
+.potd-record-value {
+  font-size: 1.4rem;
+}
+
+.potd-record span {
+  overflow-wrap: anywhere;
+  font-size: 0.85rem;
+}
+
 #player-manager-overlay {
   z-index: 105;
 }
@@ -766,6 +872,18 @@ button:hover {
 }
 
 @media (max-width: 560px) {
+  .setup-panel-actions {
+    gap: 0.3rem;
+  }
+
+  .setup-panel-actions .player-manager-open-btn {
+    padding: 0.35rem 0.5rem;
+  }
+
+  .potd-records {
+    grid-template-columns: 1fr;
+  }
+
   .player-stats-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

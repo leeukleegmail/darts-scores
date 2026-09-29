@@ -866,6 +866,44 @@ def test_player_selection_panel_supports_search(live_server, browser):
     )
 
 
+def test_stats_of_the_day_popup_shows_daily_stats_and_closes(live_server, browser):
+    """SOTP opens from player selection and handles empty and populated days."""
+    browser.get(live_server)
+
+    _wait(browser).until(ec.element_to_be_clickable((By.ID, "potd-open"))).click()
+    overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "potd-overlay")))
+    assert overlay.is_displayed()
+    assert browser.find_element(By.ID, "potd-title").text.strip() == "Stats Of The Day"
+    assert browser.find_element(By.ID, "potd-date").text.strip()
+    assert "No completed games today yet." in browser.find_element(By.ID, "potd-content").text
+
+    browser.find_element(By.ID, "potd-close").click()
+    _wait(browser).until(ec.invisibility_of_element_located((By.ID, "potd-overlay")))
+
+    start_single_player_game(browser, "Daily Winner")
+    for score in (75, 75, 75, 50):
+        submit_standard_score_with_keypad(browser, score)
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
+    browser.find_element(By.ID, "winner-continue").click()
+    _wait(browser).until(ec.invisibility_of_element_located((By.ID, "winner-overlay")))
+
+    browser.find_element(By.ID, "potd-open").click()
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "potd-overlay")))
+    rows = _wait(browser).until(
+        lambda driver: driver.find_elements(By.CSS_SELECTOR, "#potd-content .potd-table tbody tr")
+    )
+    assert len(rows) == 1
+    assert rows[0].find_elements(By.TAG_NAME, "td")[1].text == "Daily Winner 👑"
+    crown = rows[0].find_element(By.CSS_SELECTOR, ".potd-badge")
+    assert crown.get_attribute("aria-label") == "Stats Of The Day leader"
+    assert [cell.text for cell in rows[0].find_elements(By.TAG_NAME, "td")] == [
+        "1", "Daily Winner 👑", "1", "1", "100.0%"
+    ]
+    assert browser.find_element(By.CSS_SELECTOR, ".potd-records").text.find("75") >= 0
+    assert "50" in browser.find_element(By.CSS_SELECTOR, ".potd-records").text
+    assert "No record yet" in browser.find_element(By.CSS_SELECTOR, ".potd-records").text
+
+
 def test_player_manager_supports_search_and_stats_overlay_stacks_above(live_server, browser):
     """Player manager search filters names and keeps stats overlay above the modal."""
     browser.get(live_server)
