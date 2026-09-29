@@ -121,6 +121,10 @@ def test_hi_low_custom_setup_starts_game_and_enables_inputs(live_server, browser
     if not maya_checkbox.is_selected():
         maya_checkbox.click()
 
+    hi_low_button = browser.find_element(By.ID, "choose-hi-low")
+    hi_low_icon = hi_low_button.find_element(By.CSS_SELECTOR, "svg.button-icon")
+    assert hi_low_icon.get_attribute("aria-hidden") == "true"
+    assert "Hi/Low" in hi_low_button.text
     _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-hi-low"))).click()
     popup = _wait(browser).until(ec.visibility_of_element_located((By.ID, "hi-low-start-overlay")))
 
@@ -471,6 +475,8 @@ def test_shuffle_order_button_randomizes_selected_players(live_server, browser):
 
     original_order = _current_order(browser)
     shuffle_button = browser.find_element(By.ID, "shuffle-order-btn")
+    shuffle_icon = shuffle_button.find_element(By.CSS_SELECTOR, "svg.button-icon")
+    assert shuffle_icon.get_attribute("aria-hidden") == "true"
 
     seen_orders = {tuple(original_order)}
     for _ in range(20):
@@ -927,6 +933,16 @@ def test_player_manager_supports_search_and_stats_overlay_stacks_above(live_serv
 
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "player-stats-overlay")))
     assert browser.find_element(By.ID, "player-stats-title").text.strip() == "Bravo's Stats"
+    stats_card = browser.find_element(By.CSS_SELECTOR, ".player-stats-modal-card")
+    stats_card_width, stats_card_background = browser.execute_script(
+        """
+        const card = arguments[0];
+        return [card.getBoundingClientRect().width, getComputedStyle(card).backgroundColor];
+        """,
+        stats_card,
+    )
+    assert stats_card_width > 600
+    assert stats_card_background == "rgb(19, 21, 26)"
 
     _wait(browser).until(
         lambda d: len(d.find_elements(By.CSS_SELECTOR, "#player-stats-panel .player-stat-tile span")) == 5
@@ -936,6 +952,9 @@ def test_player_manager_supports_search_and_stats_overlay_stacks_above(live_serv
         for label in browser.find_elements(By.CSS_SELECTOR, "#player-stats-panel .player-stat-tile span")
     ]
     assert stat_labels == ["P", "W", "L", "D", "%"]
+    first_stat_tile = browser.find_element(By.CSS_SELECTOR, "#player-stats-panel .player-stat-tile")
+    assert first_stat_tile.find_element(By.XPATH, "./span").text.strip() == "P"
+    assert first_stat_tile.find_element(By.XPATH, "./strong").text.strip() == "0"
 
     stats_z_index, manager_z_index = browser.execute_script(
         """

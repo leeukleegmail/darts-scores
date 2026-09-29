@@ -93,7 +93,16 @@
         <div id="order-section">
           <div class="panel-header panel-header-inline-actions">
             <h3>Selected Players</h3>
-            <button type="button" id="shuffle-order-btn" class="btn-ghost" aria-label="Randomize player order" title="Randomize player order">🔀 Shuffle</button>
+            <button type="button" id="shuffle-order-btn" class="btn-ghost button-with-icon" aria-label="Randomize player order" title="Randomize player order">
+              <svg class="button-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="m18 14 4 4-4 4" />
+                <path d="m18 2 4 4-4 4" />
+                <path d="M2 18h2.5a4 4 0 0 0 3.3-1.7l8.4-12.6A4 4 0 0 1 19.5 2H22" />
+                <path d="M2 6h2.5a4 4 0 0 1 3.3 1.7l1.1 1.7" />
+                <path d="m14 14 1.5 2.3a4 4 0 0 0 3.3 1.7H22" />
+              </svg>
+              Shuffle
+            </button>
           </div>
           <ul id="order-list" class="list order-list"></ul>
         </div>
@@ -126,8 +135,14 @@
               </div>
             </div>
           </div>
-          <button type="button" id="choose-hi-low" class="mode-btn">
-            Hi/Low ↕
+          <button type="button" id="choose-hi-low" class="mode-btn button-with-icon">
+            <svg class="button-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M12 3v8" />
+              <path d="m8 7 4-4 4 4" />
+              <path d="M12 21v-8" />
+              <path d="m8 17 4 4 4-4" />
+            </svg>
+            Hi/Low
           </button>
           <button type="button" id="choose-killer" class="mode-btn mode-btn--new">
             <span class="mode-btn-sticker">New</span>

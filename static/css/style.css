@@ -144,6 +144,20 @@ body {
   opacity: 1;
 }
 
+.button-with-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+}
+
+.button-icon {
+  display: block;
+  width: 1.1em;
+  height: 1.1em;
+  flex: 0 0 auto;
+}
+
 .player-manager-open-btn {
   display: inline-flex;
   align-items: center;
@@ -280,6 +294,10 @@ body {
   text-align: center;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+.mode-btn.button-with-icon {
+  justify-content: center;
 }
 
 .mode-btn--new {
@@ -626,11 +644,12 @@ button:hover {
   text-decoration: underline;
 }
 
-.player-stats-modal-card {
+.modal-card.player-stats-modal-card {
   width: min(900px, 94vw);
   max-height: min(36rem, calc(100vh - 3rem));
   padding: 0;
   overflow: hidden;
+  background: #13151a;
 }
 
 #player-stats-overlay {

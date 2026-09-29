@@ -1309,11 +1309,11 @@ function renderPlayerStats() {
     </div>
     <div class="player-stats-body">
       <div class="player-stats-summary player-stats-summary-header" aria-label="Player win loss summary">
-        <div class="player-stat-tile"><strong>${stats.games_played}</strong><span>P</span></div>
-        <div class="player-stat-tile"><strong>${stats.games_won}</strong><span>W</span></div>
-        <div class="player-stat-tile"><strong>${stats.games_lost}</strong><span>L</span></div>
-        <div class="player-stat-tile"><strong>${stats.games_drawn || 0}</strong><span>D</span></div>
-        <div class="player-stat-tile"><strong>${winRate}%</strong><span>%</span></div>
+        <div class="player-stat-tile"><span>P</span><strong>${stats.games_played}</strong></div>
+        <div class="player-stat-tile"><span>W</span><strong>${stats.games_won}</strong></div>
+        <div class="player-stat-tile"><span>L</span><strong>${stats.games_lost}</strong></div>
+        <div class="player-stat-tile"><span>D</span><strong>${stats.games_drawn || 0}</strong></div>
+        <div class="player-stat-tile"><span>%</span><strong>${winRate}%</strong></div>
       </div>
       <div>
         <p class="hint">${stats.games_played ? "Results by game type" : "No completed games recorded for this player yet."}</p>
