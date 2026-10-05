@@ -8,6 +8,7 @@ const state = {
   game: null,
   gameType: null,
   halveItVariant: "standard",
+  playToPlaces: 1,
   teamMode: "solo",
   teamAssignments: {},
   teamNames: { team_a: "Team A", team_b: "Team B" },
@@ -95,6 +96,9 @@ const hiLowHighInputEl = document.getElementById("hi-low-high-input");
 const hiLowMatchTypeEl = document.getElementById("hi-low-match-type");
 const hiLowLegsValueEl = document.getElementById("hi-low-legs-value");
 const killerStartOverlayEl = document.getElementById("killer-start-overlay");
+const placesStartOverlayEl = document.getElementById("places-start-overlay");
+const placesSliderEl = document.getElementById("places-slider");
+const placesSliderLabelEl = document.getElementById("places-slider-label");
 const killerStartGameEl = document.getElementById("killer-start-game");
 const killerStartCancelEl = document.getElementById("killer-start-cancel");
 const killerStartingLivesEl = document.getElementById("killer-starting-lives");
@@ -420,13 +424,23 @@ function launchFireworks(canvas) {
 
 let stopFireworks = null;
 
-function showWinnerOverlay(winnerName) {
+function showWinnerOverlay(winnerName, game = null) {
   const winnerNameEl = document.getElementById("winner-name");
   const fireworksCanvas = document.getElementById("fireworks-canvas");
   if (!winnerOverlayEl || !winnerNameEl || !fireworksCanvas) {
     return;
   }
   winnerNameEl.textContent = winnerName;
+  const placed = placedPlayersInOrder(game);
+  if (placed.length > 1) {
+    winnerNameEl.replaceChildren();
+    placed.forEach((player) => {
+      const line = document.createElement("div");
+      line.className = `place-${player.place}`;
+      line.textContent = `${PLACE_LABELS[player.place]} ${player.name}`;
+      winnerNameEl.appendChild(line);
+    });
+  }
   winnerOverlayEl.classList.add("visible");
   stopFireworks = launchFireworks(fireworksCanvas);
 }
@@ -481,10 +495,12 @@ function showGameSummaryOverlay() {
   gameSummaryBodyEl.innerHTML = "";
 
   const winnerName = winnerDisplayName(game, "Tie");
-  const winnerLine = document.createElement("p");
-  winnerLine.className = "game-summary-winner";
-  winnerLine.textContent = `Winner: ${winnerName}`;
-  gameSummaryBodyEl.appendChild(winnerLine);
+  if (placedPlayersInOrder(game).length <= 1) {
+    const winnerLine = document.createElement("p");
+    winnerLine.className = "game-summary-winner";
+    winnerLine.textContent = `Winner: ${winnerName}`;
+    gameSummaryBodyEl.appendChild(winnerLine);
+  }
 
   const sourceEl = game.game_type === "english_cricket"
     ? cricketDashboardEl
@@ -496,6 +512,8 @@ function showGameSummaryOverlay() {
     const clone = sourceEl.cloneNode(true);
     clone.classList.remove("hidden");
     stripElementIds(clone);
+    const cloneHeading = clone.querySelector("h3");
+    if (cloneHeading && sourceEl === scoreboardSectionEl) cloneHeading.remove();
     prioritizeSummaryWinnerRows(clone, game);
     gameSummaryBodyEl.appendChild(clone);
   }
@@ -1059,7 +1077,7 @@ async function submitScore(totalPoints) {
       if (response.game.status === "finished") {
         announceX01MatchWinIfNeeded(t, response.game);
         const winnerName = winnerDisplayName(response.game, "Tie");
-        showWinnerOverlay(winnerName);
+        showWinnerOverlay(winnerName, response.game);
         return;
       }
 
@@ -1817,6 +1835,48 @@ function closeHiLowStartOverlay() {
   if (hiLowStartOverlayEl) {
     hiLowStartOverlayEl.classList.remove("visible");
   }
+}
+
+function syncPlacesSlider() {
+  const threePlaces = state.playToPlaces === 3;
+  if (placesSliderEl instanceof HTMLInputElement) {
+    placesSliderEl.value = threePlaces ? "1" : "0";
+    placesSliderEl.classList.toggle("is-hardcore", threePlaces);
+    placesSliderEl.closest(".halve-it-variant-switch-shell")?.classList.toggle("is-hardcore", threePlaces);
+  }
+  if (placesSliderLabelEl) {
+    placesSliderLabelEl.textContent = threePlaces ? "Play to 3 places" : "Play to a winner";
+  }
+}
+
+function openPlacesStartOverlay() {
+  state.playToPlaces = 1;
+  syncPlacesSlider();
+  placesStartOverlayEl?.classList.add("visible");
+}
+
+function closePlacesStartOverlay() {
+  placesStartOverlayEl?.classList.remove("visible");
+}
+
+const PLACE_LABELS = { 1: "1st", 2: "2nd", 3: "3rd" };
+
+function placedPlayersInOrder(game) {
+  return (game?.players || [])
+    .filter((player) => player.place)
+    .sort((a, b) => a.place - b.place);
+}
+
+function placeNamesElement(placed) {
+  const wrapper = document.createElement("span");
+  placed.forEach((player, index) => {
+    if (index > 0) wrapper.append(", ");
+    const span = document.createElement("span");
+    span.className = `place-${player.place}`;
+    span.textContent = `${PLACE_LABELS[player.place]} ${player.name}`;
+    wrapper.appendChild(span);
+  });
+  return wrapper;
 }
 
 function syncKillerStartControls() {
@@ -2622,6 +2682,9 @@ function getCricketContext(game) {
 function renderStandardScoreboard(game) {
   scoreboardEl.innerHTML = "";
   const players = [...game.players];
+  if (game.status === "finished" && players.some((player) => player.place)) {
+    players.sort((a, b) => (a.place || 99) - (b.place || 99));
+  }
   if (game.team_mode === "teams") {
     const grouped = groupPlayersByTeam(players);
     for (const teamKey of ["team_a", "team_b"]) {
@@ -2663,7 +2726,7 @@ function renderStandardScoreboard(game) {
     }
     const pointsRequired = Math.max((55 - player.fives) * 5, 0);
     tr.innerHTML = `
-      <td>${player.name}</td>
+      <td${player.place ? ` class="place-${player.place}"` : ""}>${player.name}</td>
       <td>${player.fives}</td>
       <td>${pointsRequired}</td>
     `;
@@ -3483,6 +3546,7 @@ async function loadHistory() {
     button.className = "history-game-button";
     button.dataset.historyGameId = String(game.id);
     const names = game.participants.map((p) => p.name).join(" -> ");
+    const placements = game.placements || [];
     const modeLabel = game.game_type_label || (game.game_type === "x01"
       ? "X01"
       : game.game_type === "english_cricket"
@@ -3502,7 +3566,11 @@ async function loadHistory() {
         inferHistoryTeamMembers(game, game.winner_team || "team_a")
       )
       : (game.winner_team_name || game.winner_name || "Unknown");
-    button.textContent = `[${modeLabel}] Game #${game.sequence_number}: Winner ${winner}, ${game.turn_count} turns. Order: ${names}`;
+    if (placements.length > 1) {
+      button.append(`[${modeLabel}] Game #${game.sequence_number}: `, placeNamesElement(placements), `, ${game.turn_count} turns. Order: ${names}`);
+    } else {
+      button.textContent = `[${modeLabel}] Game #${game.sequence_number}: Winner ${winner}, ${game.turn_count} turns. Order: ${names}`;
+    }
     li.appendChild(button);
     historyListEl.appendChild(li);
   }
@@ -3612,6 +3680,7 @@ async function startConfiguredGame() {
         hi_low_match_type: state.gameType === "hi_low" ? state.hiLowMatchType : undefined,
         hi_low_legs_value: state.gameType === "hi_low" ? state.hiLowLegsValue : undefined,
         killer_starting_lives: state.gameType === "killer" ? state.killerStartingLives : undefined,
+        play_to_places: state.gameType === "55by5" ? state.playToPlaces : undefined,
       }),
     });
     syncStateFromGame(response.game);
@@ -3698,6 +3767,7 @@ async function startRematch() {
         hi_low_high: gameType === "hi_low" ? finishedGame.hi_low_state?.start_high : undefined,
         hi_low_match_type: gameType === "hi_low" ? finishedGame.hi_low_state?.match_type : undefined,
         hi_low_legs_value: gameType === "hi_low" ? finishedGame.hi_low_state?.legs_value : undefined,
+        play_to_places: gameType === "55by5" ? finishedGame.standard_state?.places : undefined,
       }),
     });
 
@@ -4005,6 +4075,11 @@ async function init() {
       updateTeamModeAvailability();
       applyLayoutMode(state.game);
       renderTeamAssignment();
+      if (state.teamMode === "solo" && state.orderedPlayerIds.length >= 3) {
+        openPlacesStartOverlay();
+        return;
+      }
+      state.playToPlaces = 1;
       try {
         await startConfiguredGame();
       } catch (err) {
@@ -4131,6 +4206,25 @@ async function init() {
   if (killerStartCancelEl) {
     killerStartCancelEl.addEventListener("click", closeKillerStartOverlay);
   }
+
+  document.getElementById("places-start-cancel")?.addEventListener("click", closePlacesStartOverlay);
+  placesStartOverlayEl?.addEventListener("click", (event) => {
+    if (event.target === placesStartOverlayEl) closePlacesStartOverlay();
+  });
+  if (placesSliderEl instanceof HTMLInputElement) {
+    placesSliderEl.addEventListener("input", () => {
+      state.playToPlaces = placesSliderEl.value === "1" ? 3 : 1;
+      syncPlacesSlider();
+    });
+  }
+  document.getElementById("places-start-game")?.addEventListener("click", async () => {
+    closePlacesStartOverlay();
+    try {
+      await startConfiguredGame();
+    } catch (err) {
+      showMessage(err.message, true);
+    }
+  });
 
   if (x01StartGameEl) {
     x01StartGameEl.addEventListener("click", async () => {

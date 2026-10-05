@@ -31,6 +31,8 @@ from game_logic import (
     normalize_hi_low_match_type,
     normalize_hi_low_legs_value,
     normalize_noughts_marker,
+    normalize_play_to_places,
+    parse_standard_state,
     normalize_requested_team_assignments,
     normalize_requested_team_names,
     normalize_team_mode,
@@ -144,6 +146,7 @@ class Game(db.Model):
     halve_it_state = db.Column(db.Text, nullable=True)
     hi_low_state = db.Column(db.Text, nullable=True)
     killer_state = db.Column(db.Text, nullable=True)
+    standard_state = db.Column(db.Text, nullable=True)
     winner_team = db.Column(db.String(20), nullable=True)
     current_turn_position = db.Column(db.Integer, nullable=False, default=0)
     winner_player_id = db.Column(db.Integer, db.ForeignKey("players.id"), nullable=True)
@@ -436,6 +439,8 @@ def ensure_game_schema_columns() -> None:
         statements.append("ALTER TABLE games ADD COLUMN hi_low_state TEXT")
     if "killer_state" not in existing_columns:
         statements.append("ALTER TABLE games ADD COLUMN killer_state TEXT")
+    if "standard_state" not in existing_columns:
+        statements.append("ALTER TABLE games ADD COLUMN standard_state TEXT")
     if "winner_team" not in existing_columns:
         statements.append("ALTER TABLE games ADD COLUMN winner_team VARCHAR(20)")
     if "history_hidden" not in existing_columns:
@@ -1017,6 +1022,8 @@ def create_game():
     if game_type == "hi_low" and len(ordered_player_ids) < 2:
         return jsonify({"error": "Hi/Low requires at least two players."}), 400
 
+    play_to_places = normalize_play_to_places(payload.get("play_to_places"), team_mode, len(ordered_player_ids))
+
     initial_turn_position, cricket_state, noughts_and_crosses_state, x01_state, halve_it_state, hi_low_state, killer_state = build_new_game_start_state(
         game_type,
         ordered_player_ids,
@@ -1048,6 +1055,11 @@ def create_game():
         halve_it_state=halve_it_state,
         hi_low_state=hi_low_state,
         killer_state=killer_state,
+        standard_state=(
+            json.dumps({"places": 3, "placements": []})
+            if game_type == "55by5" and play_to_places == 3
+            else None
+        ),
         current_turn_position=initial_turn_position,
     )
     db.session.add(game)
@@ -1212,6 +1224,13 @@ def games_history():
 
         participants = game_ordered_players(game.id)
         turn_count = Turn.query.filter_by(game_id=game.id).count()
+        placements = parse_standard_state(game.standard_state)["placements"] if game.game_type == "55by5" else []
+        names_by_id = {p["id"]: p["name"] for p in participants}
+        placed_players = [
+            {"id": pid, "name": names_by_id[pid], "place": place}
+            for place, pid in enumerate(placements, start=1)
+            if pid in names_by_id
+        ]
 
         result.append(
             {
@@ -1228,6 +1247,7 @@ def games_history():
                 "finished_at": now_iso(game.finished_at),
                 "turn_count": turn_count,
                 "participants": participants,
+                "placements": placed_players,
             }
         )
 

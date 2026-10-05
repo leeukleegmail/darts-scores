@@ -552,6 +552,25 @@
       </div>
     </div>
 
+    <div id="places-start-overlay" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="places-start-title">
+      <div class="modal-card places-start-card">
+        <h3 id="places-start-title">Start 55 by 5</h3>
+        <p class="hint">Play until there is a winner, or keep going to decide 1st, 2nd and 3rd.</p>
+        <div class="places-picker">
+          <div class="halve-it-variant-switch-shell" aria-hidden="true">
+            <span class="halve-it-variant-glyph halve-it-variant-glyph--left">Winner</span>
+            <input id="places-slider" class="halve-it-variant-switch" type="range" min="0" max="1" step="1" value="0" aria-label="Play to a winner or three places" />
+            <span class="halve-it-variant-glyph halve-it-variant-glyph--right">3 Places</span>
+          </div>
+          <span id="places-slider-label" class="visually-hidden">Play to a winner</span>
+        </div>
+        <div class="modal-actions">
+          <button id="places-start-cancel" type="button" class="btn-ghost">Cancel</button>
+          <button id="places-start-game" type="button">Start Game</button>
+        </div>
+      </div>
+    </div>
+
     <div id="noughts-mark-overlay" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="noughts-mark-title">
       <div class="modal-card noughts-mark-card">
         <h3 id="noughts-mark-title">Claim Square</h3>
@@ -578,7 +597,7 @@
 
     <div id="game-summary-overlay" class="modal-overlay game-summary-overlay" role="dialog" aria-modal="true" aria-labelledby="game-summary-title">
       <div class="modal-card game-summary-card">
-        <h3 id="game-summary-title">Final Summary</h3>
+        <h3 id="game-summary-title">Final Scoreboard</h3>
         <div id="game-summary-body" class="game-summary-body"></div>
         <div class="modal-actions">
           <button id="game-summary-close" type="button" class="btn-ghost">Close</button>

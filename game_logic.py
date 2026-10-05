@@ -1256,12 +1256,44 @@ def reset_game_progress(game: Any) -> None:
     game.finished_at = None
 
 
+def normalize_play_to_places(raw_value: Any, team_mode: str, player_count: int) -> int:
+    return 3 if raw_value == 3 and team_mode == "solo" and player_count >= 3 else 1
+
+
+def parse_standard_state(raw_value: str | None) -> dict[str, Any]:
+    try:
+        state = json.loads(raw_value) if isinstance(raw_value, str) and raw_value else {}
+    except (json.JSONDecodeError, TypeError, ValueError):
+        state = {}
+    if not isinstance(state, dict):
+        state = {}
+    placements = state.get("placements")
+    return {
+        "places": 3 if state.get("places") == 3 else 1,
+        "placements": [pid for pid in placements if isinstance(pid, int)] if isinstance(placements, list) else [],
+    }
+
+
+def next_unplaced_turn_position(
+    current_position: int,
+    ordered_players: list[dict[str, Any]],
+    placements: list[int],
+) -> int:
+    for offset in range(1, len(ordered_players) + 1):
+        position = (current_position + offset) % len(ordered_players)
+        if ordered_players[position]["id"] not in placements:
+            return position
+    return current_position
+
+
 def apply_standard_turn(
     game: Any,
     turn: Any,
     score_row: Any,
     assignments: dict[int, str],
     team_totals: dict[str, int],
+    standard_state: dict[str, Any] | None = None,
+    ordered_players: list[dict[str, Any]] | None = None,
 ) -> None:
     _, counted, awarded = turn_result(turn.total_points)
 
@@ -1281,7 +1313,16 @@ def apply_standard_turn(
             counted = False
             awarded = 0
         if counted and projected == 55:
-            finish_game(game, winner_player_id=turn.player_id)
+            if standard_state and standard_state["places"] == 3 and ordered_players:
+                placements = standard_state["placements"]
+                placements.append(turn.player_id)
+                remaining = [p["id"] for p in ordered_players if p["id"] not in placements]
+                if len(placements) >= 3 or len(remaining) <= 1:
+                    if len(placements) < 3:
+                        placements.extend(remaining)
+                    finish_game(game, winner_player_id=placements[0])
+            else:
+                finish_game(game, winner_player_id=turn.player_id)
 
     turn.counted = counted
     turn.fives_awarded = awarded
@@ -1588,6 +1629,9 @@ def recompute_game_state(
 
     halve_it_state = stored_halve_it_state
 
+    standard_state = parse_standard_state(getattr(game, "standard_state", None))
+    standard_state["placements"] = []
+
     player_rounds = {player["id"]: 0 for player in ordered_players}
 
     team_totals = {TEAM_A: 0, TEAM_B: 0}
@@ -1634,7 +1678,7 @@ def recompute_game_state(
         elif game.game_type == "killer":
             apply_killer_turn(game, turn, ordered_players, score_row, killer_state)
         else:
-            apply_standard_turn(game, turn, score_row, assignments, team_totals)
+            apply_standard_turn(game, turn, score_row, assignments, team_totals, standard_state, ordered_players)
 
         if game.status == "active":
             if game.game_type == "hi_low":
@@ -1648,6 +1692,12 @@ def recompute_game_state(
                     game.current_turn_position,
                     ordered_players,
                     killer_state,
+                )
+            elif game.game_type == "55by5" and standard_state["placements"]:
+                game.current_turn_position = next_unplaced_turn_position(
+                    game.current_turn_position,
+                    ordered_players,
+                    standard_state["placements"],
                 )
             else:
                 game.current_turn_position = (game.current_turn_position + 1) % len(ordered_players)
@@ -1664,6 +1714,8 @@ def recompute_game_state(
         game.hi_low_state = json.dumps(hi_low_state)
     if game.game_type == "killer":
         game.killer_state = json.dumps(killer_state)
+    if game.game_type == "55by5" and standard_state["places"] == 3:
+        game.standard_state = json.dumps(standard_state)
 
 
 def active_player_id_for_game(game: Any, ordered_players: list[dict[str, Any]]) -> int | None:
@@ -1681,9 +1733,11 @@ def serialize_players_for_game(
     game: Any,
     x01_state: dict[str, Any] | None = None,
     hi_low_state: dict[str, Any] | None = None,
+    placements: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     hi_low_eliminated = set((hi_low_state or {}).get("eliminated_players") or [])
     hi_low_last_success = (hi_low_state or {}).get("last_success") or {}
+    placements = placements or []
     return [
         {
             "id": item["id"],
@@ -1691,6 +1745,7 @@ def serialize_players_for_game(
             "position": item["position"],
             "fives": scores.get(item["id"], 0),
             "team": assignments.get(item["id"]),
+            "place": (placements.index(item["id"]) + 1) if item["id"] in placements else None,
             "x01_remaining": (
                 (x01_state or {}).get("remaining_scores", {}).get(
                     x01_entity_key_for_player(game, item["id"], assignments),
@@ -1781,6 +1836,8 @@ def build_game_state_payload(
         [player["id"] for player in ordered_players],
     )
 
+    standard_state = parse_standard_state(getattr(game, "standard_state", None))
+
     if game.game_type == "noughts_and_crosses":
         noughts_state["x_name"] = noughts_side_name(ordered_players, assignments, team_names, TEAM_A, game.team_mode)
         noughts_state["o_name"] = noughts_side_name(ordered_players, assignments, team_names, TEAM_B, game.team_mode)
@@ -1841,7 +1898,8 @@ def build_game_state_payload(
         "halve_it_state": halve_it_state,
         "noughts_and_crosses_state": noughts_state if game.game_type == "noughts_and_crosses" else None,
         "killer_state": killer_state if game.game_type == "killer" else None,
-        "players": serialize_players_for_game(ordered_players, scores, assignments, game, x01_state, hi_low_state),
+        "standard_state": standard_state if game.game_type == "55by5" and standard_state["places"] == 3 else None,
+        "players": serialize_players_for_game(ordered_players, scores, assignments, game, x01_state, hi_low_state, standard_state["placements"]),
         "turns": serialize_turns_for_game(turn_rows, game),
     }
 

@@ -472,6 +472,16 @@ body {
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.25);
 }
 
+.places-picker {
+  display: flex;
+  justify-content: center;
+  margin: 1rem 0;
+}
+
+.place-1 { color: #ffd93d; font-weight: 700; }
+.place-2 { color: #c0c8d4; font-weight: 700; }
+.place-3 { color: #cd7f32; font-weight: 700; }
+
 .team-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

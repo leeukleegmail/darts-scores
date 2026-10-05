@@ -206,6 +206,38 @@ def test_first_to_55_fives_wins(client):
     assert final_payload["game"]["winner_player_id"] == alice
 
 
+def test_play_to_three_places(client):
+    ids = [add_player(client, name) for name in ("Alice", "Bob", "Cara", "Dan")]
+    game = client.post("/api/games", json={"ordered_player_ids": ids, "play_to_places": 3}).get_json()["game"]
+    assert game["standard_state"]["places"] == 3
+
+    payload = None
+    for total in (180, 95):
+        for player_id in ids:
+            payload = client.post(
+                f"/api/games/{game['id']}/turn",
+                json={"player_id": player_id, "total_points": total if player_id != ids[3] else 0},
+            ).get_json()
+            if total == 95 and player_id == ids[0]:
+                assert payload["game"]["status"] == "active"
+            if payload["game"]["status"] == "finished":
+                break
+
+    final = payload["game"]
+    assert final["status"] == "finished"
+    assert final["winner_player_id"] == ids[0]
+    assert {p["id"]: p["place"] for p in final["players"]} == {ids[0]: 1, ids[1]: 2, ids[2]: 3, ids[3]: None}
+
+    history = client.get("/api/games/history").get_json()[0]
+    assert [p["id"] for p in history["placements"]] == ids[:3]
+
+
+def test_play_to_places_ignored_for_two_players(client):
+    ids = [add_player(client, name) for name in ("Alice", "Bob")]
+    game = client.post("/api/games", json={"ordered_player_ids": ids, "play_to_places": 3}).get_json()["game"]
+    assert game["standard_state"] is None
+
+
 def test_bust_when_exceeding_55(client):
     alice = add_player(client, "Alice")
     game = client.post("/api/games", json={"ordered_player_ids": [alice]}).get_json()["game"]

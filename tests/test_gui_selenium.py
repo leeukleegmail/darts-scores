@@ -5,6 +5,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.support.ui import Select, WebDriverWait
 from tests.selenium_helpers import (
+    _select_player_checkbox,
     _wait,
     add_player,
     browser,
@@ -1024,6 +1025,60 @@ def test_55_by_5_individual_game_can_complete_end_to_end(live_server, browser):
         item.text.strip() for item in browser.find_elements(By.CSS_SELECTOR, "#order-list li .sortable-player-name")
     ]
     assert selected_names == ["Finn"]
+
+
+def test_55_by_5_three_places_game_shows_podium_end_to_end(live_server, browser):
+    """Three or more players can play to 1st/2nd/3rd, shown in order and place colours."""
+    browser.get(live_server)
+    names = ("Place Ann", "Place Ben", "Place Cat")
+    for player_name in names:
+        add_player(browser, player_name)
+        _select_player_checkbox(browser, player_name)
+
+    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-55by5"))).click()
+    popup = _wait(browser).until(ec.visibility_of_element_located((By.ID, "places-start-overlay")))
+    browser.execute_script(
+        """
+        const slider = arguments[0];
+        slider.value = '1';
+        slider.dispatchEvent(new Event('input', { bubbles: true }));
+        """,
+        popup.find_element(By.ID, "places-slider"),
+    )
+    popup.find_element(By.ID, "places-start-game").click()
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
+
+    # Ben finishes 1st, Ann 2nd, Cat is left in 3rd.
+    for value in (0, 180, 0, 0, 95, 0, 180, 0, 95):
+        submit_standard_score_with_keypad(browser, value)
+
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
+    lines = [line.text.strip() for line in browser.find_elements(By.CSS_SELECTOR, "#winner-name > div")]
+    assert lines == ["1st Place Ben", "2nd Place Ann", "3rd Place Cat"]
+
+    _wait(browser).until(ec.element_to_be_clickable((By.ID, "winner-view-summary"))).click()
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "game-summary-overlay")))
+    rows = browser.find_elements(By.CSS_SELECTOR, "#game-summary-body table tbody tr")
+    assert [row.find_element(By.TAG_NAME, "td").text for row in rows] == ["Place Ben", "Place Ann", "Place Cat"]
+    assert [row.find_element(By.TAG_NAME, "td").get_attribute("class") for row in rows] == ["place-1", "place-2", "place-3"]
+    browser.find_element(By.ID, "game-summary-close").click()
+    browser.find_element(By.ID, "winner-continue").click()
+
+    history_text = _wait(browser).until(
+        lambda d: d.find_element(By.CSS_SELECTOR, "#history-list .history-game-button").text
+    )
+    assert "1st Place Ben, 2nd Place Ann, 3rd Place Cat" in history_text
+
+
+def test_55_by_5_two_players_skip_places_popup(live_server, browser):
+    browser.get(live_server)
+    for player_name in ("Duo One", "Duo Two"):
+        add_player(browser, player_name)
+        _select_player_checkbox(browser, player_name)
+
+    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-55by5"))).click()
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
+    assert not browser.find_element(By.ID, "places-start-overlay").is_displayed()
 
 
 def test_winner_overlay_view_summary_shows_final_standings(live_server, browser):
