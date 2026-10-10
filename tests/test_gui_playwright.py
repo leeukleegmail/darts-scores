@@ -1,10 +1,15 @@
+
 import sys
-from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support import expected_conditions as ec
-from selenium.webdriver.support.ui import Select, WebDriverWait
-from tests.selenium_helpers import (
+from tests.playwright_compat import (
+    By,
+    Keys,
+    NoSuchElementException,
+    Select,
+    StaleElementReferenceException,
+    WebDriverWait,
+    ec,
+)
+from tests.playwright_helpers import (
     _select_player_checkbox,
     _wait,
     add_player,

@@ -14,9 +14,9 @@
   - python app.py
 - Primary backend tests:
   - python -m pytest tests/test_app.py -q
-- GUI tests (requires a compatible Chrome or Firefox/WebDriver):
-  - python -m pytest tests/test_gui_selenium.py -q
-- Full test suite (includes Selenium):
+- GUI tests (requires Playwright Chromium; install with `python -m playwright install chromium`):
+- python -m pytest tests/test_gui_playwright.py -q
+- Full test suite (includes Playwright):
   - python -m pytest -q
 - Container run:
   - docker compose up --build

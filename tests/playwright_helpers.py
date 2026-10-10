@@ -4,22 +4,13 @@ import sys
 import tempfile
 import threading
 import time
-from contextlib import suppress
 from urllib.request import urlopen
 
 import pytest
-from selenium import webdriver
-from selenium.common.exceptions import (
-    ElementClickInterceptedException,
-    NoSuchElementException,
-    StaleElementReferenceException,
-    TimeoutException,
-    WebDriverException,
-)
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as ec
-from selenium.webdriver.support.ui import Select, WebDriverWait
+from playwright.sync_api import sync_playwright
 from werkzeug.serving import make_server
+
+from tests.playwright_compat import By, PageAdapter, Select, WebDriverWait, ec
 
 
 def free_port() -> int:
@@ -41,8 +32,8 @@ def wait_http_ready(base_url: str, timeout: float = 10.0) -> None:
 
 @pytest.fixture()
 def live_server(monkeypatch):
-    with tempfile.TemporaryDirectory(prefix="darts-selenium-") as db_dir:
-        db_path = f"{db_dir}/selenium.db"
+    with tempfile.TemporaryDirectory(prefix="darts-playwright-") as db_dir:
+        db_path = f"{db_dir}/playwright.db"
 
         monkeypatch.setenv("FLASK_ENV", "testing")
         monkeypatch.setenv("SQLALCHEMY_DATABASE_URI", f"sqlite:///{db_path}")
@@ -75,78 +66,16 @@ def live_server(monkeypatch):
         thread.join(timeout=3)
 
 
-def _build_chrome_driver():
-    options = webdriver.ChromeOptions()
-    options.add_argument("--headless=new")
-    options.add_argument("--window-size=1400,1000")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
-    return webdriver.Chrome(options=options)
-
-
-def _build_firefox_driver():
-    options = webdriver.FirefoxOptions()
-    options.add_argument("-headless")
-    return webdriver.Firefox(options=options)
-
-
 @pytest.fixture()
 def browser():
-    driver = None
-    builders = (_build_chrome_driver, _build_firefox_driver)
-    for build in builders:
+    with sync_playwright() as playwright:
         try:
-            driver = build()
-            break
-        except WebDriverException:
-            continue
-
-    if driver is None:
-        pytest.skip("No compatible WebDriver/browser found for Selenium GUI tests.")
-
-    try:
-        yield driver
-    finally:
-        _safe_quit_driver(driver)
-
-
-def _safe_quit_driver(driver) -> None:
-    if driver is None:
-        return
-
-    # Close extra windows first; this helps prevent quit() hangs in CI/headless runs.
-    with suppress(Exception):
-        for handle in list(driver.window_handles):
-            with suppress(Exception):
-                driver.switch_to.window(handle)
-                driver.close()
-
-    for _ in range(3):
-        try:
-            driver.quit()
-            break
-        except Exception:
-            time.sleep(0.2)
-
-    service = getattr(driver, "service", None)
-    if service is None:
-        return
-
-    with suppress(Exception):
-        service.stop()
-
-    process = getattr(service, "process", None)
-    if process is None:
-        return
-
-    with suppress(Exception):
-        if process.poll() is None:
-            process.terminate()
-            process.wait(timeout=2)
-
-    with suppress(Exception):
-        if process.poll() is None:
-            process.kill()
+            browser_instance = playwright.chromium.launch(headless=True)
+        except Exception as exc:
+            pytest.skip(f"No Playwright Chromium browser found: {exc}")
+        page = browser_instance.new_page(viewport={"width": 1400, "height": 1000})
+        yield PageAdapter(page)
+        browser_instance.close()
 
 
 def _wait(browser, timeout=8):
@@ -194,7 +123,7 @@ def _select_player_checkbox(browser, player_name: str) -> None:
                 lambda d: d.find_element(By.XPATH, xpath).is_selected()
             )
             return
-        except (StaleElementReferenceException, TimeoutException, WebDriverException):
+        except Exception:
             time.sleep(0.1)
 
     raise AssertionError(f"Unable to select player checkbox for {player_name}")
@@ -395,7 +324,7 @@ def noughts_click_cell(browser, cell_index: int, mark: str) -> None:
     def _cell_marked(driver):
         try:
             return bool(driver.find_elements(By.CSS_SELECTOR, f"[data-board-index='{cell_index}'].is-marked"))
-        except StaleElementReferenceException:
+        except Exception:
             return False
 
     _wait(browser).until(_cell_marked)

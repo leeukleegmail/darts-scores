@@ -30,7 +30,7 @@ This repository is a single-app Flask project:
 - UI templates live in `templates/`
 - Client logic lives in `static/js/script.js`
 - Styling lives in `static/css/style.css`
-- Regression coverage lives in `tests/test_app.py` and `tests/test_gui_selenium.py`
+- Regression coverage lives in `tests/test_app.py` and `tests/test_gui_playwright.py`
 
 Important conventions to preserve:
 
@@ -83,7 +83,7 @@ Important conventions to preserve:
 
    ```bash
    /Users/lee/vscode_projects/darts-scores/.venv/bin/python -m pytest tests/test_app.py -q
-   /Users/lee/vscode_projects/darts-scores/.venv/bin/python -m pytest tests/test_gui_selenium.py -q
+   /Users/lee/vscode_projects/darts-scores/.venv/bin/python -m pytest tests/test_gui_playwright.py -q
    ```
 
    Also check changed-file diagnostics with the editor error tools when code or docs were updated.

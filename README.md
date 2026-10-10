@@ -348,7 +348,7 @@ To add another game type cleanly:
 1. Add the new `game_type` value in `app.py` metadata and creation validation.
 2. Keep backend scoring/replay rules in the small helper functions used by `recompute_game_state()`.
 3. Add a dedicated renderer or UI branch in `static/js/script.js` rather than mixing new rules into existing keypad handlers.
-4. Cover the new flow with both API tests in `tests/test_app.py` and, if it affects the UI, Selenium tests in `tests/test_gui_selenium.py`.
+4. Cover the new flow with both API tests in `tests/test_app.py` and, if it affects the UI, Playwright tests in `tests/test_gui_playwright.py`.
 
 ## Run tests
 
@@ -364,17 +364,18 @@ Backend coverage report:
 python -m pytest tests/test_app.py --cov=app --cov-report=term-missing -q
 ```
 
-Run Selenium GUI tests (requires Chrome or Firefox installed):
+Run Playwright GUI tests:
 
 ```bash
-python -m pytest tests/test_gui_selenium.py -q
+python -m playwright install chromium
+python -m pytest tests/test_gui_playwright.py -q
 ```
 
 Notes for GUI tests:
 
 - Tests run headless.
-- Selenium will try Chrome first, then Firefox.
-- If no compatible browser/WebDriver is available, the GUI tests are skipped.
+- Playwright runs Chromium headlessly.
+- Install the browser once with `python -m playwright install chromium`.
 
 With Docker Compose (containerized test run):
 

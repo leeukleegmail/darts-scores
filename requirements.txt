@@ -4,5 +4,5 @@ python-dotenv==1.0.1
 pytest==8.4.0
 pytest-cov==5.0.0
 coverage==7.6.1
-selenium==4.30.0
+playwright==1.52.0
 urllib3<2
