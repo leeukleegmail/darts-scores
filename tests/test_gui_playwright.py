@@ -27,6 +27,7 @@ from tests.playwright_helpers import (
     start_single_player_game,
     start_x01_game,
     submit_cricket_score_with_keypad,
+    submit_cricket_wickets,
     submit_standard_score_with_keypad,
 )
 
@@ -103,6 +104,32 @@ def test_halve_it_variant_slider_can_start_hardcore(live_server, browser):
     _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
     assert browser.find_element(By.ID, "round-target-turn-panel").is_displayed()
     assert browser.find_element(By.ID, "round-target-current").text.strip()
+
+
+def test_halve_it_standard_game_can_complete_end_to_end(live_server, browser):
+    """A standard Halve It game completes all nine rounds and records its winner."""
+    browser.get(live_server)
+    start_halve_it_game(browser, ["Halve Winner"])
+
+    for round_number in range(1, 10):
+        submit_standard_score_with_keypad(browser, 0)
+        if round_number < 9:
+            _wait(browser).until(
+                ec.text_to_be_present_in_element(
+                    (By.ID, "active-game-meta"),
+                    f"Round {round_number + 1}",
+                )
+            )
+
+    winner_overlay = _wait(browser).until(
+        ec.visibility_of_element_located((By.ID, "winner-overlay"))
+    )
+    assert winner_overlay.is_displayed()
+    assert browser.find_element(By.ID, "winner-name").text.strip() == "Halve Winner"
+
+    history_text = browser.find_element(By.ID, "history-list").text
+    assert "[Halve It]" in history_text
+    assert "Winner Halve Winner" in history_text
 
 
 def test_hi_low_custom_setup_starts_game_and_enables_inputs(live_server, browser):
@@ -1704,6 +1731,45 @@ def test_english_cricket_shows_target_and_remaining_runs_in_second_innings(live_
     assert "target" in panel_text
     assert "remaining runs" in panel_text
     assert "21" in panel_text
+
+
+def test_english_cricket_game_can_complete_end_to_end(live_server, browser):
+    """English Cricket completes both innings and records the chasing team's win."""
+    browser.get(live_server)
+    start_cricket_game(browser, "Cricket A", "Cricket B")
+
+    submit_cricket_wickets(browser, 6)
+    _wait(browser).until(
+        ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "Cricket A to Throw")
+    )
+    submit_cricket_score_with_keypad(browser, 60)
+
+    _wait(browser).until(
+        ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "Cricket B to Throw")
+    )
+    submit_cricket_wickets(browser, 4)
+    _wait(browser).until(
+        ec.text_to_be_present_in_element((By.ID, "cricket-batting-panel"), "TARGET")
+    )
+
+    _wait(browser).until(
+        ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "Cricket A to Throw")
+    )
+    submit_cricket_wickets(browser, 6)
+    _wait(browser).until(
+        ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "Cricket B to Throw")
+    )
+    submit_cricket_score_with_keypad(browser, 65)
+
+    winner_overlay = _wait(browser).until(
+        ec.visibility_of_element_located((By.ID, "winner-overlay"))
+    )
+    assert winner_overlay.is_displayed()
+    assert browser.find_element(By.ID, "winner-name").text.strip() == "Team B"
+
+    history_text = browser.find_element(By.ID, "history-list").text
+    assert "[English Cricket]" in history_text
+    assert "Winner Team B" in history_text
 
 
 def test_english_cricket_shows_message_only_when_more_than_six_marks_selected(live_server, browser):

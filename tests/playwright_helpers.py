@@ -358,6 +358,17 @@ def submit_cricket_score_with_keypad(browser, value: int):
     keypad.find_element(By.CSS_SELECTOR, "[data-keypad-action='submit']").click()
 
 
+def submit_cricket_wickets(browser, wicket_count: int):
+    for _ in range(wicket_count):
+        wicket_buttons = browser.find_elements(
+            By.CSS_SELECTOR,
+            "#cricket-bowling-panel .bullseye-chip:not([disabled]):not(.is-selected)",
+        )
+        assert wicket_buttons
+        wicket_buttons[0].click()
+    browser.find_element(By.ID, "cricket-submit-bowling").click()
+
+
 def enter_value_with_keypad(browser, keypad_id: str, display_id: str, value: int):
     keypad = _wait(browser).until(ec.visibility_of_element_located((By.ID, keypad_id)))
     display = browser.find_element(By.ID, display_id)
