@@ -130,7 +130,7 @@ def test_halve_it_standard_game_can_complete_end_to_end(live_server, browser):
 
     history_text = browser.find_element(By.ID, "history-list").text
     assert "[Halve It]" in history_text
-    assert "Winner Halve Winner" in history_text
+    assert "Halve Winner, " in history_text
 
 
 def test_halve_it_hardcore_game_can_complete_end_to_end(live_server, browser):
@@ -1108,7 +1108,7 @@ def test_55_by_5_individual_game_can_complete_end_to_end(live_server, browser):
     winner_overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
     assert winner_overlay.is_displayed()
     assert browser.find_element(By.ID, "winner-name").text.strip() == "Finn"
-    assert "Winner Finn" in browser.find_element(By.ID, "history-list").text
+    assert "Finn, " in browser.find_element(By.ID, "history-list").text
 
     history_button = browser.find_element(By.CSS_SELECTOR, "#history-list [data-history-game-id]")
     browser.find_element(By.ID, "winner-continue").click()
@@ -1290,7 +1290,7 @@ def test_55_by_5_team_game_can_complete_end_to_end(live_server, browser):
     winner_overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
     assert winner_overlay.is_displayed()
     assert browser.find_element(By.ID, "winner-name").text.strip() == "Red Arrows"
-    assert "Winner Red Arrows" in browser.find_element(By.ID, "history-list").text
+    assert "Red Arrows, " in browser.find_element(By.ID, "history-list").text
 
     browser.find_element(By.ID, "winner-continue").click()
     _wait(browser).until(lambda d: not d.find_element(By.ID, "winner-overlay").is_displayed())
@@ -1848,7 +1848,7 @@ def test_english_cricket_game_can_complete_end_to_end(live_server, browser):
 
     history_text = browser.find_element(By.ID, "history-list").text
     assert "[English Cricket]" in history_text
-    assert "Winner Team B" in history_text
+    assert "Team B, " in history_text
 
 
 def test_english_cricket_shows_message_only_when_more_than_six_marks_selected(live_server, browser):

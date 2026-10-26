@@ -3542,11 +3542,11 @@ async function loadHistory() {
         inferHistoryTeamMembers(game, game.winner_team || "team_a")
       )
       : (game.winner_team_name || game.winner_name || "Unknown");
-    if (placements.length > 1) {
-      button.append(`[${modeLabel}] Game #${game.sequence_number}: `, placeNamesElement(placements), `, ${game.turn_count} turns. Order: ${names}`);
-    } else {
-      button.textContent = `[${modeLabel}] Game #${game.sequence_number}: Winner ${winner}, ${game.turn_count} turns. Order: ${names}`;
-    }
+    const winnerEl = document.createElement("span");
+    winnerEl.className = "place-1";
+    winnerEl.textContent = winner;
+    const resultEl = placements.length > 1 ? placeNamesElement(placements) : winnerEl;
+    button.append(`[${modeLabel}] Game #${game.sequence_number}: `, resultEl, `, ${game.turn_count} turns. Order: ${names}`);
     li.appendChild(button);
     historyListEl.appendChild(li);
   }
