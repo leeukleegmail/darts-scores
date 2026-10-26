@@ -1888,7 +1888,7 @@ function placeNamesElement(placed) {
     if (index > 0) wrapper.append(", ");
     const span = document.createElement("span");
     span.className = `place-${player.place}`;
-    span.textContent = `${placeLabel(player.place)} ${player.name}`;
+    span.textContent = player.name;
     wrapper.appendChild(span);
   });
   return wrapper;

@@ -339,7 +339,7 @@ def test_killer_game_appears_in_history_with_correct_label(live_server, browser)
 
     history_text = browser.find_element(By.ID, "history-list").text
     assert "[Killer]" in history_text
-    assert "1st Killer Hist A, 2nd Killer Hist B" in history_text
+    assert "Killer Hist A, Killer Hist B" in history_text
     assert "[55 by 5]" not in history_text
 
 
@@ -377,7 +377,7 @@ def test_killer_three_players_show_finishing_order_in_recap_and_summary(live_ser
         assert browser.find_elements(By.CSS_SELECTOR, f"#winner-name .{cls}"), f"missing {cls} for place {place}"
 
     history_text = browser.find_element(By.ID, "history-list").text
-    assert "1st Order A, 2nd Order B, 3rd Order C" in history_text
+    assert "Order A, Order B, Order C" in history_text
 
     browser.find_element(By.ID, "winner-view-summary").click()
     summary = _wait(browser).until(ec.visibility_of_element_located((By.ID, "game-summary-overlay")))
@@ -1178,7 +1178,7 @@ def test_55_by_5_three_places_game_shows_podium_end_to_end(live_server, browser)
     history_text = _wait(browser).until(
         lambda d: d.find_element(By.CSS_SELECTOR, "#history-list .history-game-button").text
     )
-    assert "1st Place Ben, 2nd Place Ann, 3rd Place Cat" in history_text
+    assert "Place Ben, Place Ann, Place Cat" in history_text
 
 
 def test_55_by_5_two_players_skip_places_popup(live_server, browser):
