@@ -44,7 +44,7 @@ For **55 by 5**, each turn is entered as one total score value using the on-scre
 
 For **X01**, the start popup lets you choose `1001`, `501`, `301`, or `101`, then players or teams count down to exactly zero. Overshooting zero or leaving `1` is a bust and scores nothing for that turn.
 
-For **Halve It**, each player completes 9 target rounds. Hit the round target to score, or miss it entirely and your running score is halved (rounded down).
+For **Halve It**, each player completes 9 target rounds. Hit the round target to score, or miss it entirely and your running score is halved (rounded down). Finished games rank players by score (gold/silver/bronze for 1st to 3rd, ties share a place) in the recap, summary and history.
 
 For **Hi/Low**, the start popup uses default targets (`low 26`, `high 45`) unless custom values are enabled. Every turn must be strictly lower than the current low target or strictly higher than the current high target. Successful throws update only the target they beat (low goes down or high goes up). Failed turns (including `No Score`) eliminate the player, and the game skips eliminated players automatically.
 
