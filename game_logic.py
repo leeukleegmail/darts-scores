@@ -1732,11 +1732,11 @@ def serialize_players_for_game(
     game: Any,
     x01_state: dict[str, Any] | None = None,
     hi_low_state: dict[str, Any] | None = None,
-    placements: list[int] | None = None,
+    places: dict[int, int] | None = None,
 ) -> list[dict[str, Any]]:
     hi_low_eliminated = set((hi_low_state or {}).get("eliminated_players") or [])
     hi_low_last_success = (hi_low_state or {}).get("last_success") or {}
-    placements = placements or []
+    places = places or {}
     return [
         {
             "id": item["id"],
@@ -1744,7 +1744,7 @@ def serialize_players_for_game(
             "position": item["position"],
             "fives": scores.get(item["id"], 0),
             "team": assignments.get(item["id"]),
-            "place": (placements.index(item["id"]) + 1) if item["id"] in placements else None,
+            "place": places.get(item["id"]),
             "x01_remaining": (
                 (x01_state or {}).get("remaining_scores", {}).get(
                     x01_entity_key_for_player(game, item["id"], assignments),
@@ -1900,7 +1900,7 @@ def build_game_state_payload(
         "standard_state": standard_state if game.game_type == "55by5" and standard_state["places"] == 3 else None,
         "players": serialize_players_for_game(
             ordered_players, scores, assignments, game, x01_state, hi_low_state,
-            killer_placements(game, killer_state) if game.game_type == "killer" else standard_state["placements"],
+            game_places(game, ordered_players, scores, killer_state, standard_state),
         ),
         "turns": serialize_turns_for_game(turn_rows, game),
     }
@@ -2103,6 +2103,38 @@ def killer_placements(game: Any, killer_state: dict[str, Any]) -> list[int]:
         return []
     eliminated = killer_state.get("eliminated_players") or []
     return [game.winner_player_id] + [pid for pid in reversed(eliminated) if pid != game.winner_player_id]
+
+
+def places_from_order(order: list[int]) -> dict[int, int]:
+    return {player_id: place for place, player_id in enumerate(order, start=1)}
+
+
+def halve_it_places(game: Any, scores: dict[int, int]) -> dict[int, int]:
+    """Rank by final score; tied players share a place (1, 1, 3)."""
+    if getattr(game, "status", None) != "finished":
+        return {}
+    ranked = sorted(scores.items(), key=lambda item: -item[1])
+    places: dict[int, int] = {}
+    for index, (player_id, score) in enumerate(ranked):
+        if index > 0 and score == ranked[index - 1][1]:
+            places[player_id] = places[ranked[index - 1][0]]
+        else:
+            places[player_id] = index + 1
+    return places
+
+
+def game_places(
+    game: Any,
+    ordered_players: list[dict[str, Any]],
+    scores: dict[int, int],
+    killer_state: dict[str, Any],
+    standard_state: dict[str, Any],
+) -> dict[int, int]:
+    if game.game_type == "killer":
+        return places_from_order(killer_placements(game, killer_state))
+    if game.game_type == "halve_it":
+        return halve_it_places(game, {player["id"]: scores.get(player["id"], 0) for player in ordered_players})
+    return places_from_order(standard_state["placements"])
 
 
 def next_active_killer_turn_position(

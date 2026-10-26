@@ -35,6 +35,8 @@ from game_logic import (
     parse_standard_state,
     parse_killer_state,
     killer_placements,
+    halve_it_places,
+    places_from_order,
     normalize_requested_team_assignments,
     normalize_requested_team_names,
     normalize_team_mode,
@@ -1220,24 +1222,35 @@ def games_history():
         for player in Player.query.filter(Player.id.in_(winner_player_ids)).all():
             winner_names[player.id] = player.name
 
+    halve_it_scores: dict[int, dict[int, int]] = {}
+    halve_it_game_ids = [g.id for g in games if g.game_type == "halve_it"]
+    if halve_it_game_ids:
+        for row in GameScore.query.filter(GameScore.game_id.in_(halve_it_game_ids)).all():
+            halve_it_scores.setdefault(row.game_id, {})[row.player_id] = row.fives
+
     result = []
     for index, game in enumerate(games):
         winner_name = winner_names.get(game.winner_player_id) if game.winner_player_id else None
 
         participants = game_ordered_players(game.id)
         turn_count = Turn.query.filter_by(game_id=game.id).count()
-        placements = []
+        places: dict[int, int] = {}
         if game.game_type == "55by5":
-            placements = parse_standard_state(game.standard_state)["placements"]
+            places = places_from_order(parse_standard_state(game.standard_state)["placements"])
         elif game.game_type == "killer":
             killer_state = parse_killer_state(game.killer_state, [p["id"] for p in participants])
-            placements = killer_placements(game, killer_state)
+            places = places_from_order(killer_placements(game, killer_state))
+        elif game.game_type == "halve_it":
+            places = halve_it_places(game, halve_it_scores.get(game.id, {}))
         names_by_id = {p["id"]: p["name"] for p in participants}
-        placed_players = [
-            {"id": pid, "name": names_by_id[pid], "place": place}
-            for place, pid in enumerate(placements, start=1)
-            if pid in names_by_id
-        ]
+        placed_players = sorted(
+            (
+                {"id": pid, "name": names_by_id[pid], "place": place}
+                for pid, place in places.items()
+                if pid in names_by_id
+            ),
+            key=lambda entry: entry["place"],
+        )
 
         result.append(
             {

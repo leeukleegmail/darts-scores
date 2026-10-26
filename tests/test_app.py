@@ -2349,6 +2349,48 @@ def test_killer_placements_are_empty_while_game_is_active(client):
     assert all(p["place"] is None for p in state["players"])
 
 
+def _play_halve_it_to_end(client, player_ids, bull_points):
+    """Hardcore starts at 0 so misses keep every score at 0 until the final Bullseye round sets the ranking."""
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": player_ids, "game_type": "halve_it", "halve_it_variant": "hardcore"},
+    ).get_json()["game"]
+    for round_number in range(1, 10):
+        for player_id in player_ids:
+            points = bull_points[player_id] if round_number == 9 else 0
+            response = client.post(f"/api/games/{game['id']}/turn", json={"player_id": player_id, "total_points": points})
+            assert response.status_code == 200
+            game = response.get_json()["game"]
+    return game
+
+
+def test_halve_it_history_and_players_show_places_by_score(client):
+    p1 = add_player(client, "Halve Place A")
+    p2 = add_player(client, "Halve Place B")
+    p3 = add_player(client, "Halve Place C")
+    game = _play_halve_it_to_end(client, [p1, p2, p3], {p1: 25, p2: 75, p3: 50})
+
+    assert game["status"] == "finished"
+    assert game["winner_player_id"] == p2
+    assert {p["id"]: p["place"] for p in game["players"]} == {p2: 1, p3: 2, p1: 3}
+
+    entry = next(e for e in client.get("/api/games/history?limit=10").get_json() if e["id"] == game["id"])
+    assert [(p["id"], p["place"]) for p in entry["placements"]] == [(p2, 1), (p3, 2), (p1, 3)]
+
+
+def test_halve_it_tied_players_share_a_place(client):
+    p1 = add_player(client, "Halve Tie A")
+    p2 = add_player(client, "Halve Tie B")
+    p3 = add_player(client, "Halve Tie C")
+    game = _play_halve_it_to_end(client, [p1, p2, p3], {p1: 75, p2: 75, p3: 25})
+
+    assert game["winner_player_id"] is None
+    assert {p["id"]: p["place"] for p in game["players"]} == {p1: 1, p2: 1, p3: 3}
+
+    entry = next(e for e in client.get("/api/games/history?limit=10").get_json() if e["id"] == game["id"])
+    assert [p["place"] for p in entry["placements"]] == [1, 1, 3]
+
+
 def test_killer_requires_singles_and_two_players(client):
     p1 = add_player(client, "Killer Solo")
     p2 = add_player(client, "Killer Team")
