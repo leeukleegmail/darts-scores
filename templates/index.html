@@ -333,23 +333,18 @@
             <section class="help-section" data-help-section="x01">
               <h4>X01</h4>
               <ul class="help-points">
-                <li>Choose <strong>1001</strong>, <strong>501</strong>, <strong>301</strong>, or <strong>101</strong> in the start popup.</li>
-                <li>Enter one total score for each turn using the keypad.</li>
-                <li>To win, finish on exactly zero. The player decides that their entry is valid before submitting the turn.</li>
-                <li>Overshooting or leaving <strong>1</strong> is a bust and the turn scores nothing.</li>
-                <li>A <strong>checkout suggestion</strong> is shown when your remaining score has a known finish — coverage runs from <strong>170</strong> down to <strong>2</strong> (all reachable doubles).</li>
+                <li>Start from <strong>1001</strong>, <strong>501</strong>, <strong>301</strong> or <strong>101</strong> and count down to exactly zero.</li>
+                <li>Going over, or leaving <strong>1</strong>, is a bust and the turn scores nothing.</li>
+                <li>A checkout suggestion shows when the remaining score can be finished.</li>
               </ul>
             </section>
 
             <section class="help-section" data-help-section="55by5">
               <h4>55 by 5</h4>
               <ul class="help-points">
-                <li>Enter one total score for each turn.</li>
-                <li>Only totals divisible by <strong>5</strong> count.</li>
-                <li>Counted score is converted to <strong>fives</strong> (`total / 5`).</li>
-                <li>Hit exactly <strong>55</strong> fives to win; going over is a bust.</li>
-                <li>In the start popup you can play to a single winner or to <strong>3 places</strong>; the recap and summary then show 1st, 2nd and 3rd.</li>
-                <li>Use <strong>Undo</strong> to remove the latest turn if needed.</li>
+                <li>Only turn totals divisible by <strong>5</strong> count, scoring total / 5 fives.</li>
+                <li>Reach exactly <strong>55</strong> fives to win; going over is a bust.</li>
+                <li>Play to one winner or to <strong>3 places</strong> (gold, silver, bronze).</li>
               </ul>
             </section>
 
@@ -366,48 +361,36 @@
             <section class="help-section" data-help-section="hi-low">
               <h4>Hi/Low</h4>
               <ul class="help-points">
-                <li>Before start, choose default targets (<strong>low 26</strong>, <strong>high 45</strong>) or switch to custom values.</li>
-                <li>Match format works like X01: choose <strong>Best Of</strong> or <strong>First To</strong> and set leg target from 1 to 9.</li>
-                <li>Your score must be <strong>lower than low</strong> or <strong>higher than high</strong> (equal does not count).</li>
-                <li>Successful throws update only the target they beat: lower scores move <strong>Low</strong> down, higher scores move <strong>High</strong> up.</li>
-                <li><strong>No Score</strong> always eliminates the current player in this mode.</li>
-                <li>Eliminated players are crossed out and skipped in turn order.</li>
-                <li>Solo: last active player wins. Teams: the last team with active players wins.</li>
+                <li>Score <strong>lower than Low</strong> or <strong>higher than High</strong> (equal does not count); the target you beat moves to your score.</li>
+                <li><strong>No Score</strong> eliminates the player. Defaults are low <strong>26</strong> and high <strong>45</strong>, or set custom values.</li>
+                <li>Last active player (or team) wins the leg; play Best Of or First To a set number of legs.</li>
               </ul>
             </section>
 
             <section class="help-section" data-help-section="killer">
               <h4>Killer</h4>
               <ul class="help-points">
-                <li>Choose <strong>5</strong> or <strong>10</strong> starting lives before the game begins.</li>
-                <li>The first player must score more than <strong>26</strong>.</li>
-                <li>After a successful turn, every following player must beat that score.</li>
-                <li>Failing to beat the target costs one life and resets the target to <strong>26</strong>.</li>
-                <li>Eliminated players are crossed out and skipped in turn order.</li>
-                <li>The last player with lives remaining wins. Killer supports <strong>Singles</strong> only.</li>
-                <li>Players are ranked in finishing order: the winner is 1st, then the last player eliminated, and so on. The winner popup, game summary and Recent Games show this order, with gold, silver and bronze for the top three.</li>
+                <li>Start with <strong>5</strong> or <strong>10</strong> starting lives. Singles only.</li>
+                <li>Beat the previous score (the first player must beat <strong>26</strong>) or lose a life; the target then resets to <strong>26</strong>.</li>
+                <li>Last player with lives wins; players are ranked by finishing order, with gold, silver and bronze for the top three.</li>
               </ul>
             </section>
 
             <section class="help-section" data-help-section="cricket">
               <h4>English Cricket</h4>
               <ul class="help-points">
-                <li>The <strong>Starting Roles</strong> popup lets Team A choose whether to <strong>Bat</strong> or <strong>Bowl</strong>.</li>
-                <li>The live view splits into a bowling panel and a batting panel.</li>
-                <li>For bowling, click the bull markers to record wicket marks, then submit the turn.</li>
-                <li>For batting, enter the total score; runs are counted from strong scoring turns.</li>
-                <li>In the chase, the panel shows <strong>Target</strong> and <strong>Remaining Runs</strong>.</li>
+                <li>Team A chooses to <strong>Bat</strong> or <strong>Bowl</strong> (see <strong>Starting Roles</strong>).</li>
+                <li>Bowlers take wickets by hitting the bull; batters score runs from strong scoring turns.</li>
+                <li>In the chase, the batting side must beat the <strong>Target</strong> before running out of wickets.</li>
               </ul>
             </section>
 
             <section class="help-section" data-help-section="noughts">
               <h4>Noughts and Crosses</h4>
               <ul class="help-points">
-                <li>Each match generates a fresh board of dart targets using <strong>Big</strong>, <strong>Small</strong>, <strong>Double</strong>, and <strong>Treble</strong> segments from 1 to 20.</li>
-                <li>The center square is always <strong>Bullseye</strong>.</li>
-                <li>Tap an open square and choose whether to claim it as <strong>X</strong> or <strong>O</strong>.</li>
-                <li>The X/O side boxes show who is assigned each side; turn order is managed by players at the board.</li>
-                <li>When a game ends, use <strong>Rematch</strong> in the winner popup to restart with swapped starting side/order.</li>
+                <li>Each match has a random board of <strong>Big</strong>, <strong>Small</strong>, <strong>Double</strong> and <strong>Treble</strong> targets, with Bullseye in the centre.</li>
+                <li>Hit a square's target to claim it as <strong>X</strong> or <strong>O</strong>.</li>
+                <li>First side to make three in a row wins.</li>
               </ul>
             </section>
 
