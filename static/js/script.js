@@ -63,7 +63,6 @@ const shuffleOrderBtnEl = document.getElementById("shuffle-order-btn");
 const activeGameMetaEl = document.getElementById("active-game-meta");
 const matchStatusSummaryEl = document.getElementById("match-status-summary");
 const scoreboardEl = document.getElementById("scoreboard");
-const turnsListEl = document.getElementById("turns-list");
 const historyListEl = document.getElementById("history-list");
 const turnInputEl = document.getElementById("turn-input");
 const standardTurnControlsEl = document.getElementById("standard-turn-controls");
@@ -437,7 +436,7 @@ function showWinnerOverlay(winnerName, game = null) {
     placed.forEach((player) => {
       const line = document.createElement("div");
       line.className = `place-${player.place}`;
-      line.textContent = `${PLACE_LABELS[player.place]} ${player.name}`;
+      line.textContent = `${placeLabel(player.place)} ${player.name}`;
       winnerNameEl.appendChild(line);
     });
   }
@@ -457,6 +456,18 @@ function prioritizeSummaryWinnerRows(root, game) {
   if (!tbody) return;
 
   const rows = Array.from(tbody.rows);
+  if (game.team_mode !== "teams") {
+    const placed = placedPlayersInOrder(game);
+    if (placed.length > 1) {
+      const fragment = document.createDocumentFragment();
+      placed.forEach((player) => {
+        const row = rows.find((r) => r.cells[0]?.textContent.trim() === player.name);
+        if (row) fragment.appendChild(row);
+      });
+      tbody.insertBefore(fragment, tbody.firstChild);
+      return;
+    }
+  }
   if (game.team_mode === "teams" && game.winner_team) {
     const members = game.players.filter((player) => player.team === game.winner_team);
     const winnerTeamLabel = teamInitialsLabel(
@@ -1861,6 +1872,10 @@ function closePlacesStartOverlay() {
 
 const PLACE_LABELS = { 1: "1st", 2: "2nd", 3: "3rd" };
 
+function placeLabel(place) {
+  return PLACE_LABELS[place] || `${place}th`;
+}
+
 function placedPlayersInOrder(game) {
   return (game?.players || [])
     .filter((player) => player.place)
@@ -1873,7 +1888,7 @@ function placeNamesElement(placed) {
     if (index > 0) wrapper.append(", ");
     const span = document.createElement("span");
     span.className = `place-${player.place}`;
-    span.textContent = `${PLACE_LABELS[player.place]} ${player.name}`;
+    span.textContent = `${placeLabel(player.place)} ${player.name}`;
     wrapper.appendChild(span);
   });
   return wrapper;
@@ -3270,7 +3285,6 @@ function renderGame() {
     }
     activeGameMetaEl.textContent = "No active game.";
     scoreboardEl.innerHTML = "";
-    turnsListEl.innerHTML = "";
     turnInputEl.classList.add("hidden");
     if (standardTurnControlsEl) {
       standardTurnControlsEl.classList.remove("hidden");
@@ -3438,44 +3452,6 @@ function renderGame() {
     renderX01TurnPanel({ game_type: null });
     renderRoundTargetTurnPanel({ game_type: null });
     renderStandardScoreboard(game);
-  }
-
-  turnsListEl.innerHTML = "";
-  for (const turn of game.turns.slice().reverse()) {
-    const li = document.createElement("li");
-    const turnNote = isCricket
-      ? (turn.counted
-        ? `+${turn.fives_awarded} ${turn.total_points <= 6 ? "wicket marks" : "runs"}`
-        : "no score")
-      : isX01
-        ? (turn.x01_result === "bust_overshoot"
-          ? "bust below zero"
-          : turn.x01_result === "bust_leave_one"
-            ? "bust on 1 remaining"
-                : `${turn.total_points} scored`)
-      : isHalveIt
-        ? (turn.halve_it_halved
-          ? `${turn.halve_it_target || "target"} missed, score halved`
-          : `+${turn.fives_awarded} on ${turn.halve_it_target || "target"}`)
-      : isHiLow
-        ? (turn.hi_low_result === "eliminated"
-          ? "eliminated"
-          : "updated targets")
-      : isNoughts
-        ? (turn.counted
-          ? `${turn.noughts_marker || "Mark"} on ${turn.board_label || `square ${turn.board_index + 1}`}`
-          : `${turn.board_label || "square"} already taken`)
-      : isKiller
-        ? (turn.counted ? `beat target with ${turn.total_points}` : "lost a life; target reset")
-        : turn.counted
-          ? `+${turn.fives_awarded} fives`
-          : turn.total_points % 5 === 0
-            ? "bust"
-            : "+0 fives";
-    li.textContent = isNoughts
-      ? `#${turn.turn_number} ${turn.player_name}: ${turnNote}`
-      : `#${turn.turn_number} ${turn.player_name}: total ${turn.total_points} (${turnNote})`;
-    turnsListEl.appendChild(li);
   }
 
   if (turnInputLabelEl && !isCricket) {

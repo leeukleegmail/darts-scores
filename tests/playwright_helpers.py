@@ -330,6 +330,10 @@ def noughts_click_cell(browser, cell_index: int, mark: str) -> None:
     _wait(browser).until(_cell_marked)
 
 
+def wait_for_turn_count(browser, count):
+    _wait(browser).until(lambda d: d.execute_script("return (state.game && state.game.turns.length) || 0;") >= count)
+
+
 def submit_standard_score_with_keypad(browser, value: int):
     keypad = _wait(browser).until(ec.visibility_of_element_located((By.ID, "standard-score-keypad")))
     display = browser.find_element(By.ID, "turn-total")

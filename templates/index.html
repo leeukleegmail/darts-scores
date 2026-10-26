@@ -235,9 +235,6 @@
             <button id="quit-game" type="button">Quit Game</button>
           </div>
         </div>
-
-        <h3>Turns</h3>
-        <ul id="turns-list" class="list compact"></ul>
       </section>
 
       <section class="panel" id="history-panel">
@@ -351,6 +348,7 @@
                 <li>Only totals divisible by <strong>5</strong> count.</li>
                 <li>Counted score is converted to <strong>fives</strong> (`total / 5`).</li>
                 <li>Hit exactly <strong>55</strong> fives to win; going over is a bust.</li>
+                <li>In the start popup you can play to a single winner or to <strong>3 places</strong>; the recap and summary then show 1st, 2nd and 3rd.</li>
                 <li>Use <strong>Undo</strong> to remove the latest turn if needed.</li>
               </ul>
             </section>
@@ -366,7 +364,9 @@
                 <li>Double and Triple rounds use <strong>points scored</strong> entry.</li>
                 <li>Bull round accepts hit count (0 to 6) or bull points in steps of 25.</li>
                 <li>Use the variant slider in <strong>Select Game</strong> to switch between <strong>Standard</strong> and <strong>Hardcore</strong>.</li>
-                <li>Hardcore uses custom challenge rounds: round 8 is an exact target chosen from preset values around 40/100/120, and round 9 is Bullseye.</li>
+                <li>Hardcore rounds are 20, Any Double, 19 or 16, Three Different Colors, round 5, Black-White-Black, Any Treble, round 8, and Bullseye.</li>
+                <li>Hardcore round 5 is either <strong>17</strong> (hit count) or an exact target between <strong>41</strong> and <strong>99</strong>: enter your 3-dart total and score it only if it matches exactly.</li>
+                <li>Hardcore round 8 shows <strong>41</strong>, <strong>101</strong> and <strong>123</strong> together; an exact total matching any one of them scores that target.</li>
                 <li>Teams are not supported in Halve It; use <strong>Singles</strong>.</li>
               </ul>
             </section>
@@ -393,6 +393,7 @@
                 <li>Failing to beat the target costs one life and resets the target to <strong>26</strong>.</li>
                 <li>Eliminated players are crossed out and skipped in turn order.</li>
                 <li>The last player with lives remaining wins. Killer supports <strong>Singles</strong> only.</li>
+                <li>Players are ranked in finishing order: the winner is 1st, then the last player eliminated, and so on. The winner popup, game summary and Recent Games show this order, with gold, silver and bronze for the top three.</li>
               </ul>
             </section>
 

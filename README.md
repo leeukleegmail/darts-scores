@@ -48,7 +48,7 @@ For **Halve It**, each player completes 9 target rounds. Hit the round target to
 
 For **Hi/Low**, the start popup uses default targets (`low 26`, `high 45`) unless custom values are enabled. Every turn must be strictly lower than the current low target or strictly higher than the current high target. Successful throws update only the target they beat (low goes down or high goes up). Failed turns (including `No Score`) eliminate the player, and the game skips eliminated players automatically.
 
-For **Killer**, choose 5 or 10 starting lives in the start popup. The opening player must beat 26, then each player must beat the previous successful score. A failed score loses one life and resets the target to 26. Eliminated players are skipped, and the last player with lives remaining wins. Killer is singles-only.
+For **Killer**, choose 5 or 10 starting lives in the start popup. The opening player must beat 26, then each player must beat the previous successful score. A failed score loses one life and resets the target to 26. Eliminated players are skipped, and the last player with lives remaining wins. Players are ranked in finishing order (winner first, then last eliminated first), shown with gold/silver/bronze in the winner popup, game summary and Recent Games. Killer is singles-only.
 
 For **Noughts and Crosses**, each game generates a fresh board of dart targets and players claim squares as `X` or `O` until one side completes three in a row.
 
@@ -258,7 +258,7 @@ Notes:
 - Double/Triple challenge rounds use points entry.
 - Miss a round target and your running score is halved (rounded down).
 - Standard and Hardcore variants are available via the game selection slider.
-- Hardcore rounds are 20, Any Double, 19 or 16, Three Different Colors, 17 or Target 41/101/123, Black-White-Black, Any Treble, Exact 41/101/123 (all shown, score one if hit), and Bullseye.
+- Hardcore rounds are 20, Any Double, 19 or 16, Three Different Colors, 17 or a random Target 41-99, Black-White-Black, Any Treble, Exact 41/101/123 (all shown, score one if hit), and Bullseye.
 
 ### Hi/Low
 

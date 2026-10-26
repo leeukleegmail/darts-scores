@@ -1497,6 +1497,46 @@ td {
   border-bottom: 1px solid var(--line);
 }
 
+@media (min-width: 641px) {
+  #standard-scoreboard-section:not(.game-summary-body *) h3 {
+    font-size: clamp(1.4rem, 2.4vw, 2rem);
+  }
+
+  #standard-scoreboard-section:not(.game-summary-body *) th,
+  #standard-scoreboard-section:not(.game-summary-body *) td {
+    font-size: clamp(1.3rem, 2.4vw, 2rem);
+    padding: 0.6rem 0.7rem;
+  }
+}
+
+@media (min-width: 641px) {
+  #live-panel .cricket-panel-header h4 {
+    font-size: clamp(1.4rem, 2.4vw, 2rem);
+  }
+
+  #live-panel .cricket-role-tag,
+  #live-panel .cricket-role-value,
+  #live-panel .cricket-selection-row {
+    font-size: clamp(1.1rem, 2vw, 1.6rem);
+  }
+
+  #live-panel .cricket-score-pill span {
+    font-size: clamp(1.1rem, 2vw, 1.5rem);
+  }
+
+  #live-panel .cricket-score-pill strong {
+    font-size: clamp(2.6rem, 5vw, 4rem);
+  }
+
+  #live-panel .noughts-side-pill strong {
+    font-size: clamp(1.8rem, 3.2vw, 2.6rem);
+  }
+
+  #live-panel .noughts-status-copy {
+    font-size: clamp(1.3rem, 2.4vw, 2rem);
+  }
+}
+
 #scoreboard-table.scoreboard-x01 th:nth-child(2),
 #scoreboard-table.scoreboard-x01 th:nth-child(3),
 #scoreboard-table.scoreboard-x01 th:nth-child(4),
@@ -2485,6 +2525,29 @@ td {
   margin: 0 0 0.75rem;
   font-weight: 700;
   color: #ffd93d;
+}
+
+/* Keypad and target/score share the screen side by side: use the extra space. */
+@media (min-width: 641px) {
+  .round-target-turn-pill span {
+    font-size: clamp(1.1rem, 2vw, 1.6rem);
+  }
+
+  .round-target-turn-pill strong {
+    font-size: clamp(3.5rem, 8vw, 7rem);
+  }
+
+  .x01-turn-pill span {
+    font-size: clamp(1.1rem, 2vw, 1.6rem);
+  }
+
+  .x01-turn-pill strong {
+    font-size: clamp(2.6rem, 5vw, 4.5rem);
+  }
+
+  .x01-turn-pill--remaining strong {
+    font-size: clamp(4rem, 9vw, 8rem);
+  }
 }
 
 @media (max-width: 640px) {

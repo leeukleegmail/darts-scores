@@ -33,6 +33,8 @@ from game_logic import (
     normalize_noughts_marker,
     normalize_play_to_places,
     parse_standard_state,
+    parse_killer_state,
+    killer_placements,
     normalize_requested_team_assignments,
     normalize_requested_team_names,
     normalize_team_mode,
@@ -1224,7 +1226,12 @@ def games_history():
 
         participants = game_ordered_players(game.id)
         turn_count = Turn.query.filter_by(game_id=game.id).count()
-        placements = parse_standard_state(game.standard_state)["placements"] if game.game_type == "55by5" else []
+        placements = []
+        if game.game_type == "55by5":
+            placements = parse_standard_state(game.standard_state)["placements"]
+        elif game.game_type == "killer":
+            killer_state = parse_killer_state(game.killer_state, [p["id"] for p in participants])
+            placements = killer_placements(game, killer_state)
         names_by_id = {p["id"]: p["name"] for p in participants}
         placed_players = [
             {"id": pid, "name": names_by_id[pid], "place": place}

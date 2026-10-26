@@ -1396,6 +1396,8 @@ def test_halve_it_hardcore_variant_generates_custom_rounds(client):
     else:
         assert round_5["kind"] == "exact_total"
         assert round_5["target"].startswith("Target ")
+        assert 41 <= round_5["exact_total"] <= 99
+        assert round_5["target"] == f"Target {round_5['exact_total']}"
 
 
 def test_halve_it_hardcore_round_9_is_bullseye(client):
@@ -2328,6 +2330,23 @@ def test_killer_eliminates_players_skips_turns_and_finishes(client):
     assert killer_entry["game_type"] == "killer"
     assert killer_entry["game_type_label"] == "Killer"
     assert killer_entry["winner_player_id"] == p3
+    assert [(p["id"], p["place"]) for p in killer_entry["placements"]] == [(p3, 1), (p2, 2), (p1, 3)]
+
+    players = {p["id"]: p["place"] for p in game["players"]}
+    assert players == {p3: 1, p2: 2, p1: 3}
+
+
+def test_killer_placements_are_empty_while_game_is_active(client):
+    p1 = add_player(client, "Killer Active A")
+    p2 = add_player(client, "Killer Active B")
+    game = client.post(
+        "/api/games",
+        json={"ordered_player_ids": [p1, p2], "game_type": "killer", "killer_starting_lives": 5},
+    ).get_json()["game"]
+
+    state = client.post(f"/api/games/{game['id']}/turn", json={"player_id": p1, "total_points": 0}).get_json()["game"]
+    assert state["status"] == "active"
+    assert all(p["place"] is None for p in state["players"])
 
 
 def test_killer_requires_singles_and_two_players(client):

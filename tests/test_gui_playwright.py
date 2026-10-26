@@ -29,6 +29,7 @@ from tests.playwright_helpers import (
     submit_cricket_score_with_keypad,
     submit_cricket_wickets,
     submit_standard_score_with_keypad,
+    wait_for_turn_count,
 )
 
 
@@ -130,6 +131,42 @@ def test_halve_it_standard_game_can_complete_end_to_end(live_server, browser):
     history_text = browser.find_element(By.ID, "history-list").text
     assert "[Halve It]" in history_text
     assert "Winner Halve Winner" in history_text
+
+
+def test_halve_it_hardcore_game_can_complete_end_to_end(live_server, browser):
+    """A Hardcore Halve It game plays all nine rounds and round 5 is 17 or a 41-99 target."""
+    browser.get(live_server)
+    add_player(browser, "Hard Winner")
+    _select_player_checkbox(browser, "Hard Winner")
+
+    slider = _wait(browser).until(ec.presence_of_element_located((By.ID, "halve-it-variant")))
+    browser.execute_script(
+        """
+        const slider = arguments[0];
+        slider.value = '1';
+        slider.dispatchEvent(new Event('input', { bubbles: true }));
+        slider.dispatchEvent(new Event('change', { bubbles: true }));
+        """,
+        slider,
+    )
+    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "halve-it-variant-label"), "Hardcore"))
+    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-halve-it"))).click()
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
+
+    for round_number in range(1, 10):
+        _wait(browser).until(
+            ec.text_to_be_present_in_element((By.ID, "active-game-meta"), f"Round {round_number}")
+        )
+        if round_number == 5:
+            target = browser.find_element(By.ID, "round-target-current").text.strip()
+            if target != "17":
+                assert target.startswith("Target ")
+                assert 41 <= int(target.removeprefix("Target ")) <= 99
+        submit_standard_score_with_keypad(browser, 0)
+
+    winner_overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
+    assert winner_overlay.is_displayed()
+    assert browser.find_element(By.ID, "winner-name").text.strip() == "Hard Winner"
 
 
 def test_hi_low_custom_setup_starts_game_and_enables_inputs(live_server, browser):
@@ -265,7 +302,7 @@ def test_killer_setup_starts_singles_game_with_lives_and_target(live_server, bro
     assert "10" in browser.find_element(By.ID, "scoreboard").text
 
     submit_standard_score_with_keypad(browser, 60)
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#1 Kira: total 60 (beat target with 60)"))
+    wait_for_turn_count(browser, 1)
     assert browser.find_element(By.ID, "round-target-current").text.strip() == "60"
 
 
@@ -298,12 +335,54 @@ def test_killer_game_appears_in_history_with_correct_label(live_server, browser)
 
     winner_overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
     assert winner_overlay.is_displayed()
-    assert browser.find_element(By.ID, "winner-name").text.strip() == "Killer Hist A"
+    assert browser.find_element(By.ID, "winner-name").text.strip() == "1st Killer Hist A\n2nd Killer Hist B"
 
     history_text = browser.find_element(By.ID, "history-list").text
     assert "[Killer]" in history_text
-    assert "Winner Killer Hist A" in history_text
+    assert "1st Killer Hist A, 2nd Killer Hist B" in history_text
     assert "[55 by 5]" not in history_text
+
+
+def test_killer_three_players_show_finishing_order_in_recap_and_summary(live_server, browser):
+    """Killer ranks players by elimination order: winner, last eliminated, first eliminated."""
+    browser.get(live_server)
+
+    names = ("Order A", "Order B", "Order C")
+    for player_name in names:
+        add_player(browser, player_name)
+        _select_player_checkbox(browser, player_name)
+
+    _wait(browser).until(ec.element_to_be_clickable((By.ID, "choose-killer"))).click()
+    popup = _wait(browser).until(ec.visibility_of_element_located((By.ID, "killer-start-overlay")))
+    popup.find_element(By.ID, "killer-start-game").click()
+    _wait(browser).until(ec.visibility_of_element_located((By.ID, "live-panel")))
+
+    def throw(player_name, value):
+        _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), f"{player_name} to Throw"))
+        submit_standard_score_with_keypad(browser, value)
+
+    # C loses a life every turn and is eliminated first; B is then eliminated by the last turn.
+    for _ in range(5):
+        throw("Order A", 27)
+        throw("Order B", 28)
+        throw("Order C", 0)
+    for _ in range(5):
+        throw("Order A", 27)
+        throw("Order B", 0)
+
+    winner_overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
+    assert winner_overlay.is_displayed()
+    assert browser.find_element(By.ID, "winner-name").text.strip() == "1st Order A\n2nd Order B\n3rd Order C"
+    for place, cls in ((1, "place-1"), (2, "place-2"), (3, "place-3")):
+        assert browser.find_elements(By.CSS_SELECTOR, f"#winner-name .{cls}"), f"missing {cls} for place {place}"
+
+    history_text = browser.find_element(By.ID, "history-list").text
+    assert "1st Order A, 2nd Order B, 3rd Order C" in history_text
+
+    browser.find_element(By.ID, "winner-view-summary").click()
+    summary = _wait(browser).until(ec.visibility_of_element_located((By.ID, "game-summary-overlay")))
+    rows = summary.find_elements(By.CSS_SELECTOR, "tbody tr")
+    assert [row.find_elements(By.TAG_NAME, "td")[0].text.strip() for row in rows] == list(names)
 
 
 def test_active_game_hides_select_game_panel_and_change_game_button(live_server, browser):
@@ -330,7 +409,7 @@ def test_55_by_5_onscreen_keypad_can_submit_a_score(live_server, browser):
     keypad.find_element(By.CSS_SELECTOR, "[data-keypad-value='5']").click()
     keypad.find_element(By.CSS_SELECTOR, "[data-keypad-action='submit']").click()
 
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#1 Piper: total 75"))
+    wait_for_turn_count(browser, 1)
     assert "15" in browser.find_element(By.ID, "scoreboard").text
 
 
@@ -347,7 +426,7 @@ def test_standard_keypad_disables_submit_when_score_exceeds_180(live_server, bro
     assert submit_button.get_attribute("disabled") is None
 
     submit_button.click()
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#1 Piper: total 180"))
+    wait_for_turn_count(browser, 1)
 
 
 def test_english_cricket_batting_panel_shows_onscreen_keypad(live_server, browser):
@@ -1024,7 +1103,7 @@ def test_55_by_5_individual_game_can_complete_end_to_end(live_server, browser):
     for turn_number, value in enumerate(turn_values, start=1):
         submit_standard_score_with_keypad(browser, value)
         if turn_number < len(turn_values):
-            _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), f"#{turn_number} Finn: total {value}"))
+            wait_for_turn_count(browser, turn_number)
 
     winner_overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
     assert winner_overlay.is_displayed()
@@ -1206,7 +1285,7 @@ def test_55_by_5_team_game_can_complete_end_to_end(live_server, browser):
         _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), f"{player_name} to Throw"))
         submit_standard_score_with_keypad(browser, value)
         if turn_number < len(scripted_turns):
-            _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), f"#{turn_number} {player_name}: total {value}"))
+            wait_for_turn_count(browser, turn_number)
 
     winner_overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
     assert winner_overlay.is_displayed()
@@ -1316,7 +1395,7 @@ def test_hi_low_solo_game_can_complete_end_to_end_with_eliminations(live_server,
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "Ari to Throw"))
     submit_standard_score_with_keypad(browser, 40)
 
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#1 Ari: total 40 (eliminated)"))
+    wait_for_turn_count(browser, 1)
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "Bea to Throw"))
     ari_row = _wait(browser).until(
         ec.presence_of_element_located((By.XPATH, "//tbody[@id='scoreboard']/tr[td[normalize-space()='Ari']]"))
@@ -1324,7 +1403,7 @@ def test_hi_low_solo_game_can_complete_end_to_end_with_eliminations(live_server,
     assert "eliminated-row" in ari_row.get_attribute("class")
 
     submit_standard_score_with_keypad(browser, 65)
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#2 Bea: total 65 (updated targets)"))
+    wait_for_turn_count(browser, 2)
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), "Cal to Throw"))
 
     submit_standard_score_with_keypad(browser, 65)
@@ -1340,12 +1419,12 @@ def test_hi_low_first_to_two_requires_two_leg_wins_end_to_end(live_server, brows
     start_hi_low_game(browser, ["Ari", "Bea"], match_type="first_to", legs_value=2)
 
     submit_standard_score_with_keypad(browser, 30)
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#1 Ari: total 30 (eliminated)"))
+    wait_for_turn_count(browser, 1)
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "scoreboard"), "Bea"))
     assert not browser.find_element(By.ID, "winner-overlay").is_displayed()
 
     submit_standard_score_with_keypad(browser, 40)
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#2 Bea: total 40 (eliminated)"))
+    wait_for_turn_count(browser, 2)
     assert not browser.find_element(By.ID, "winner-overlay").is_displayed()
 
     submit_standard_score_with_keypad(browser, 40)
@@ -1393,7 +1472,7 @@ def test_hi_low_team_game_can_finish_by_team_survival(live_server, browser):
         _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "active-game-meta"), f"{player_name} to Throw"))
         submit_standard_score_with_keypad(browser, value)
         if turn_number < len(scripted_turns):
-            _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), f"#{turn_number} {player_name}: total {value}"))
+            wait_for_turn_count(browser, turn_number)
 
     winner_overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))
     assert winner_overlay.is_displayed()
@@ -1464,12 +1543,12 @@ def test_x01_first_to_three_requires_three_legs_to_win_end_to_end(live_server, b
     )
 
     submit_standard_score_with_keypad(browser, 101)
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#1 Ava: total 101"))
+    wait_for_turn_count(browser, 1)
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "scoreboard"), "101"))
     assert not browser.find_element(By.ID, "winner-overlay").is_displayed()
 
     submit_standard_score_with_keypad(browser, 101)
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#2 Ava: total 101"))
+    wait_for_turn_count(browser, 2)
     assert not browser.find_element(By.ID, "winner-overlay").is_displayed()
 
     submit_standard_score_with_keypad(browser, 101)
@@ -1497,11 +1576,11 @@ def test_x01_scoreboard_legs_and_target_increment_each_new_leg(live_server, brow
     assert scoreboard_row_values() == ["Ava", "101", "0", "3"]
 
     submit_standard_score_with_keypad(browser, 101)
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#1 Ava: total 101"))
+    wait_for_turn_count(browser, 1)
     _wait(browser).until(lambda d: scoreboard_row_values() == ["Ava", "101", "1", "3"])
 
     submit_standard_score_with_keypad(browser, 101)
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#2 Ava: total 101"))
+    wait_for_turn_count(browser, 2)
     _wait(browser).until(lambda d: scoreboard_row_values() == ["Ava", "101", "2", "3"])
 
 
@@ -1517,7 +1596,7 @@ def test_x01_best_of_three_finishes_after_two_legs_end_to_end(live_server, brows
     )
 
     submit_standard_score_with_keypad(browser, 101)
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#1 Nora: total 101"))
+    wait_for_turn_count(browser, 1)
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "scoreboard"), "101"))
     assert not browser.find_element(By.ID, "winner-overlay").is_displayed()
 
@@ -1541,7 +1620,7 @@ def test_x01_team_game_can_complete_end_to_end(live_server, browser):
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turn-player-name"), "Bryn"))
 
     submit_standard_score_with_keypad(browser, 0)
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#2 Bryn: total 0"))
+    wait_for_turn_count(browser, 2)
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turn-player-name"), "Aria"))
 
     submit_standard_score_with_keypad(browser, 41)
@@ -1861,7 +1940,7 @@ def test_bust_shows_red_banner_for_three_seconds(live_server, browser):
 
     for turn_number, value in enumerate(turn_values, start=1):
         submit_standard_score_with_keypad(browser, value)
-        _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), f"#{turn_number} Dana: total {value}"))
+        wait_for_turn_count(browser, turn_number)
 
     # Final 15 causes bust; assert the banner immediately rather than after score refresh.
     submit_standard_score_with_keypad(browser, 15)
@@ -1881,7 +1960,7 @@ def test_non_divisible_by_five_shows_popup_and_keeps_total(live_server, browser)
 
     _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "score-warning-banner"), "Total scored must be divisible by 5."))
     _wait(browser).until(lambda d: "visible" in d.find_element(By.ID, "score-warning-banner").get_attribute("class"))
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "total 12 (+0 fives)"))
+    wait_for_turn_count(browser, 1)
 
     scoreboard_text = browser.find_element(By.ID, "scoreboard").text
     assert "Eve" in scoreboard_text
@@ -1934,12 +2013,10 @@ def test_noughts_individual_turn_appears_in_turn_log(live_server, browser):
     start_noughts_game(browser, "Grace", "Hal")
 
     noughts_click_cell(browser, 2, "X")
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#1 Grace:"))
-    turn_text = browser.find_element(By.ID, "turns-list").text
-    assert "X" in turn_text or "x" in turn_text.lower()
+    wait_for_turn_count(browser, 1)
 
     noughts_click_cell(browser, 3, "O")
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#2 Hal:"))
+    wait_for_turn_count(browser, 2)
 
 
 def test_noughts_individual_undo_button_is_visible_and_functional(live_server, browser):
@@ -1948,7 +2025,7 @@ def test_noughts_individual_undo_button_is_visible_and_functional(live_server, b
     start_noughts_game(browser, "Ida", "Jake")
 
     noughts_click_cell(browser, 4, "X")
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#1 Ida:"))
+    wait_for_turn_count(browser, 1)
 
     undo_btn = _wait(browser).until(ec.element_to_be_clickable((By.ID, "cricket-undo-turn")))
     assert undo_btn.is_displayed()
@@ -1968,9 +2045,9 @@ def test_noughts_individual_undo_preserves_other_cells(live_server, browser):
     start_noughts_game(browser, "Kim", "Leo")
 
     noughts_click_cell(browser, 0, "X")
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#1 Kim:"))
+    wait_for_turn_count(browser, 1)
     noughts_click_cell(browser, 1, "O")
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#2 Leo:"))
+    wait_for_turn_count(browser, 2)
 
     browser.find_element(By.ID, "cricket-undo-turn").click()
 
@@ -1989,13 +2066,13 @@ def test_noughts_individual_winning_line_shows_winner_overlay(live_server, brows
     # Claim cells 0, 1, 2 with X (rows 0–2 of the top row) to make X win
     # Alternate marks: Mia=X, Ned=O
     noughts_click_cell(browser, 0, "X")
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#1 Mia:"))
+    wait_for_turn_count(browser, 1)
     noughts_click_cell(browser, 3, "O")
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#2 Ned:"))
+    wait_for_turn_count(browser, 2)
     noughts_click_cell(browser, 1, "X")
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#3 Mia:"))
+    wait_for_turn_count(browser, 3)
     noughts_click_cell(browser, 4, "O")
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#4 Ned:"))
+    wait_for_turn_count(browser, 4)
     noughts_click_cell(browser, 2, "X")
 
     # Winner overlay must appear
@@ -2011,7 +2088,7 @@ def test_noughts_individual_claimed_cell_is_disabled(live_server, browser):
     start_noughts_game(browser, "Ona", "Pat")
 
     noughts_click_cell(browser, 5, "X")
-    _wait(browser).until(ec.text_to_be_present_in_element((By.ID, "turns-list"), "#1 Ona:"))
+    wait_for_turn_count(browser, 1)
 
     cell = browser.find_element(By.CSS_SELECTOR, "[data-board-index='5']")
     assert cell.get_attribute("disabled") is not None
@@ -2079,7 +2156,7 @@ def test_noughts_team_cell_can_be_claimed_by_team(live_server, browser):
     start_noughts_team_game(browser, ["Zara", "Andy"], ["Beth", "Cole"])
 
     noughts_click_cell(browser, 0, "X")
-    _wait(browser).until(lambda d: "#1" in d.find_element(By.ID, "turns-list").text)
+    wait_for_turn_count(browser, 1)
 
     cell = browser.find_element(By.CSS_SELECTOR, "[data-board-index='0']")
     assert "is-marked" in cell.get_attribute("class")
@@ -2099,7 +2176,7 @@ def test_noughts_team_undo_restores_cell(live_server, browser):
     original_label = first_cell.find_element(By.CSS_SELECTOR, ".noughts-cell-label").text.strip()
 
     noughts_click_cell(browser, 0, "X")
-    _wait(browser).until(lambda d: "#1" in d.find_element(By.ID, "turns-list").text)
+    wait_for_turn_count(browser, 1)
 
     browser.find_element(By.ID, "cricket-undo-turn").click()
 
@@ -2120,13 +2197,13 @@ def test_noughts_team_winning_line_shows_winner_overlay(live_server, browser):
     start_noughts_team_game(browser, ["Hugo", "Iris"], ["Jack", "Kate"])
 
     noughts_click_cell(browser, 0, "X")
-    _wait(browser).until(lambda d: "#1" in d.find_element(By.ID, "turns-list").text)
+    wait_for_turn_count(browser, 1)
     noughts_click_cell(browser, 3, "O")
-    _wait(browser).until(lambda d: "#2" in d.find_element(By.ID, "turns-list").text)
+    wait_for_turn_count(browser, 2)
     noughts_click_cell(browser, 1, "X")
-    _wait(browser).until(lambda d: "#3" in d.find_element(By.ID, "turns-list").text)
+    wait_for_turn_count(browser, 3)
     noughts_click_cell(browser, 4, "O")
-    _wait(browser).until(lambda d: "#4" in d.find_element(By.ID, "turns-list").text)
+    wait_for_turn_count(browser, 4)
     noughts_click_cell(browser, 2, "X")
 
     overlay = _wait(browser).until(ec.visibility_of_element_located((By.ID, "winner-overlay")))

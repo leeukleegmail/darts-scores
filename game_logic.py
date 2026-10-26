@@ -270,9 +270,8 @@ def build_halve_it_hardcore_rounds() -> list[dict[str, Any]]:
     round_3_number = random.choice([19, 16])
 
     round_8_exact_presets = [41, 101, 123]
-    round_5_high_targets = list(round_8_exact_presets)
     round_5_kind = random.choice(["number", "exact_total"])
-    round_5_value = 17 if round_5_kind == "number" else random.choice(round_5_high_targets)
+    round_5_value = 17 if round_5_kind == "number" else random.randint(41, 99)
 
     round_8_exact_targets = sorted(round_8_exact_presets)
 
@@ -1899,7 +1898,10 @@ def build_game_state_payload(
         "noughts_and_crosses_state": noughts_state if game.game_type == "noughts_and_crosses" else None,
         "killer_state": killer_state if game.game_type == "killer" else None,
         "standard_state": standard_state if game.game_type == "55by5" and standard_state["places"] == 3 else None,
-        "players": serialize_players_for_game(ordered_players, scores, assignments, game, x01_state, hi_low_state, standard_state["placements"]),
+        "players": serialize_players_for_game(
+            ordered_players, scores, assignments, game, x01_state, hi_low_state,
+            killer_placements(game, killer_state) if game.game_type == "killer" else standard_state["placements"],
+        ),
         "turns": serialize_turns_for_game(turn_rows, game),
     }
 
@@ -2026,9 +2028,20 @@ def parse_killer_state(raw_value: str | None, ordered_player_ids: list[int]) -> 
         if not isinstance(current_target, int) or current_target < 0 or current_target > 180:
             current_target = 26
 
-        eliminated_players = [
-            player_id for player_id in ordered_player_ids if player_lives[str(player_id)] == 0
-        ]
+        stored_order = state.get("eliminated_players")
+        eliminated_players: list[int] = []
+        if isinstance(stored_order, list):
+            for player_id in stored_order:
+                if (
+                    player_id in ordered_player_ids
+                    and player_id not in eliminated_players
+                    and player_lives[str(player_id)] == 0
+                ):
+                    eliminated_players.append(player_id)
+        eliminated_players.extend(
+            player_id for player_id in ordered_player_ids
+            if player_lives[str(player_id)] == 0 and player_id not in eliminated_players
+        )
         last_scores = state.get("last_scores") if isinstance(state.get("last_scores"), dict) else {}
         return {
             "starting_lives": starting_lives,
@@ -2072,17 +2085,24 @@ def apply_killer_turn(
         killer_state["player_lives"][player_id_str] = current_lives
         killer_state["current_target"] = 26
 
-    killer_state["eliminated_players"] = [
-        player["id"]
-        for player in ordered_players
-        if killer_state["player_lives"].get(str(player["id"]), 0) == 0
-    ]
+    eliminated_order = killer_state["eliminated_players"]
+    for player in ordered_players:
+        if killer_state["player_lives"].get(str(player["id"]), 0) == 0 and player["id"] not in eliminated_order:
+            eliminated_order.append(player["id"])
     remaining_players = [
         player["id"] for player in ordered_players
         if player["id"] not in killer_state["eliminated_players"]
     ]
     if len(remaining_players) == 1:
         finish_game(game, winner_player_id=remaining_players[0])
+
+
+def killer_placements(game: Any, killer_state: dict[str, Any]) -> list[int]:
+    """Finishing order once a game is over: winner first, then last eliminated to first."""
+    if getattr(game, "status", None) != "finished" or not getattr(game, "winner_player_id", None):
+        return []
+    eliminated = killer_state.get("eliminated_players") or []
+    return [game.winner_player_id] + [pid for pid in reversed(eliminated) if pid != game.winner_player_id]
 
 
 def next_active_killer_turn_position(
