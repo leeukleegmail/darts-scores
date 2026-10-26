@@ -116,6 +116,18 @@ SESSION_IDLE_TIMEOUT_SECONDS = 30 * 60
 db = SQLAlchemy(app)
 
 
+@app.url_defaults
+def add_static_version(endpoint, values):
+    """Append the file's mtime to static URLs so browsers refetch changed JS/CSS."""
+    filename = values.get("filename")
+    if endpoint != "static" or not filename or "v" in values:
+        return
+    try:
+        values["v"] = int((Path(app.static_folder) / filename).stat().st_mtime)
+    except OSError:
+        pass
+
+
 class AppUser(db.Model):
     __tablename__ = "app_users"
 
